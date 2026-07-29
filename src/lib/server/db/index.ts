@@ -65,9 +65,10 @@ function resolveLibsqlConfig(platform: App.Platform | undefined): { url: string;
 /**
  * postgres/mysql 연결 문자열을 해석한다. 우선순위:
  *   1. platform.env.HYPERDRIVE.connectionString  (Cloudflare Workers + Hyperdrive)
- *   2. platform.env.DATABASE_URL                  (Workers 에서 Hyperdrive 없이 직결 — var/secret)
+ *   2. platform.env.DATABASE_URL                  (Workers 직결 — var/secret. VPC 바인딩이
+ *                                                  있으면 이 주소로 터널 경유 TCP 연결)
  *   3. process.env.DATABASE_URL                   (순수 Node 환경)
- * 이 순서 덕분에 Workers(Hyperdrive/직결)와 Node 환경을 모두 지원한다.
+ * 이 순서 덕분에 Workers(Hyperdrive/VPC/직결)와 Node 환경을 모두 지원한다.
  */
 function resolveConnectionString(platform: App.Platform | undefined, dialect: string): string {
     const fromHyperdrive = platform?.env?.HYPERDRIVE?.connectionString;
@@ -109,7 +110,11 @@ export async function getDb(platform: App.Platform | undefined): Promise<DbHandl
         // Hyperdrive 뒤에서는 fetch_types 조회가 불필요/불가하므로 비활성화.
         // max: Workers 는 invocation 당 최대 6 연결 — Hyperdrive 권장값 5.
         if (isWorkers) {
-            const client = postgres(connectionString, { max: 5, fetch_types: false });
+            // VPC 바인딩(wrangler vpc_networks)이 있으면 드라이버 TCP 를 Cloudflare
+            // Tunnel 사설망으로 라우팅한다 — postgres.js 문서화되지 않은 `socket` 옵션.
+            const vpc = platform?.env?.VPC;
+            const socketOpts = vpc ? { socket: (await import("./vpc-socket")).vpcSocket(vpc) } : {};
+            const client = postgres(connectionString, { max: 5, fetch_types: false, ...(socketOpts as object) });
             return {
                 db: drizzle(client, { schema: schema as never }) as unknown as DB,
                 dispose: () => client.end({ timeout: 5 }),
