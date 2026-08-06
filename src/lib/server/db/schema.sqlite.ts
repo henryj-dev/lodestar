@@ -1163,7 +1163,34 @@ export const oidcClientSessions = sqliteTable(
     (t) => [uniqueIndex("oidc_client_sessions_session_client_uidx").on(t.sessionId, t.clientId), index("oidc_client_sessions_tenant_session_idx").on(t.tenantId, t.sessionId)],
 );
 
+/**
+ * 서비스 API 토큰. (설명은 schema.pg.ts 참조 — 3방언 동일 정의)
+ */
+export const serviceApiTokens = sqliteTable(
+    "service_api_tokens",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        name: text("name").notNull(),
+        tokenHash: text("token_hash").notNull(),
+        tokenPrefix: text("token_prefix").notNull(),
+        scopes: text("scopes").notNull(),
+        createdBy: text("created_by"),
+        createdAt: integer("created_at", { mode: "timestamp_ms" })
+            .notNull()
+            .default(sql`(unixepoch() * 1000)`),
+        expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
+        lastUsedAt: integer("last_used_at", { mode: "timestamp_ms" }),
+    },
+    (t) => [uniqueIndex("service_api_tokens_token_hash_uidx").on(t.tokenHash), index("service_api_tokens_tenant_idx").on(t.tenantId)],
+);
+
 export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
+export type ServiceApiToken = typeof serviceApiTokens.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
 export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;

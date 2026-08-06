@@ -1162,7 +1162,34 @@ export const oidcClientSessions = mysqlTable(
     (t) => [uniqueIndex("oidc_client_sessions_session_client_uidx").on(t.sessionId, t.clientId), index("oidc_client_sessions_tenant_session_idx").on(t.tenantId, t.sessionId)],
 );
 
+/**
+ * 서비스 API 토큰. (설명은 schema.pg.ts 참조 — 3방언 동일 정의)
+ */
+export const serviceApiTokens = mysqlTable(
+    "service_api_tokens",
+    {
+        id: varchar("id", { length: 64 })
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: varchar("tenant_id", { length: 64 })
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        name: varchar("name", { length: 255 }).notNull(),
+        tokenHash: varchar("token_hash", { length: 255 }).notNull(),
+        tokenPrefix: varchar("token_prefix", { length: 64 }).notNull(),
+        scopes: text("scopes").notNull(),
+        createdBy: text("created_by"),
+        createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+            .notNull()
+            .default(sql`(CURRENT_TIMESTAMP(3))`),
+        expiresAt: datetime("expires_at", { mode: "date", fsp: 3 }),
+        lastUsedAt: datetime("last_used_at", { mode: "date", fsp: 3 }),
+    },
+    (t) => [uniqueIndex("service_api_tokens_token_hash_uidx").on(t.tokenHash), index("service_api_tokens_tenant_idx").on(t.tenantId)],
+);
+
 export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
+export type ServiceApiToken = typeof serviceApiTokens.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
 export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;

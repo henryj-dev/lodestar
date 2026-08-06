@@ -4,7 +4,8 @@ import { POST as enrollInitPOST } from "../../src/routes/api/totp/enroll/init/+s
 import { POST as enrollConfirmPOST } from "../../src/routes/api/totp/enroll/confirm/+server";
 import { POST as verifyPOST } from "../../src/routes/api/totp/verify/+server";
 import { encryptTotpSecret, generateTotpCode, generateTotpSecret } from "../../src/lib/server/auth/totp";
-import { auditEvents, credentials } from "../../src/lib/server/db/schema";
+import { generateServiceToken, hashServiceToken } from "../../src/lib/server/auth/service-token";
+import { auditEvents, credentials, serviceApiTokens, tenants } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, makeEvent, catchError, TEST_ISSUER_URL, TEST_SIGNING_SECRET, type MemoryDb } from "./harness";
 import type { Tenant, User } from "../../src/lib/server/db/schema";
 
@@ -127,5 +128,98 @@ describe("service TOTP API 감사", () => {
         expect(await audits("service_totp_verified")).toHaveLength(0);
         const rejected = await audits("service_token_rejected");
         expect(rejected).toHaveLength(1);
+    });
+});
+
+// 스코프 있는 서비스 토큰.
+//
+// 예전에는 DISPATCHER_SERVICE_TOKEN 단일 공유 시크릿 하나로 다섯 엔드포인트가 전부 열렸다.
+// 이제 호출자별 토큰에 스코프를 달고, 필요한 것만 준다.
+describe("서비스 API 토큰 스코프", () => {
+    /** 평문을 만들어 해시로 저장하고 평문을 돌려준다(발급 화면이 하는 일과 같다). */
+    async function issueToken(opts: { name: string; scopes: string; tenantId?: string; expiresAt?: Date }): Promise<string> {
+        const plain = generateServiceToken();
+        await mem.db.insert(serviceApiTokens).values({
+            id: crypto.randomUUID(),
+            tenantId: opts.tenantId ?? tenant.id,
+            name: opts.name,
+            tokenHash: await hashServiceToken(plain),
+            tokenPrefix: plain.slice(0, 8),
+            scopes: opts.scopes,
+            expiresAt: opts.expiresAt ?? null,
+        });
+        return plain;
+    }
+
+    it("스코프가 있으면 통과한다", async () => {
+        const token = await issueToken({ name: "heliopause", scopes: "totp.verify" });
+        await enrollDirectly();
+
+        const res = (await verifyPOST(svcEvent("/api/totp/verify", { userId: user.id, code: "000000" }, token))) as Response;
+        // 코드가 틀린 것이지 인증은 통과했다(401 Invalid service token 이 아니라 {ok:false}).
+        expect(res.status).toBe(401);
+        expect(await res.json()).toMatchObject({ ok: false });
+    });
+
+    it("**다른 스코프 엔드포인트는 거부한다** — 이게 이 작업의 핵심", async () => {
+        const token = await issueToken({ name: "heliopause", scopes: "totp.verify" });
+
+        // totp.verify 만 가진 토큰으로 enroll 을 시도한다.
+        const { status } = await catchError(() => enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token)));
+        expect(status).toBe(401);
+
+        // 사용자에게 TOTP 가 심어지지 않았다.
+        const creds = await mem.db.select().from(credentials).where(eq(credentials.userId, user.id));
+        expect(creds).toEqual([]);
+    });
+
+    it("여러 스코프를 공백으로 나눠 가질 수 있다", async () => {
+        const token = await issueToken({ name: "dispatcher", scopes: "totp.verify totp.enroll" });
+
+        const res = (await enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token))) as Response;
+        expect(res.status).toBe(200);
+    });
+
+    it("만료된 토큰은 거부한다", async () => {
+        const token = await issueToken({ name: "expired", scopes: "totp.enroll", expiresAt: new Date(Date.now() - 1000) });
+
+        const { status } = await catchError(() => enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token)));
+        expect(status).toBe(401);
+    });
+
+    it("다른 테넌트의 토큰은 거부한다", async () => {
+        const otherTenantId = crypto.randomUUID();
+        await mem.db.insert(tenants).values({ id: otherTenantId, slug: `t-${otherTenantId.slice(0, 8)}`, name: "Other" });
+        const token = await issueToken({ name: "cross", scopes: "totp.enroll", tenantId: otherTenantId });
+
+        const { status } = await catchError(() => enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token)));
+        expect(status).toBe(401);
+    });
+
+    it("삭제된 토큰은 거부한다 (폐기 = 행 삭제)", async () => {
+        const token = await issueToken({ name: "revoked", scopes: "totp.enroll" });
+        await mem.db.delete(serviceApiTokens);
+
+        const { status } = await catchError(() => enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token)));
+        expect(status).toBe(401);
+    });
+
+    it("env 토큰은 전 스코프로 계속 동작한다 (기존 dispatcher 무중단)", async () => {
+        // SERVICE_TOKEN 은 env(DISPATCHER_SERVICE_TOKEN)로 주입돼 있다 — 스코프 없이 enroll 통과.
+        const res = (await enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }))) as Response;
+        expect(res.status).toBe(200);
+    });
+
+    it("lastUsedAt 을 기록하되 매 호출 쓰지 않는다 (throttle)", async () => {
+        const token = await issueToken({ name: "throttle", scopes: "totp.enroll" });
+
+        await enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token));
+        const [first] = await mem.db.select().from(serviceApiTokens);
+        expect(first.lastUsedAt).not.toBeNull();
+
+        // 곧바로 다시 호출 — throttle 창(5분) 안이라 값이 그대로여야 한다.
+        await enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token));
+        const [second] = await mem.db.select().from(serviceApiTokens);
+        expect(second.lastUsedAt?.getTime()).toBe(first.lastUsedAt?.getTime());
     });
 });

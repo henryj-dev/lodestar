@@ -1071,7 +1071,50 @@ export const oidcClientSessions = pgTable(
     (t) => [uniqueIndex("oidc_client_sessions_session_client_uidx").on(t.sessionId, t.clientId), index("oidc_client_sessions_tenant_session_idx").on(t.tenantId, t.sessionId)],
 );
 
+/**
+ * 서비스 API 토큰 — `/api/totp/*` · `/api/users/lookup` 같은 service-to-service 호출용.
+ *
+ * 예전에는 `DISPATCHER_SERVICE_TOKEN`(env) **단일 공유 시크릿** 하나로 다섯 엔드포인트가 전부
+ * 열렸다. 호출자를 구분할 수 없고, 회전하면 그것을 쓰는 모든 서비스가 동시에 끊기며,
+ * `/api/totp/verify` 하나만 필요한 호출자도 등록·조회 권한까지 받았다.
+ *
+ * 검증 방향이 client_secret 과 반대다 — client_secret 은 clientId 로 "누구인지" 를 먼저 알고
+ * 그 행의 해시와 비교하지만, 서비스 토큰은 Bearer 하나로 오고 식별자가 없다. 그래서
+ * **받은 토큰을 해싱해 tokenHash 로 행을 찾는다**(unique 인덱스가 조회 키다).
+ *
+ * 해시는 SHA-256 으로 충분하다. 토큰이 256비트 난수라 사전 공격 대상이 아니다 —
+ * 느린 해시(argon2)는 비밀번호용이고, 이 저장소가 client_secret 에 이미 같은 판단을 했다.
+ *
+ * **revokedAt 을 두지 않는다.** 폐기는 행 삭제 + 감사 이벤트다(revokeAssignment 와 같은 방식).
+ * 쓰는 코드가 없는 소프트 회수 컬럼은 "안전 검사처럼 보이는 죽은 코드" 가 된다.
+ * expiresAt / lastUsedAt 은 각각 발급 폼과 검증 경로가 **실제로 쓴다**.
+ */
+export const serviceApiTokens = pgTable(
+    "service_api_tokens",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        /** 사람이 읽는 호출자 이름 — 감사에서 "누가 불렀는가" 의 답이 된다. */
+        name: text("name").notNull(),
+        tokenHash: text("token_hash").notNull(),
+        /** 평문 앞 8자. 목록에서 어느 토큰인지 구분하는 표시용(비밀이 아니다). */
+        tokenPrefix: text("token_prefix").notNull(),
+        /** 공백 구분 — oidcClients.scopes 와 같은 저장 방식. */
+        scopes: text("scopes").notNull(),
+        createdBy: text("created_by"),
+        createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+        expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true, precision: 3 }),
+        lastUsedAt: timestamp("last_used_at", { mode: "date", withTimezone: true, precision: 3 }),
+    },
+    (t) => [uniqueIndex("service_api_tokens_token_hash_uidx").on(t.tokenHash), index("service_api_tokens_tenant_idx").on(t.tenantId)],
+);
+
 export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
+export type ServiceApiToken = typeof serviceApiTokens.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
 export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;

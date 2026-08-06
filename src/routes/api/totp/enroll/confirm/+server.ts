@@ -19,7 +19,7 @@ import { translate } from "$lib/i18n/server";
  */
 export const POST: RequestHandler = async (event) => {
     const { request, locals } = event;
-    await requireServiceToken(event);
+    await requireServiceToken(event, "totp.enroll");
     const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
     const config = locals.runtimeConfig;

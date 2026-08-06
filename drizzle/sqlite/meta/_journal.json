@@ -134,6 +134,13 @@
       "when": 1785989546946,
       "tag": "0018_tricky_goblin_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1785994141676,
+      "tag": "0019_huge_tyger_tiger",
+      "breakpoints": true
     }
   ]
 }
