@@ -14,7 +14,7 @@
 
 import { and, eq, gt, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
-import { oidcClients, oidcGrants, oidcRefreshTokens, userServiceAssignments } from "$lib/server/db/schema";
+import { oidcClientSessions, oidcClients, oidcGrants, oidcRefreshTokens, userServiceAssignments } from "$lib/server/db/schema";
 import { signJwt } from "$lib/server/crypto/keys";
 import { isForbiddenWebhookHost, assertResolvedHostAllowed } from "$lib/server/validation";
 
@@ -63,7 +63,14 @@ export async function getOidcBackchannelTargets(db: DB, tenantId: string, sessio
         .from(oidcRefreshTokens)
         .where(and(eq(oidcRefreshTokens.tenantId, tenantId), eq(oidcRefreshTokens.sessionId, sessionId), isNull(oidcRefreshTokens.revokedAt)));
 
-    const clientIds = Array.from(new Set([...grantClientIds.map((r) => r.clientId), ...refreshClientIds.map((r) => r.clientId)]));
+    // 기록 테이블도 함께 본다. grant/refresh 로만 찾던 것을 **대체하지 않고 합집합**으로 두는 이유는
+    // 이 테이블이 생기기 전에 만들어진 세션에는 기록이 없기 때문이다(그쪽은 기존 경로로 계속 찾힌다).
+    const trackedClientIds = await db
+        .select({ clientId: oidcClientSessions.clientId })
+        .from(oidcClientSessions)
+        .where(and(eq(oidcClientSessions.tenantId, tenantId), eq(oidcClientSessions.sessionId, sessionId)));
+
+    const clientIds = Array.from(new Set([...grantClientIds.map((r) => r.clientId), ...refreshClientIds.map((r) => r.clientId), ...trackedClientIds.map((r) => r.clientId)]));
     if (clientIds.length === 0) return [];
 
     const rows = await db
@@ -85,6 +92,23 @@ export async function getOidcBackchannelTargets(db: DB, tenantId: string, sessio
         });
     }
     return targets;
+}
+
+/**
+ * 토큰 발급 시 (IdP 세션 ↔ 클라이언트) 연결을 남긴다. 로그아웃 통지 대상을 나중에 찾기 위한 것.
+ *
+ * 같은 세션·클라이언트로 여러 번 발급(코드 교환 후 refresh 회전 등)되므로 두 번째부터는 unique
+ * 위반이 나는데, 그것은 "이미 기록됨" 이라 삼킨다. 기록 실패가 토큰 발급을 막아서는 안 되므로
+ * 그 외 오류도 삼킨다 — 최악의 경우 이 세션이 로그아웃 통지를 못 받을 뿐이고, 그건 이 테이블이
+ * 생기기 전의 동작과 같다.
+ */
+export async function recordClientSession(db: DB, tenantId: string, sessionId: string | null, clientId: string): Promise<void> {
+    if (!sessionId) return;
+    try {
+        await db.insert(oidcClientSessions).values({ id: crypto.randomUUID(), tenantId, sessionId, clientId });
+    } catch {
+        /* 중복이거나 기록 실패 — 발급을 막지 않는다 */
+    }
 }
 
 /**
@@ -164,7 +188,12 @@ export async function getOidcFrontchannelTargets(db: DB, tenantId: string, sessi
         .from(oidcRefreshTokens)
         .where(and(eq(oidcRefreshTokens.tenantId, tenantId), eq(oidcRefreshTokens.sessionId, sessionId), isNull(oidcRefreshTokens.revokedAt)));
 
-    const clientIds = Array.from(new Set([...grantClientIds.map((r) => r.clientId), ...refreshClientIds.map((r) => r.clientId)]));
+    const trackedClientIds = await db
+        .select({ clientId: oidcClientSessions.clientId })
+        .from(oidcClientSessions)
+        .where(and(eq(oidcClientSessions.tenantId, tenantId), eq(oidcClientSessions.sessionId, sessionId)));
+
+    const clientIds = Array.from(new Set([...grantClientIds.map((r) => r.clientId), ...refreshClientIds.map((r) => r.clientId), ...trackedClientIds.map((r) => r.clientId)]));
     if (clientIds.length === 0) return [];
 
     const rows = await db

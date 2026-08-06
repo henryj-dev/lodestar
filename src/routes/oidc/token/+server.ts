@@ -14,6 +14,7 @@ import { issueRefreshToken, rotateRefreshToken, revokeRefreshTokenFamily } from 
 import { generateAccessToken, getActiveSigningKey, signJwt } from "$lib/server/crypto/keys";
 import { getActiveAssignment, hasServiceAccess, listActiveEntitlements, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
 import { getUserMembership, membershipToGroups } from "$lib/server/org/membership";
+import { recordClientSession } from "$lib/server/oidc/logout";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import type { DB } from "$lib/server/db";
 import type { OidcClientRecord } from "$lib/server/oidc/client";
@@ -198,6 +199,10 @@ async function buildTokens(params: BuildTokenParams): Promise<{ idToken: string;
             Object.assign(idTokenPayload, buildOrganizationClaims(membership, parseOrganizationClaimConfig(params.organizationClaimConfig)));
         }
     }
+
+    // 로그아웃 통지 대상 기록 — 이 세션이 이 클라이언트에 토큰을 받았다는 사실을 세션 수명 동안
+    // 남긴다. grant/refresh 행은 단명해서 이것 없이는 몇 분 뒤 이 연결을 되찾을 수 없다.
+    await recordClientSession(db, tenantId, params.sessionId, clientId);
 
     const idToken = await signJwt(idTokenPayload, signingKey.privateKey, signingKey.kid);
 

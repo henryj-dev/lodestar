@@ -1140,6 +1140,30 @@ export type Part = typeof parts.$inferSelect;
 export type UserPart = typeof userParts.$inferSelect;
 export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
 export type ClientSkin = typeof clientSkins.$inferSelect;
+/**
+ * IdP 세션 ↔ OIDC 클라이언트 연결 기록. (설명은 schema.pg.ts 참조 — 3방언 동일 정의)
+ */
+export const oidcClientSessions = sqliteTable(
+    "oidc_client_sessions",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        sessionId: text("session_id")
+            .notNull()
+            .references(() => sessions.id, { onDelete: "cascade" }),
+        clientId: text("client_id").notNull(),
+        createdAt: integer("created_at", { mode: "timestamp_ms" })
+            .notNull()
+            .default(sql`(unixepoch() * 1000)`),
+    },
+    (t) => [uniqueIndex("oidc_client_sessions_session_client_uidx").on(t.sessionId, t.clientId), index("oidc_client_sessions_tenant_session_idx").on(t.tenantId, t.sessionId)],
+);
+
+export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
 export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;

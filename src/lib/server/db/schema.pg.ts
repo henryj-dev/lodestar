@@ -1040,6 +1040,38 @@ export type Part = typeof parts.$inferSelect;
 export type UserPart = typeof userParts.$inferSelect;
 export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
 export type ClientSkin = typeof clientSkins.$inferSelect;
+/**
+ * IdP 세션 ↔ OIDC 클라이언트 연결 기록.
+ *
+ * back-channel / front-channel logout 의 **세션 단위** 타깃을 찾기 위한 것이다. 예전에는
+ * `oidcGrants` 와 `oidcRefreshTokens` 로 대상을 역추적했는데 둘 다 오래 살지 않는다:
+ *   - oidcGrants 는 authorization code(수 분 TTL)이고 만료되면 GC 가 삭제한다.
+ *   - oidcRefreshTokens 는 `offline_access` scope 가 있어야 발급된다.
+ * 그래서 **offline_access 를 쓰지 않고 자체 세션을 오래 유지하는 RP 는 로그인 몇 분 뒤부터
+ * 로그아웃 통지를 받지 못했다** — 사용자가 로그아웃해도 그 RP 세션은 그대로 남았다.
+ *
+ * 이 테이블은 토큰을 실제로 발급한 시점에 한 번 쓰고 세션이 사라질 때까지 남는다.
+ * clientId 는 공개 client_id 문자열(oidcGrants.clientId 와 같은 값)이라 조회가 그대로 호환된다.
+ */
+export const oidcClientSessions = pgTable(
+    "oidc_client_sessions",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        sessionId: text("session_id")
+            .notNull()
+            .references(() => sessions.id, { onDelete: "cascade" }),
+        clientId: text("client_id").notNull(),
+        createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    },
+    (t) => [uniqueIndex("oidc_client_sessions_session_client_uidx").on(t.sessionId, t.clientId), index("oidc_client_sessions_tenant_session_idx").on(t.tenantId, t.sessionId)],
+);
+
+export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
 export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;

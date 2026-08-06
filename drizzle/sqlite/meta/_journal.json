@@ -127,6 +127,13 @@
       "when": 1785988957383,
       "tag": "0017_needy_madelyne_pryor",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1785989546946,
+      "tag": "0018_tricky_goblin_queen",
+      "breakpoints": true
     }
   ]
 }
