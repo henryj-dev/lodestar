@@ -9,8 +9,15 @@
  *   - 전송: Content-Type: application/x-www-form-urlencoded, body `role_change_token=<JWT>`
  *   - 서명: 테넌트 서명키 RS256 (RP 가 KeyStone JWKS 로 검증), typ=secevent+jwt
  *   - 클레임: iss / aud(=clientId) / iat / sub(=userId) / jti / events
- *   - events = { "https://idp.hyochan.site/event/role-change": { roles: string[] } }
+ *   - events = { "https://idp.hyochan.site/event/role-change": { roles: string[], entitlements: string[] } }
  *   - nonce 금지 (RP 가 있으면 거부 — id_token 오용 방지)
+ *
+ * `entitlements` 는 나중에 추가됐다. **같은 event 객체에 키를 하나 더한 것이라 하위 호환**이다 —
+ * `roles` 만 읽던 기존 RP 는 영향이 없고, 새 RP 는 처음부터 두 키를 가정하고 만들면 된다
+ * (권한 모델을 아직 안 쓰는 서비스에서는 항상 `[]`).
+ *
+ * **주체 단위(subject-scoped) 통지다.** payload 에 `sid` 가 없고 `sub` 만 있다 — 이 사용자의
+ * 세션 전부에 적용하라는 뜻이다. 세션 단위 통지가 필요하면 back-channel logout(`logout.ts`)을 쓴다.
  *
  * back-channel logout 발행(`logout.ts`)을 그대로 본떠 만든다 — 새 서명 스킴/시크릿 불필요.
  */
@@ -59,15 +66,20 @@ export async function getRoleChangeTarget(db: DB, tenantId: string, oidcClientDb
  *
  * @param roles 변경 후의 **권위 있는 최종 roles** (부여→[role.key], 회수→[]).
  *              로그인 시 내려주는 roles 클레임과 완전히 동일한 값이어야 한다.
+ * @param entitlements 변경 후의 **권위 있는 최종 entitlements** (없으면 []).
+ *              roles 와 같은 규칙 — 로그인 시 내려주는 entitlements 클레임과 동일한 값이어야 한다.
+ *              단, 클레임은 0개일 때 키를 생략하는 반면 여기서는 **항상 배열을 싣는다**:
+ *              통지의 목적이 "변경 후 최종 상태"를 알리는 것이라, 빈 배열이 곧 "전부 회수됨"이라는
+ *              정보다. 키를 빼면 RP 가 "변경 없음"과 구분할 수 없다.
  */
-export async function sendRoleChangeSet(target: RoleChangeTarget, userId: string, roles: string[], issuerUrl: string, privateKey: CryptoKey, kid: string): Promise<void> {
+export async function sendRoleChangeSet(target: RoleChangeTarget, userId: string, roles: string[], entitlements: string[], issuerUrl: string, privateKey: CryptoKey, kid: string): Promise<void> {
     const payload: Record<string, unknown> = {
         iss: issuerUrl,
         sub: userId,
         aud: target.clientId,
         iat: Math.floor(Date.now() / 1000),
         jti: crypto.randomUUID(),
-        events: { [ROLE_CHANGE_EVENT]: { roles } },
+        events: { [ROLE_CHANGE_EVENT]: { roles, entitlements } },
     };
 
     // SET 관례상 typ=secevent+jwt. id_token 오용을 막기 위해 nonce 는 절대 넣지 않는다.

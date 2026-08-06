@@ -6,7 +6,7 @@ import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { oidcClients, samlSps, serviceRoles, userServiceAssignments } from "$lib/server/db/schema";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
 import type { DB } from "$lib/server/db";
-import { getActiveAssignment } from "$lib/server/access/service-permissions";
+import { getActiveAssignment, listActiveEntitlements } from "$lib/server/access/service-permissions";
 import { getActiveSigningKey } from "$lib/server/crypto/keys";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import { getRoleChangeTarget, sendRoleChangeSet } from "$lib/server/oidc/role-change";
@@ -18,10 +18,15 @@ type UserActionEvent = RequestEvent<{ id: string }, "/admin/users/[id]">;
 /**
  * OIDC role 변경 SET 을 대상 클라이언트로 fire-and-forget 발행한다.
  *
- * DB 변경(부여/회수) **직후** 호출한다. 변경 후의 권위 있는 최종 roles 를 `getActiveAssignment`
- * 로 다시 읽어(로그인 시 token/userinfo 가 쓰는 것과 동일 경로) 스냅샷으로 담는다:
+ * DB 변경(부여/회수) **직후** 호출한다. 변경 후의 권위 있는 최종 roles·entitlements 를
+ * `getActiveAssignment`/`listActiveEntitlements` 로 다시 읽어(로그인 시 token/userinfo 가 쓰는 것과
+ * 동일 경로) 스냅샷으로 담는다:
  *   - 부여/역할변경 후 active role 존재 → `[role.key]`
  *   - 회수 후(또는 role 없음) → `[]`  → RP 가 user 로 강등
+ *   - entitlements 는 배정이 살아 있으면 활성 권한 키, 배정이 사라졌으면 `[]`
+ *
+ * 아직 **배정 부여/회수 시점에만** 발행된다. 권한만 바뀌는 경우(배정은 그대로, 권한 체크박스만
+ * 변경)의 발행은 관리 UI 가 생기는 단계에서 붙인다 — 그전까지 권한 변경 경로 자체가 없다.
  *
  * serviceType !== 'oidc' 이거나, role_change_uri 미설정 클라이언트, 서명키/issuer 미비 등에서는
  * 조용히 skip 한다. 전송/조립 오류는 삼킨다(재시도 없음, back-channel logout 과 동일).
@@ -36,9 +41,11 @@ async function emitRoleChangeSet(event: UserActionEvent, db: DB, tenantId: strin
         const target = await getRoleChangeTarget(db, tenantId, serviceRefId);
         if (!target) return; // role_change_uri 미설정/비활성 클라이언트 → skip
 
-        // 변경 후 권위 있는 최종 roles (로그인 roles 클레임과 동일 값).
+        // 변경 후 권위 있는 최종 roles / entitlements (로그인 클레임과 동일 값·동일 조회 경로).
+        // 배정이 사라졌으면 둘 다 [] — RP 는 그것을 "전부 회수됨"으로 읽는다.
         const assignment = await getActiveAssignment(db, { tenantId, userId, serviceType: "oidc", serviceRefId });
         const roles = assignment?.role ? [assignment.role.key] : [];
+        const entitlements = assignment ? await listActiveEntitlements(db, assignment.id) : [];
 
         const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
         const signingKey = await getActiveSigningKey(db, tenantId, signingKeySecrets);
@@ -46,10 +53,10 @@ async function emitRoleChangeSet(event: UserActionEvent, db: DB, tenantId: strin
 
         const actorId = locals.user?.id ?? null;
         const meta = getRequestMetadata(event);
-        const auditDetail = { clientId: target.clientId, roleChangeUri: target.roleChangeUri, roles };
+        const auditDetail = { clientId: target.clientId, roleChangeUri: target.roleChangeUri, roles, entitlements };
         // 전송 + 결과 audit 를 한 묶음으로 처리한다 — 응답 이후 실행(waitUntil)이므로 여기서 완결한다.
         // 성공/실패를 kind="role_change_set_sent" + outcome 으로 남긴다(발행 실패도 추적 가능).
-        const task = sendRoleChangeSet(target, userId, roles, issuerUrl, signingKey.privateKey, signingKey.kid)
+        const task = sendRoleChangeSet(target, userId, roles, entitlements, issuerUrl, signingKey.privateKey, signingKey.kid)
             .then(() =>
                 recordAuditEvent(db, {
                     tenantId,

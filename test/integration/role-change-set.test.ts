@@ -3,14 +3,14 @@ import { eq } from "drizzle-orm";
 import { addAssignment, revokeAssignment } from "../../src/lib/server/admin/user-actions/service";
 import { b64uDecode, getActiveSigningKey } from "../../src/lib/server/crypto/keys";
 import { getRuntimeConfig } from "../../src/lib/server/auth/runtime";
-import { ROLE_CHANGE_EVENT } from "../../src/lib/server/oidc/role-change";
+import { ROLE_CHANGE_EVENT, sendRoleChangeSet } from "../../src/lib/server/oidc/role-change";
 import { auditEvents, oidcClients, serviceRoles, userServiceAssignments } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedOidcClient, seedSamlSp, makeEvent, makePlatform, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant, User } from "../../src/lib/server/db/schema";
 
 // role 부여/회수 시 대상 OIDC 클라이언트의 role_change_uri 로 서명된 SET 이 발행되는지를
 // 실 DB + 실 admin 액션(addAssignment/revokeAssignment)으로 검증한다.
-// 계약(§1): iss / aud(=clientId) / sub / iat / jti / events[ROLE_CHANGE_EVENT].roles, nonce 금지, typ=secevent+jwt.
+// 계약(§1): iss / aud(=clientId) / sub / iat / jti / events[ROLE_CHANGE_EVENT].{roles,entitlements}, nonce 금지, typ=secevent+jwt.
 
 const CLIENT_ID = "role-change-client-abc123";
 const ROLE_CHANGE_URI = "https://rp.test.example/auth/oidc/role-change";
@@ -153,13 +153,13 @@ describe("role-change SET 발행", () => {
         expect(payload.iat as number).toBeGreaterThanOrEqual(before);
         expect(payload.iat as number).toBeLessThanOrEqual(after);
         expect(payload.nonce).toBeUndefined(); // nonce 금지
-        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["admin"] } });
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["admin"], entitlements: [] } });
 
         // 발행 성공 audit 기록
         const audits = await roleChangeAudits();
         expect(audits).toHaveLength(1);
         expect(audits[0].outcome).toBe("success");
-        expect(JSON.parse(audits[0].detailJson!)).toMatchObject({ clientId: CLIENT_ID, roles: ["admin"] });
+        expect(JSON.parse(audits[0].detailJson!)).toMatchObject({ clientId: CLIENT_ID, roles: ["admin"], entitlements: [] });
     });
 
     it("addAssignment(role 없이 access 만): roles: [] 로 발행 (로그인 roles 클레임과 동일)", async () => {
@@ -169,7 +169,7 @@ describe("role-change SET 발행", () => {
 
         expect(captured).toHaveLength(1);
         const { payload } = decodeJwt(extractToken(captured[0].body));
-        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [] } });
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [], entitlements: [] } });
     });
 
     it("revokeAssignment(회수): roles: [] SET 을 발행한다", async () => {
@@ -185,7 +185,7 @@ describe("role-change SET 발행", () => {
         expect(captured[0].url).toBe(ROLE_CHANGE_URI);
         const { payload } = decodeJwt(extractToken(captured[0].body));
         expect(payload.sub).toBe(target.id);
-        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [] } });
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [], entitlements: [] } });
     });
 
     it("role_change_uri 미설정 클라이언트면 발행하지 않는다", async () => {
@@ -219,5 +219,45 @@ describe("role-change SET 발행", () => {
         const audits = await roleChangeAudits();
         expect(audits).toHaveLength(1);
         expect(audits[0].outcome).toBe("failure");
+    });
+});
+
+// SET payload 의 **wire 계약**을 직접 검증한다.
+//
+// 관리 액션 경로(addAssignment/revokeAssignment)로는 entitlements 가 비어 있는 경우밖에 만들 수
+// 없다 — 권한 행이 배정을 FK 로 참조하므로, 배정이 막 생겼거나(부여) 막 사라진(회수) 시점에는
+// 부여된 권한이 존재할 수 없기 때문이다. 권한만 바뀌는 발행 경로는 관리 UI 단계에서 붙는다.
+// 그때까지 RP(소비자)가 파서를 만들 대상은 이 함수의 출력이므로, 여기서 두 키를 모두 검증한다.
+describe("role-change SET wire 계약", () => {
+    it("roles 와 entitlements 를 같은 event 객체에 함께 싣는다", async () => {
+        const config = getRuntimeConfig(makePlatform(mem.env));
+        const key = await getActiveSigningKey(mem.db, tenant.id, config.signingKeySecrets);
+        if (!key) throw new Error("활성 서명키 없음");
+
+        await sendRoleChangeSet({ clientId: CLIENT_ID, roleChangeUri: ROLE_CHANGE_URI }, target.id, ["approver"], ["site.read", "plan.approve"], TEST_ISSUER_URL, key.privateKey, key.kid);
+
+        expect(captured).toHaveLength(1);
+        const { header, payload } = decodeJwt(extractToken(captured[0].body));
+        expect(header.typ).toBe("secevent+jwt");
+        expect(payload.sub).toBe(target.id);
+        expect(payload.nonce).toBeUndefined();
+        // 기존 RP 가 읽던 roles 의 위치·형태가 그대로이고, 같은 객체에 키가 하나 늘었을 뿐이다.
+        expect(payload.events).toEqual({
+            [ROLE_CHANGE_EVENT]: { roles: ["approver"], entitlements: ["site.read", "plan.approve"] },
+        });
+    });
+
+    it("권한 전부 회수는 빈 배열로 전달된다 (키 생략이 아님)", async () => {
+        const config = getRuntimeConfig(makePlatform(mem.env));
+        const key = await getActiveSigningKey(mem.db, tenant.id, config.signingKeySecrets);
+        if (!key) throw new Error("활성 서명키 없음");
+
+        await sendRoleChangeSet({ clientId: CLIENT_ID, roleChangeUri: ROLE_CHANGE_URI }, target.id, [], [], TEST_ISSUER_URL, key.privateKey, key.kid);
+
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        const event = (payload.events as Record<string, unknown>)[ROLE_CHANGE_EVENT] as Record<string, unknown>;
+        // 키가 있어야 RP 가 "전부 회수됨"과 "변경 없음"을 구분할 수 있다.
+        expect("entitlements" in event).toBe(true);
+        expect(event.entitlements).toEqual([]);
     });
 });
