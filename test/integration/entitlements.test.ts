@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { GET as authorizeGET } from "../../src/routes/oidc/authorize/+server";
 import { POST as tokenPOST } from "../../src/routes/oidc/token/+server";
 import { GET as userinfoGET } from "../../src/routes/oidc/userinfo/+server";
+import { actions as clientDetailActions } from "../../src/routes/admin/oidc-clients/[id]/+page.server";
 import { verifyIdToken } from "../../src/lib/server/crypto/keys";
 import { listActiveEntitlements } from "../../src/lib/server/access/service-permissions";
-import { userServiceAssignments, userServiceEntitlements } from "../../src/lib/server/db/schema";
+import { auditEvents, serviceEntitlements, userServiceAssignments, userServiceEntitlements } from "../../src/lib/server/db/schema";
 import {
     openMemoryDb,
     seedTenantAndSigningKey,
@@ -249,5 +250,126 @@ describe("entitlements 클레임 발행", () => {
 
         const { claims } = await issueTokens();
         expect("entitlements" in claims).toBe(false);
+    });
+});
+
+// 관리 콘솔의 권한 정의 CRUD (클라이언트 상세 화면 액션).
+describe("entitlement 정의 액션 (admin)", () => {
+    // page.server 의 actions 객체에서 꺼내 실제 액션 함수를 그대로 호출한다.
+    const addEntitlement = clientDetailActions.addEntitlement!;
+    const updateEntitlement = clientDetailActions.updateEntitlement!;
+    const deleteEntitlement = clientDetailActions.deleteEntitlement!;
+
+    let admin: User;
+
+    beforeEach(async () => {
+        admin = await seedUser(mem.db, { tenantId: tenant.id, email: "admin@test.example", role: "admin" });
+    });
+
+    /** params.id = 대상 OIDC 클라이언트(oidcClients.id) 인 admin POST 이벤트. */
+    function adminEvent(form: Record<string, string>) {
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/oidc-clients/${clientDbId}`,
+            form,
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        (event as unknown as { params: { id: string } }).params = { id: clientDbId };
+        return event as Parameters<typeof addEntitlement>[0];
+    }
+
+    async function listKeys(): Promise<string[]> {
+        const rows = await mem.db
+            .select({ key: serviceEntitlements.key })
+            .from(serviceEntitlements)
+            .where(eq(serviceEntitlements.serviceRefId, clientDbId))
+            .orderBy(asc(serviceEntitlements.displayOrder), asc(serviceEntitlements.key));
+        return rows.map((r) => r.key);
+    }
+
+    it("점을 포함한 네임스페이스 키를 생성한다 (site.read 형태)", async () => {
+        const res = await addEntitlement(adminEvent({ key: "site.read", label: "사이트 조회", displayOrder: "10" }));
+
+        expect(res).toMatchObject({ entitlementAdded: true });
+        expect(await listKeys()).toEqual(["site.read"]);
+
+        const audits = await mem.db.select({ kind: auditEvents.kind, outcome: auditEvents.outcome }).from(auditEvents).where(eq(auditEvents.kind, "service_entitlement_created"));
+        expect(audits).toHaveLength(1);
+        expect(audits[0].outcome).toBe("success");
+    });
+
+    it("밑줄 포함 키도 통과한다 (plan.approve_own)", async () => {
+        const res = await addEntitlement(adminEvent({ key: "plan.approve_own", label: "자기 플랜 승인" }));
+        expect(res).toMatchObject({ entitlementAdded: true });
+        expect(await listKeys()).toEqual(["plan.approve_own"]);
+    });
+
+    it("허용되지 않는 문자는 400 으로 거부한다", async () => {
+        const res = (await addEntitlement(adminEvent({ key: "site read!", label: "bad" }))) as { status?: number };
+        expect(res.status).toBe(400);
+        expect(await listKeys()).toEqual([]);
+    });
+
+    it("label 이 비면 400", async () => {
+        const res = (await addEntitlement(adminEvent({ key: "site.read", label: "  " }))) as { status?: number };
+        expect(res.status).toBe(400);
+        expect(await listKeys()).toEqual([]);
+    });
+
+    it("같은 서비스에 중복 key 는 409", async () => {
+        await addEntitlement(adminEvent({ key: "site.read", label: "첫 번째" }));
+        const res = (await addEntitlement(adminEvent({ key: "site.read", label: "두 번째" }))) as { status?: number };
+
+        expect(res.status).toBe(409);
+        expect(await listKeys()).toEqual(["site.read"]);
+    });
+
+    it("label·description·displayOrder 를 수정한다 (key 는 불변)", async () => {
+        await addEntitlement(adminEvent({ key: "site.read", label: "before", displayOrder: "0" }));
+        const [row] = await mem.db.select().from(serviceEntitlements).where(eq(serviceEntitlements.serviceRefId, clientDbId));
+
+        const res = await updateEntitlement(adminEvent({ entitlementId: row.id, label: "after", description: "설명", displayOrder: "7" }));
+        expect(res).toMatchObject({ entitlementUpdated: true });
+
+        const [updated] = await mem.db.select().from(serviceEntitlements).where(eq(serviceEntitlements.id, row.id));
+        expect(updated.label).toBe("after");
+        expect(updated.description).toBe("설명");
+        expect(updated.displayOrder).toBe(7);
+        expect(updated.key).toBe("site.read"); // key 는 폼에 없으므로 그대로
+    });
+
+    it("삭제하면 이미 부여된 사용자 권한도 cascade 로 사라진다", async () => {
+        await addEntitlement(adminEvent({ key: "site.read", label: "사이트 조회" }));
+        const [row] = await mem.db.select().from(serviceEntitlements).where(eq(serviceEntitlements.serviceRefId, clientDbId));
+        await grantEntitlement(mem.db, { tenantId: tenant.id, assignmentId, serviceEntitlementId: row.id });
+        expect(await listActiveEntitlements(mem.db, assignmentId)).toEqual(["site.read"]);
+
+        const res = await deleteEntitlement(adminEvent({ entitlementId: row.id }));
+        expect(res).toMatchObject({ entitlementDeleted: true });
+
+        expect(await listKeys()).toEqual([]);
+        // 부여 행이 남아 있으면 클레임에 유령 권한이 실린다.
+        expect(await listActiveEntitlements(mem.db, assignmentId)).toEqual([]);
+        const left = await mem.db.select().from(userServiceEntitlements).where(eq(userServiceEntitlements.serviceEntitlementId, row.id));
+        expect(left).toEqual([]);
+    });
+
+    it("다른 테넌트/다른 서비스의 권한은 수정·삭제되지 않는다", async () => {
+        const other = await seedOidcClient(mem.db, {
+            tenantId: tenant.id,
+            clientId: "other-client-2",
+            secret: CLIENT_SECRET,
+            redirectUris: [REDIRECT_URI],
+            scopes: SCOPE,
+        });
+        const foreignId = await seedServiceEntitlement(mem.db, { tenantId: tenant.id, serviceType: "oidc", serviceRefId: other.id, key: "theirs" });
+
+        // adminEvent 의 params.id 는 clientDbId 이므로 다른 서비스의 행에는 닿지 않아야 한다.
+        await updateEntitlement(adminEvent({ entitlementId: foreignId, label: "hijacked" }));
+        await deleteEntitlement(adminEvent({ entitlementId: foreignId }));
+
+        const [still] = await mem.db.select().from(serviceEntitlements).where(eq(serviceEntitlements.id, foreignId));
+        expect(still).toBeDefined();
+        expect(still.label).toBe("theirs");
     });
 });

@@ -6,8 +6,11 @@ import { adminError } from "$lib/server/admin/errors";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import type { DB } from "$lib/server/db";
 import { samlSps, serviceRoles } from "$lib/server/db/schema";
+import { SERVICE_KEY_RE } from "$lib/server/admin/schemas";
 
-const ROLE_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+// entitlement 정의 UI 는 여기 없다 — SAML SSO 가 아직 entitlement 를 발행하지 않기 때문이다
+// (attribute 명 미정). 정의만 할 수 있게 두면 관리자가 권한을 만들고 배정했는데 SP 에는
+// 아무것도 가지 않는 조용한 무동작이 된다. 발행이 붙는 시점에 이 화면도 같이 추가한다.
 
 export const load: PageServerLoad = async ({ locals, params }) => {
     const { db, tenant } = requireAdminContext(locals);
@@ -49,7 +52,7 @@ export const actions: Actions = {
         const isDefault = fd.get("isDefault") === "true";
         const displayOrder = Number(fd.get("displayOrder") ?? "0") | 0;
 
-        if (!ROLE_KEY_RE.test(key)) return fail(400, { error: adminError(locals.locale, "invalid_role_key") });
+        if (!SERVICE_KEY_RE.test(key)) return fail(400, { error: adminError(locals.locale, "invalid_role_key") });
         if (!label) return fail(400, { error: adminError(locals.locale, "label_required") });
 
         const s = await spForTenant(db, tenant.id, params.id);

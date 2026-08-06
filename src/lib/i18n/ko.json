@@ -127,6 +127,8 @@
             "invalid_role_key": "key 는 영숫자/._- 만 허용 (1~64자).",
             "label_required": "label 은 필수입니다.",
             "role_key_exists": "이미 존재하는 role key 입니다.",
+            "invalid_entitlement_key": "key 는 영숫자/._- 만 허용 (1~64자). 예: site.read",
+            "entitlement_key_exists": "이미 존재하는 권한 key 입니다.",
             "ldap_host_required": "LDAP 호스트는 필수입니다.",
             "ldap_bind_or_userdn_required": "Admin Bind DN 또는 유저 DN 패턴 중 하나는 필수입니다.",
             "ldap_signing_key_secret_required": "IDP_SIGNING_KEY_SECRET 이 설정되어야 LDAP bindPassword 를 저장할 수 있습니다.",
@@ -701,6 +703,16 @@
         "key_placeholder": "key (예: admin)",
         "add": "role 추가",
         "delete_confirm": "role '{{key}}' 을 삭제하시겠습니까? 이 role 이 부여된 사용자 매핑은 role 이 null 로 설정됩니다."
+    },
+    "entitlements": {
+        "list_title": "권한(entitlement) 목록",
+        "hint": "역할과 직교하는 권한 축입니다. 인가에 쓰는 값이며 로그인 시 entitlements 클레임으로 발행됩니다. 순서는 관리자에게 의존 관계를 보여 주기 위한 것일 뿐, 시스템이 강제하지 않습니다.",
+        "count": "{{count}}개",
+        "empty": "정의된 권한이 없습니다.",
+        "edit": "편집",
+        "key_placeholder": "key (예: site.read)",
+        "add": "권한 추가",
+        "delete_confirm": "권한 '{{key}}' 을 삭제하시겠습니까? 이 권한이 부여된 사용자 배정에서도 함께 제거됩니다."
     },
     "poc": {
         "title": "Workers 환경 PoC",

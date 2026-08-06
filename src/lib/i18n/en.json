@@ -127,6 +127,8 @@
             "invalid_role_key": "key allows only alphanumerics and ._- (1-64 chars).",
             "label_required": "label is required.",
             "role_key_exists": "This role key already exists.",
+            "invalid_entitlement_key": "key allows only alphanumerics and ._- (1-64 chars). e.g. site.read",
+            "entitlement_key_exists": "This entitlement key already exists.",
             "ldap_host_required": "LDAP host is required.",
             "ldap_bind_or_userdn_required": "Either Admin Bind DN or user DN pattern is required.",
             "ldap_signing_key_secret_required": "IDP_SIGNING_KEY_SECRET must be configured to store the LDAP bindPassword.",
@@ -701,6 +703,16 @@
         "key_placeholder": "key (e.g. admin)",
         "add": "Add Role",
         "delete_confirm": "Delete role '{{key}}'? User mappings assigned this role will have their role set to null."
+    },
+    "entitlements": {
+        "list_title": "Entitlements",
+        "hint": "A permission axis orthogonal to roles. This is what authorization should use — it is issued as the entitlements claim at login. The order is only to show admins how permissions depend on each other; the system does not enforce it.",
+        "count": "{{count}}",
+        "empty": "No entitlements have been defined.",
+        "edit": "Edit",
+        "key_placeholder": "key (e.g. site.read)",
+        "add": "Add Entitlement",
+        "delete_confirm": "Delete entitlement '{{key}}'? It will also be removed from every user assignment that was granted it."
     },
     "poc": {
         "title": "Workers Environment PoC",
