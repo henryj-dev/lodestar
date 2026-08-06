@@ -6,6 +6,11 @@
 > 규칙: 스키마 변경은 `db:generate:all` 까지만(적용 금지, `CLAUDE.md`). 스텁/TODO/skip 은 블로커.
 > 순서: P1 → P2 → **P3(RP 계약 확정)** → P4 → P5 → P6. 각 페이즈가 독립 배포 가능하며, 중단해도 기존 동작이 깨지지 않는다.
 > **P3 을 UI 앞으로 당긴 이유**: heliopause 가 SET 을 구현하겠다고 확정했다. payload 모양을 먼저 고정해야 그쪽 파서 재작업이 없다.
+>
+> **진행 상황 (2026-08-06)** — P1·P2·P3 완료, 브랜치 `feat/service-entitlements`.
+> 남은 것은 UI 3페이즈(P4·P5·P6). 잔여 미정은 여전히 SAML attribute 명 하나.
+> **마이그레이션은 생성만 했고 적용하지 않았다** — 사용자 실행 대기.
+> **heliopause 에 P3 완료를 알려야 한다**(3-1 의 마지막 항목).
 
 ---
 
@@ -13,7 +18,7 @@
 
 **목적**: 테이블 2개를 3방언에 추가. 아직 아무도 읽지 않는다.
 
-### [ ] 1-1. `service_entitlements` × 3방언
+### [x] 1-1. `service_entitlements` × 3방언
 
 - 파일: `src/lib/server/db/schema.pg.ts` · `schema.mysql.ts` · `schema.sqlite.ts`
 - 작업: PLAN §2-1 의 컬럼/인덱스. 각 방언의 `serviceRoles` 정의 바로 아래에 배치
@@ -21,7 +26,7 @@
   `is_default` 는 **넣지 않는다**(PLAN §2-1).
 - 수용 기준: 3방언 정의가 컬럼명·인덱스명까지 동일. `bun run check` 통과.
 
-### [ ] 1-2. `user_service_entitlements` × 3방언
+### [x] 1-2. `user_service_entitlements` × 3방언
 
 - 파일: 위와 동일
 - 작업: PLAN §2-2. `assignment_id` → `user_service_assignments.id` **ON DELETE CASCADE**,
@@ -29,7 +34,7 @@
   `revoked_at` 은 **넣지 않는다**(PLAN §1-1 — 기존 테이블에서 죽은 컬럼임을 실측).
 - 수용 기준: 위와 동일. cascade 가 3방언 모두에 걸림.
 
-### [ ] 1-3. 타입 export + 마이그레이션 생성
+### [x] 1-3. 타입 export + 마이그레이션 생성
 
 - 파일: 각 schema 파일 말미(`schema.pg.ts:971` `ServiceRole` 인근) **3방언 전부**
 - 작업: `ServiceEntitlement` / `UserServiceEntitlement` 타입을 세 파일에 각각 export.
@@ -44,7 +49,7 @@
 
 **목적**: 권한을 토큰에 싣는다. 권한 0개인 기존 RP 는 토큰이 완전히 동일해야 한다.
 
-### [ ] 2-1. `listActiveEntitlements()`
+### [x] 2-1. `listActiveEntitlements()`
 
 - 파일: `src/lib/server/access/service-permissions.ts`
 - 작업: `(db, assignmentId) => Promise<string[]>`. `user_service_entitlements` ⋈ `service_entitlements`,
@@ -52,17 +57,18 @@
   `display_order` → `key` 정렬. 키 배열만 반환.
 - 수용 기준: 단위 테스트 — 만료 권한 제외, 정렬 안정, 없으면 `[]`.
 
-### [ ] 2-2. 발행 3곳
+### [x] 2-2. 발행 3곳
 
 - 파일: `src/routes/oidc/token/+server.ts:136-147` · `src/routes/oidc/userinfo/+server.ts:101-118` ·
   `src/routes/saml/sso/+server.ts:110`
 - 작업: 각 위치가 이미 들고 있는 `assignment.id` 로 2-1 호출. 클레임명 **`entitlements`**(확정).
   **결과가 빈 배열이면 클레임을 넣지 않는다**(PLAN §3-1 — 빈 배열도 넣지 않음).
-- ⚠️ **SAML 부분은 attribute 명 미정으로 보류 가능**(PLAN §8-3). OIDC 2곳만 먼저 해도 P3 진행에 지장 없다.
+- ⚠️ **SAML 부분은 attribute 명 미정으로 보류했다**(PLAN §8-3). OIDC 2곳(token·userinfo)만 발행한다.
+  SAML SP 를 붙이는 시점에 이름을 정해 `saml/sso` 에 추가한다. **이 항목만 P2 에서 미완이다.**
 - 수용 기준: 권한 0개 사용자의 id_token/userinfo 페이로드가 변경 전과 **키 단위로 동일**.
   권한 보유 시 발행 지점 간 값 일치.
 
-### [ ] 2-3. 예약 클레임 등록
+### [x] 2-3. 예약 클레임 등록
 
 - 파일: `src/routes/oidc/token/+server.ts:22` · `src/routes/oidc/userinfo/+server.ts`
 - 작업: `RESERVED_ID_TOKEN_CLAIMS` / `RESERVED_USERINFO_CLAIMS` 에 클레임명 추가.
@@ -77,7 +83,7 @@
 `[]` 지만(정의 UI 가 아직 없으므로) **계약은 이미 최종형이다.** 스텁이 아니라 2-1 의 실제 함수가
 실제로 빈 결과를 반환하는 것이다.
 
-### [ ] 3-1. SET payload 에 `entitlements`
+### [x] 3-1. SET payload 에 `entitlements`
 
 - 파일: `src/lib/server/oidc/role-change.ts:63-74`
 - 작업: `sendRoleChangeSet()` 에 `entitlements: string[]` 파라미터 추가,
