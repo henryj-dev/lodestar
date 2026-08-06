@@ -5,11 +5,14 @@ import { requireDbContext } from "$lib/server/auth/guards";
 import { oidcClients, users } from "$lib/server/db/schema";
 import { verifyAccessToken, tryWithSecretsNullable } from "$lib/server/crypto/keys";
 import { getUserMembership, membershipToGroups } from "$lib/server/org/membership";
-import { getActiveAssignment, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
+import { getActiveAssignment, listActiveEntitlements, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
 import { buildAddressClaim, buildOrganizationClaims, parseOrganizationClaimConfig } from "$lib/server/oidc/claims";
 import { translate } from "$lib/i18n/server";
 
-const RESERVED_USERINFO_CLAIMS = new Set(["sub", "iss", "aud", "iat", "exp", "auth_time"]);
+// 표준 클레임이 아닌 셋(`entitlements`·`roles`·`roles_label`)도 예약한다 — 인가 판정에 쓰이는
+// 값이라, attributesJson(자유 입력)으로 덮어쓸 수 있으면 권한 모델이 무의미해진다.
+// token/+server.ts 의 같은 목록과 이유가 동일하다.
+const RESERVED_USERINFO_CLAIMS = new Set(["sub", "iss", "aud", "iat", "exp", "auth_time", "entitlements", "roles", "roles_label", "groups"]);
 
 function bearerError(code: string, description: string): Response {
     return new Response(JSON.stringify({ error: code, error_description: description }), {
@@ -109,6 +112,12 @@ async function handleUserinfo(locals: App.Locals, request: Request): Promise<Res
             response.roles_label = assignment.role.label;
         }
         if (assignment) {
+            // entitlement 클레임 — id_token 과 **같은 값**이어야 한다(같은 함수를 쓴다).
+            // 0개면 키를 아예 넣지 않는다. attributesJson 머지 앞에 두는 이유는 token/+server.ts 와 동일 —
+            // 예약 목록이 유일한 방어가 되게 해서 테스트가 그것을 실제로 검증하게 한다.
+            const entitlements = await listActiveEntitlements(db, assignment, tenant.id);
+            if (entitlements.length > 0) response.entitlements = entitlements;
+
             const extra = parseAssignmentAttributes(assignment.attributesJson);
             for (const [k, v] of Object.entries(extra)) {
                 if (RESERVED_USERINFO_CLAIMS.has(k)) continue;

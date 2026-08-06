@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, index, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, index, uniqueIndex, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 // ---------- Tenancy ----------
 
@@ -502,13 +502,85 @@ export const userServiceAssignments = pgTable(
         grantedBy: text("granted_by"),
         grantedAt: timestamp("granted_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
         expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true, precision: 3 }),
-        revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true, precision: 3 }),
         createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
     },
     (t) => [
         uniqueIndex("user_service_assignments_user_service_uidx").on(t.tenantId, t.userId, t.serviceType, t.serviceRefId),
         index("user_service_assignments_tenant_user_idx").on(t.tenantId, t.userId),
         index("user_service_assignments_tenant_service_idx").on(t.tenantId, t.serviceType, t.serviceRefId),
+    ],
+);
+
+/**
+ * 서비스가 정의하는 권한(entitlement) 키. `groups`(조직 소속)·`roles`(단일 역할)와 직교하는 세 번째 축.
+ * `serviceRoles` 를 본떴으나 두 가지가 다르다:
+ *   - `isDefault` 없음 — 권한의 기본 부여는 "누가 줬는가" 에 답이 없는 권한을 만든다. 전부 명시 부여.
+ *   - `displayOrder` 가 장식이 아니다 — 권한 간 의존(B 를 켜려면 A 도 필요)은 RP 의 의미론이라
+ *     모델에 넣지 않는 대신, 관리 UI 가 이 순서로 체크박스를 세워 관리자에게 안내한다.
+ * serviceRefId 는 oidcClients.id 또는 samlSps.id 를 가리키지만 FK 는 걸지 않는다(serviceRoles 와 동일).
+ */
+export const serviceEntitlements = pgTable(
+    "service_entitlements",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        serviceType: text("service_type", { enum: ["oidc", "saml"] }).notNull(),
+        serviceRefId: text("service_ref_id").notNull(),
+        key: text("key").notNull(),
+        label: text("label").notNull(),
+        description: text("description"),
+        displayOrder: integer("display_order").notNull().default(0),
+        createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+        updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    },
+    (t) => [
+        uniqueIndex("service_entitlements_service_key_uidx").on(t.serviceType, t.serviceRefId, t.key),
+        index("service_entitlements_tenant_service_idx").on(t.tenantId, t.serviceType, t.serviceRefId),
+    ],
+);
+
+/**
+ * 사용자에게 부여된 서비스 권한(다대다). 역할(`roles`)과 직교한다.
+ *
+ * userId/serviceType/serviceRefId 대신 **assignmentId 를 FK 로** 거는 이유:
+ *   - 접근 배정 없이 권한만 가진 상태가 표현 불가능해진다(기본 deny 를 구조로 강제).
+ *   - 배정 회수는 하드 삭제이므로(`revokeAssignment()`) 권한이 그대로 cascade 된다 — 회수 경로에 코드 추가 불필요.
+ *   - 배정의 expiresAt/revokedAt 필터가 `getActiveAssignment()` 에 이미 있어, 배정이 죽으면 권한 조회가 시작되지 않는다.
+ * 대가: 접근을 회수했다가 재부여하면 이전 권한은 복구되지 않는다(새 배정 행 = 새 id). 접근 재부여가
+ * 이전 권한을 조용히 되살리는 것보다 안전하다고 보고 수용한다 — 관리 UI 가 이 점을 명시한다.
+ *
+ * **revokedAt 을 두지 않는다.** userServiceAssignments 의 같은 컬럼은 읽히기만 하고 쓰는 곳이 없는
+ * 죽은 컬럼이다(회수 = 하드 삭제). 같은 것을 복제하지 않고, 회수 이력은 감사 이벤트에 남긴다.
+ */
+export const userServiceEntitlements = pgTable(
+    "user_service_entitlements",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        assignmentId: text("assignment_id").notNull(),
+        serviceEntitlementId: text("service_entitlement_id").notNull(),
+        grantedBy: text("granted_by"),
+        grantedAt: timestamp("granted_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+        expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true, precision: 3 }),
+        createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    },
+    (t) => [
+        // 이 두 FK 만 `.references()` 대신 명시 이름을 준다. drizzle 자동 이름
+        // (`<table>_<col>_<ftable>_<fcol>_fk`)이 두 긴 테이블명을 이어 붙여 70·75자가 되는데,
+        // **PostgreSQL 은 63자에서 조용히 잘라내지만 MySQL 은 64자 초과를 에러로 거부**한다
+        // (ER_TOO_LONG_IDENT). 방언 간 적용 가능성이 갈리므로 이름을 직접 고정한다.
+        foreignKey({ columns: [t.assignmentId], foreignColumns: [userServiceAssignments.id], name: "user_service_entitlements_assignment_fk" }).onDelete("cascade"),
+        foreignKey({ columns: [t.serviceEntitlementId], foreignColumns: [serviceEntitlements.id], name: "user_service_entitlements_entitlement_fk" }).onDelete("cascade"),
+        uniqueIndex("user_service_entitlements_assignment_ent_uidx").on(t.assignmentId, t.serviceEntitlementId),
+        index("user_service_entitlements_tenant_ent_idx").on(t.tenantId, t.serviceEntitlementId),
     ],
 );
 
@@ -968,5 +1040,39 @@ export type Part = typeof parts.$inferSelect;
 export type UserPart = typeof userParts.$inferSelect;
 export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
 export type ClientSkin = typeof clientSkins.$inferSelect;
+/**
+ * IdP 세션 ↔ OIDC 클라이언트 연결 기록.
+ *
+ * back-channel / front-channel logout 의 **세션 단위** 타깃을 찾기 위한 것이다. 예전에는
+ * `oidcGrants` 와 `oidcRefreshTokens` 로 대상을 역추적했는데 둘 다 오래 살지 않는다:
+ *   - oidcGrants 는 authorization code(수 분 TTL)이고 만료되면 GC 가 삭제한다.
+ *   - oidcRefreshTokens 는 `offline_access` scope 가 있어야 발급된다.
+ * 그래서 **offline_access 를 쓰지 않고 자체 세션을 오래 유지하는 RP 는 로그인 몇 분 뒤부터
+ * 로그아웃 통지를 받지 못했다** — 사용자가 로그아웃해도 그 RP 세션은 그대로 남았다.
+ *
+ * 이 테이블은 토큰을 실제로 발급한 시점에 한 번 쓰고 세션이 사라질 때까지 남는다.
+ * clientId 는 공개 client_id 문자열(oidcGrants.clientId 와 같은 값)이라 조회가 그대로 호환된다.
+ */
+export const oidcClientSessions = pgTable(
+    "oidc_client_sessions",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        sessionId: text("session_id")
+            .notNull()
+            .references(() => sessions.id, { onDelete: "cascade" }),
+        clientId: text("client_id").notNull(),
+        createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    },
+    (t) => [uniqueIndex("oidc_client_sessions_session_client_uidx").on(t.sessionId, t.clientId), index("oidc_client_sessions_tenant_session_idx").on(t.tenantId, t.sessionId)],
+);
+
+export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
+export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;
+export type UserServiceEntitlement = typeof userServiceEntitlements.$inferSelect;

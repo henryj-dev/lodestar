@@ -11,6 +11,30 @@
  */
 import { z } from "zod";
 
+/**
+ * 서비스 role / entitlement 의 `key` 형식.
+ *
+ * 클라이언트 상세와 SP 상세 두 화면이 같은 규칙을 쓴다 — 예전에는 두 파일에 같은 정규식이
+ * 복제돼 있었고, entitlement 가 추가되면서 네 곳이 될 참이라 여기로 올렸다.
+ *
+ * 점·밑줄을 허용하므로 `site.read` · `plan.approve_own` 같은 네임스페이스 키가 통과한다.
+ * 이 값이 OIDC 클레임(`roles` / `entitlements`)에 그대로 실리므로 형식을 좁히면 RP 가 깨진다.
+ */
+export const SERVICE_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/**
+ * entitlement key 정규화 — 소문자로 낮춘다.
+ *
+ * 유니크 인덱스에 collation 을 지정하지 않아 방언마다 대소문자 취급이 다르다: MySQL 기본
+ * collation 은 대소문자를 구분하지 않아 `Site.Read` 가 `site.read` 와 충돌(409)하지만,
+ * PostgreSQL·SQLite 는 서로 다른 행으로 받아들이고 **둘 다 클레임 배열에 실린다.**
+ * 인가에 쓰이는 값이 방언에 따라 달라지면 안 되므로 입력 시점에 하나로 모은다.
+ * (role key 는 기존 데이터가 있을 수 있어 건드리지 않는다 — 클레임 의미가 이미 표시용이다.)
+ */
+export function normalizeEntitlementKey(raw: string): string {
+    return raw.trim().toLowerCase();
+}
+
 /** 필수 텍스트: trim 후 최소 1자. 값 미존재(undefined)/빈값 모두 같은 메시지. */
 export const requiredText = (message: string) => z.string(message).trim().min(1, message);
 

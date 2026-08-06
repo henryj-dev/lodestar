@@ -31,9 +31,14 @@ import { verifyEnvelopedXmlSignature } from "$lib/server/saml/verify-xml-signatu
 import { buildSignedSamlErrorResponse, buildSignedSamlResponse } from "$lib/server/saml/response";
 import { findSp, recordSamlSession, type SamlSpRecord } from "$lib/server/saml/sp";
 import { getUserMembership } from "$lib/server/org/membership";
-import { getActiveAssignment, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
+import { getActiveAssignment, listActiveEntitlements, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
 import { translate } from "$lib/i18n/server";
 import type { Locale } from "$lib/i18n/core";
+
+// attributesJson(관리 화면 자유 입력)이 덮어쓰면 안 되는 SAML 속성.
+// Role/RoleLabel/Entitlements 는 SP 가 인가 판정에 쓰는 값이라, 자유 입력으로 위조할 수 있으면
+// 권한 모델 자체가 무의미해진다. OIDC 의 RESERVED_ID_TOKEN_CLAIMS 와 같은 목적이다.
+const RESERVED_SAML_ATTRS = new Set(["Role", "RoleLabel", "Entitlements"]);
 
 const SAML_AUTHN_REQUEST_TTL_MS = 10 * 60 * 1000; // 10분
 
@@ -196,7 +201,7 @@ async function gateAndIssueSamlAssertion(event: Parameters<RequestHandler>[0], p
         allowedSet = new Set(DEFAULT_ALLOWED);
     }
 
-    const attributes: Record<string, string> = {};
+    const attributes: Record<string, string | string[]> = {};
     const setAttr = (key: string, value: string | null | undefined) => {
         if (!value) return;
         if (!allowedSet.has(key)) return;
@@ -217,8 +222,26 @@ async function gateAndIssueSamlAssertion(event: Parameters<RequestHandler>[0], p
         setAttr("Role", spAssignment.role.key);
         setAttr("RoleLabel", spAssignment.role.label);
     }
+    // 권한(entitlement) — OIDC 의 `entitlements` 클레임과 같은 값이다.
+    //
+    // 이름은 `Entitlements`(PascalCase) 로 둔다. 이 파일의 다른 서비스 속성(`Role`/`RoleLabel`)이
+    // 그 관례를 쓰고 있고, SAML SP 는 OIDC 클레임이 아니라 이 표기를 기대한다.
+    // 목록이므로 **하나의 Attribute 에 여러 AttributeValue** 로 나간다(SAML 표준 표현).
+    //
+    // 다른 속성과 같이 allowedSet 게이트를 받는다 — SP 가 명시적으로 허용해야 나간다.
+    // 그리고 attributesJson 머지 **앞**에 둔다: 뒤에 두면 대입 순서가 우연히 보호해 주는 상태가
+    // 되어, 나중에 이 줄을 옮긴 사람이 위조 경로를 되살릴 수 있다(OIDC 쪽과 같은 이유).
+    if (spAssignment) {
+        const entitlements = await listActiveEntitlements(db, spAssignment, tenant.id);
+        if (entitlements.length > 0 && allowedSet.has("Entitlements")) {
+            attributes[attrMapping["Entitlements"] ?? "Entitlements"] = entitlements;
+        }
+    }
+
     const extraAttrs = spAssignment ? parseAssignmentAttributes(spAssignment.attributesJson) : {};
     for (const [k, v] of Object.entries(extraAttrs)) {
+        // 예약: 인가 판정에 쓰이는 속성은 자유 입력으로 덮어쓸 수 없다(OIDC 예약 클레임과 같은 이유).
+        if (RESERVED_SAML_ATTRS.has(k)) continue;
         if (typeof v === "string") {
             setAttr(k, v);
         } else if (v != null) {

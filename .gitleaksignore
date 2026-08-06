@@ -9,3 +9,9 @@ e83b290fba4a75c4c989434b024b589c1e256918:scripts/reencrypt-secrets.ts:generic-ap
 
 # False positive: 테스트 상수("wrap-secret-0123456789") — 실제 시크릿 아님
 d48992c3dd491706b9795d1e2ae3de3d234eadcf:test/unit/crypto-keys.test.ts:generic-api-key:204
+
+# False positive: 통합 테스트 픽스처 client_secret("durable-secret-0123456789abcdef") — 실제 시크릿 아님.
+# 이후 커밋에서 다른 통합 테스트와 같은 리터럴로 바꿨지만, gitleaks 는 **브랜치의 커밋 이력**을
+# 스캔하므로 그 커밋의 지문은 남는다. 값을 바꾼 것은 앞으로의 재발 방지용이고, 이력에 대해서는
+# 이 항목이 필요하다.
+4e49e1f6460880f9d4a5b0ec214f892e55f7b6b7:test/integration/session-logout-durability.test.ts:generic-api-key:32

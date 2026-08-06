@@ -232,6 +232,27 @@
       "when": 1784536907209,
       "tag": "0032_lame_madame_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1785982883688,
+      "tag": "0033_colossal_bloodaxe",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1785988956087,
+      "tag": "0034_jazzy_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1785989545001,
+      "tag": "0035_square_speed_demon",
+      "breakpoints": true
     }
   ]
 }

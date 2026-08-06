@@ -32,9 +32,11 @@ import {
     identityProviders,
     oidcClients,
     samlSps,
+    serviceEntitlements,
     sessions,
     tenants,
     userServiceAssignments,
+    userServiceEntitlements,
     users,
     type IdentityProvider,
     type SamlSp,
@@ -47,6 +49,7 @@ import { getRuntimeConfig, type RuntimeConfig } from "$lib/server/auth/runtime";
 import { hashPassword } from "$lib/server/auth/password";
 import { hashClientSecret } from "$lib/server/oidc/client";
 import { createSessionRecord } from "$lib/server/auth/session";
+import { CSRF_COOKIE_NAME } from "$lib/server/auth/csrf";
 import { b64uEncode, getActiveSigningKey } from "$lib/server/crypto/keys";
 import { DbRateLimitStore } from "$lib/server/ratelimit";
 import { ensureXmlEngine, xmldsigjs, XMLSerializer } from "$lib/server/saml/xml-setup";
@@ -141,7 +144,16 @@ export interface MakeEventOptions {
     url?: string;
     headers?: Record<string, string>;
     /** application/x-www-form-urlencoded 폼 본문(POST 액션/토큰 엔드포인트용). */
-    form?: Record<string, string>;
+    /** 값에 배열을 주면 같은 이름으로 반복 전송된다(체크박스 그룹 → formData.getAll). */
+    form?: Record<string, string | string[]>;
+    /** JSON 본문(service API 등 request.json() 을 쓰는 핸들러용). form 과 함께 쓰지 않는다. */
+    json?: unknown;
+    /**
+     * admin 액션의 double-submit CSRF 토큰을 자동으로 채울지. 기본 true —
+     * 폼 액션 테스트는 대부분 CSRF 가 아니라 그 액션의 로직을 보려는 것이므로 매번 쓰지 않게 한다.
+     * **CSRF 거부 자체를 검증할 때만 false** 로 준다.
+     */
+    csrf?: boolean;
     locals: {
         db: DB;
         tenant: Tenant | null;
@@ -166,17 +178,31 @@ export function makeEvent(opts: MakeEventOptions): RequestEvent<never, never> {
     const url = new URL(opts.url ?? "https://idp.test.example/");
     const headers = new Headers(opts.headers ?? {});
 
+    const cookies = opts.cookies ?? makeCookies();
+
     let body: BodyInit | undefined;
     if (opts.form) {
-        const params = new URLSearchParams(opts.form);
+        const params = new URLSearchParams();
+        for (const [k, v] of Object.entries(opts.form)) {
+            if (Array.isArray(v)) for (const item of v) params.append(k, item);
+            else params.append(k, v);
+        }
+        // 쿠키와 폼에 같은 토큰을 넣어 double-submit 검증을 통과시킨다(요청 시 생략 가능).
+        if (opts.csrf !== false && !params.has("csrf")) {
+            const token = cookies.get(CSRF_COOKIE_NAME) ?? "test-csrf-token-".padEnd(64, "0");
+            cookies.set(CSRF_COOKIE_NAME, token);
+            params.set("csrf", token);
+        }
         body = params;
         if (!headers.has("content-type")) headers.set("content-type", "application/x-www-form-urlencoded");
+    } else if (opts.json !== undefined) {
+        body = JSON.stringify(opts.json);
+        if (!headers.has("content-type")) headers.set("content-type", "application/json");
     }
     const request = new Request(url.toString(), { method, headers, body });
 
     const platform = makePlatform(opts.locals.env);
     const runtimeConfig: RuntimeConfig = getRuntimeConfig(platform);
-    const cookies = opts.cookies ?? makeCookies();
 
     const locals: App.Locals = {
         db: opts.locals.db,
@@ -292,14 +318,49 @@ export async function seedOidcClient(db: DB, opts: SeedOidcClientOptions): Promi
     return row!;
 }
 
-/** 유저에게 서비스(OIDC/SAML) 접근 권한을 부여한다(기본 deny 를 통과시키기 위함). */
-export async function seedServiceAssignment(db: DB, args: { tenantId: string; userId: string; serviceType: "oidc" | "saml"; serviceRefId: string }): Promise<void> {
+/**
+ * 유저에게 서비스(OIDC/SAML) 접근 권한을 부여한다(기본 deny 를 통과시키기 위함).
+ * 생성된 assignment id 를 돌려준다 — entitlement 부여가 이 id 를 FK 로 참조한다.
+ */
+export async function seedServiceAssignment(db: DB, args: { tenantId: string; userId: string; serviceType: "oidc" | "saml"; serviceRefId: string; attributesJson?: string }): Promise<string> {
+    const id = crypto.randomUUID();
     await db.insert(userServiceAssignments).values({
-        id: crypto.randomUUID(),
+        id,
         tenantId: args.tenantId,
         userId: args.userId,
         serviceType: args.serviceType,
         serviceRefId: args.serviceRefId,
+        attributesJson: args.attributesJson ?? null,
+    });
+    return id;
+}
+
+/** 서비스가 정의하는 권한(entitlement) 키를 하나 만든다. 생성된 id 를 돌려준다. */
+export async function seedServiceEntitlement(
+    db: DB,
+    args: { tenantId: string; serviceType: "oidc" | "saml"; serviceRefId: string; key: string; label?: string; displayOrder?: number },
+): Promise<string> {
+    const id = crypto.randomUUID();
+    await db.insert(serviceEntitlements).values({
+        id,
+        tenantId: args.tenantId,
+        serviceType: args.serviceType,
+        serviceRefId: args.serviceRefId,
+        key: args.key,
+        label: args.label ?? args.key,
+        displayOrder: args.displayOrder ?? 0,
+    });
+    return id;
+}
+
+/** 배정에 권한을 부여한다. expiresAt 을 과거로 주면 만료된 부여를 만들 수 있다. */
+export async function grantEntitlement(db: DB, args: { tenantId: string; assignmentId: string; serviceEntitlementId: string; expiresAt?: Date }): Promise<void> {
+    await db.insert(userServiceEntitlements).values({
+        id: crypto.randomUUID(),
+        tenantId: args.tenantId,
+        assignmentId: args.assignmentId,
+        serviceEntitlementId: args.serviceEntitlementId,
+        expiresAt: args.expiresAt ?? null,
     });
 }
 

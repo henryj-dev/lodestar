@@ -23,8 +23,17 @@ function partLabel(p: { name: string; teamName: string | null }) {
 let selectedService = $state("");
 const filteredRoles = $derived(selectedService ? data.allServiceRoles.filter((r: { serviceType: string; serviceRefId: string }) => `${r.serviceType}:${r.serviceRefId}` === selectedService) : []);
 
-function assignmentStatus(a: { revokedAt: Date | null; expiresAt: Date | null }): { label: string; className: string } {
-    if (a.revokedAt) return { label: t("user_detail.svc_revoked"), className: "bg-gray-100 text-gray-500" };
+// 배정이 가리키는 서비스에 정의된 권한만 그 배정의 체크박스로 보여 준다.
+// (권한은 서비스별로 정의되므로 다른 서비스의 키가 섞이면 부여 자체가 서버에서 거부된다.)
+type EntitlementRow = { id: string; serviceType: string; serviceRefId: string; key: string; label: string; description: string | null };
+function entitlementsForAssignment(a: { serviceType: string; serviceRefId: string }): EntitlementRow[] {
+    return (data.allServiceEntitlements as EntitlementRow[]).filter((e) => e.serviceType === a.serviceType && e.serviceRefId === a.serviceRefId);
+}
+
+// 회수는 행을 지우는 방식이라(revokeAssignment) "회수됨" 상태는 존재하지 않는다 —
+// 목록에 남아 있으면 활성이거나 만료된 것뿐이다. 예전에는 revokedAt 을 봤지만 그 컬럼은
+// 아무도 쓰지 않아 항상 null 이었고, 그래서 그 분기는 영원히 죽은 코드였다.
+function assignmentStatus(a: { expiresAt: Date | null }): { label: string; className: string } {
     if (a.expiresAt && a.expiresAt.getTime() <= Date.now()) return { label: t("user_detail.svc_expired"), className: "bg-amber-100 text-amber-700" };
     return { label: t("user_detail.svc_active"), className: "bg-green-100 text-green-700" };
 }
@@ -68,6 +77,7 @@ const TIMEZONE_OPTIONS = [
     <section class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
         <h2 class="mb-5 text-sm font-semibold text-gray-700">{t("user_detail.profile_section")}</h2>
         <form method="POST" action="?/updateProfile" use:enhance class="space-y-4">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                     <label for="givenName" class="block text-xs font-medium text-gray-700">{t("user_detail.given_name")}</label>
@@ -218,6 +228,7 @@ const TIMEZONE_OPTIONS = [
                             <span class="text-xs text-gray-300">{dateFormatter.format(m.startedAt)} ~</span>
                         </div>
                         <form method="POST" action="?/removeDept" use:enhance>
+                            <input type="hidden" name="csrf" value={data.csrfToken} />
                             <input type="hidden" name="membershipId" value={m.id} />
                             <button type="submit" class="text-xs text-red-400 hover:text-red-600">{t("common.remove")}</button>
                         </form>
@@ -229,6 +240,7 @@ const TIMEZONE_OPTIONS = [
         {/if}
 
         <form method="POST" action="?/addDept" use:enhance class="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 sm:grid-cols-4">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <select name="departmentId" required class="rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
                 <option value="">{t("user_detail.dept_select")}</option>
                 {#each data.allDepts as d (d.id)}
@@ -271,6 +283,7 @@ const TIMEZONE_OPTIONS = [
                             <span class="text-xs text-gray-300">{dateFormatter.format(m.startedAt)} ~</span>
                         </div>
                         <form method="POST" action="?/removeTeam" use:enhance>
+                            <input type="hidden" name="csrf" value={data.csrfToken} />
                             <input type="hidden" name="membershipId" value={m.id} />
                             <button type="submit" class="text-xs text-red-400 hover:text-red-600">{t("common.remove")}</button>
                         </form>
@@ -282,6 +295,7 @@ const TIMEZONE_OPTIONS = [
         {/if}
 
         <form method="POST" action="?/addTeam" use:enhance class="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 sm:grid-cols-4">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <select name="teamId" required class="col-span-2 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none sm:col-span-1">
                 <option value="">{t("user_detail.team_select")}</option>
                 {#each data.allTeams as tm (tm.id)}
@@ -318,6 +332,7 @@ const TIMEZONE_OPTIONS = [
                             <span class="text-xs text-gray-300">{dateFormatter.format(m.startedAt)} ~</span>
                         </div>
                         <form method="POST" action="?/removePart" use:enhance>
+                            <input type="hidden" name="csrf" value={data.csrfToken} />
                             <input type="hidden" name="membershipId" value={m.id} />
                             <button type="submit" class="text-xs text-red-400 hover:text-red-600">{t("common.remove")}</button>
                         </form>
@@ -329,6 +344,7 @@ const TIMEZONE_OPTIONS = [
         {/if}
 
         <form method="POST" action="?/addPart" use:enhance class="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 sm:grid-cols-4">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <select name="partId" required class="col-span-2 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none sm:col-span-1">
                 <option value="">{t("user_detail.part_select")}</option>
                 {#each data.allParts as p (p.id)}
@@ -358,6 +374,8 @@ const TIMEZONE_OPTIONS = [
             <div class="mb-4 divide-y divide-gray-100 rounded-lg border border-gray-200">
                 {#each data.assignments as a (a.id)}
                     {@const status = assignmentStatus(a)}
+                    {@const ents = entitlementsForAssignment(a)}
+                    {@const granted = data.grantedEntitlementsByAssignment[a.id] ?? []}
                     <div class="px-4 py-3 text-sm">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <div class="flex flex-wrap items-center gap-2">
@@ -372,6 +390,7 @@ const TIMEZONE_OPTIONS = [
                                 {#if a.expiresAt}<span class="text-xs text-gray-400">~{dateFormatter.format(a.expiresAt)}</span>{/if}
                             </div>
                             <form method="POST" action="?/revokeAssignment" use:enhance>
+                                <input type="hidden" name="csrf" value={data.csrfToken} />
                                 <input type="hidden" name="assignmentId" value={a.id} />
                                 <button
                                     type="submit"
@@ -382,6 +401,7 @@ const TIMEZONE_OPTIONS = [
                             </form>
                         </div>
                         <form method="POST" action="?/updateAssignmentExpiry" use:enhance class="mt-2 flex items-center gap-2">
+                            <input type="hidden" name="csrf" value={data.csrfToken} />
                             <input type="hidden" name="assignmentId" value={a.id} />
                             <label class="text-xs text-gray-500">
                                 {t("user_detail.svc_expires")}
@@ -392,6 +412,29 @@ const TIMEZONE_OPTIONS = [
                                 <span class="ml-auto truncate font-mono text-xs text-gray-400" title={a.attributesJson}>{a.attributesJson}</span>
                             {/if}
                         </form>
+
+                        <!-- 권한(entitlement) — role 과 직교. 이 배정이 가리키는 서비스에 정의된 것만 보인다. -->
+                        {#if ents.length > 0}
+                            <form method="POST" action="?/setAssignmentEntitlements" use:enhance class="mt-2 rounded-md bg-gray-50 px-3 py-2">
+                                <input type="hidden" name="csrf" value={data.csrfToken} />
+                                <input type="hidden" name="assignmentId" value={a.id} />
+                                <div class="mb-1 flex items-center justify-between">
+                                    <span class="text-xs font-medium text-gray-600">{t("user_detail.ent_title")}</span>
+                                    <button type="submit" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600">{t("common.save")}</button>
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    {#each ents as e (e.id)}
+                                        <label class="flex items-center gap-2 text-xs text-gray-700">
+                                            <input type="checkbox" name="entitlementId" value={e.id} checked={granted.includes(e.id)} class="rounded" />
+                                            <code class="rounded bg-white px-1 py-0.5 font-mono text-xs">{e.key}</code>
+                                            <span>{e.label}</span>
+                                            {#if e.description}<span class="text-gray-400">{e.description}</span>{/if}
+                                        </label>
+                                    {/each}
+                                </div>
+                                <p class="mt-1 text-xs text-gray-400">{t("user_detail.ent_order_hint")}</p>
+                            </form>
+                        {/if}
                     </div>
                 {/each}
             </div>
@@ -400,6 +443,7 @@ const TIMEZONE_OPTIONS = [
         {/if}
 
         <form method="POST" action="?/addAssignment" use:enhance class="grid grid-cols-1 gap-2 border-t border-gray-100 pt-4 sm:grid-cols-2">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <div>
                 <label for="svc" class="block text-xs font-medium text-gray-700">{t("user_detail.svc_service")}</label>
                 <select id="svc" name="service" required bind:value={selectedService} class="mt-1 w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm">
@@ -451,6 +495,7 @@ const TIMEZONE_OPTIONS = [
             <div class="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-700">{t("user_detail.force_logout_done")}</div>
         {/if}
         <form method="POST" action="?/forceLogout" use:enhance>
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <button
                 type="submit"
                 class="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"

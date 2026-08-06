@@ -6,6 +6,7 @@ import { requireDbContext } from "$lib/server/auth/guards";
 import { encryptTotpSecret, generateBackupCodes, hashBackupCode, verifyTotp } from "$lib/server/auth/totp";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { credentials, users } from "$lib/server/db/schema";
+import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import type { DB } from "$lib/server/db";
 import { runAtomic } from "$lib/server/db/atomic";
 import { isUniqueViolation } from "$lib/server/db/errors";
@@ -19,7 +20,7 @@ import { translate } from "$lib/i18n/server";
 export const POST: RequestHandler = async (event) => {
     const { request, locals } = event;
     await requireServiceToken(event);
-    const { db, rateLimitStore } = requireDbContext(locals);
+    const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
     const config = locals.runtimeConfig;
     if (!config.signingKeySecret) {
@@ -91,6 +92,7 @@ export const POST: RequestHandler = async (event) => {
         });
     const buildBackupInsert = (h: Pick<DB, "insert">) => h.insert(credentials).values(backupCodeRows);
 
+    const meta = getRequestMetadata(event);
     try {
         await runAtomic(db, [buildTotpInsert, buildBackupInsert]);
     } catch (err) {
@@ -102,6 +104,17 @@ export const POST: RequestHandler = async (event) => {
         }
         throw err;
     }
+
+    // 2단계 크레덴셜이 새로 생긴 사건 — 서비스 토큰 경계 안에서 일어나므로 여기서 남기지 않으면
+    // 기록이 없다. (이미 등록된 사용자는 위 409 로 막히므로 이 지점은 최초 등록만 도달한다.)
+    await recordAuditEvent(db, {
+        tenantId: tenant.id,
+        userId,
+        kind: "service_totp_enrolled",
+        outcome: "success",
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+    }).catch(() => undefined);
 
     return json({ ok: true, backupCodes });
 };

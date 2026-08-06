@@ -12,14 +12,40 @@ import { findAndConsumeGrant } from "$lib/server/oidc/grant";
 import { verifyPkce } from "$lib/server/oidc/pkce";
 import { issueRefreshToken, rotateRefreshToken, revokeRefreshTokenFamily } from "$lib/server/oidc/refresh";
 import { generateAccessToken, getActiveSigningKey, signJwt } from "$lib/server/crypto/keys";
-import { getActiveAssignment, hasServiceAccess, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
+import { getActiveAssignment, hasServiceAccess, listActiveEntitlements, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
 import { getUserMembership, membershipToGroups } from "$lib/server/org/membership";
+import { recordClientSession } from "$lib/server/oidc/logout";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import type { DB } from "$lib/server/db";
 import type { OidcClientRecord } from "$lib/server/oidc/client";
 
 // ID Token 표준 클레임 — assignment.attributesJson 의 키와 충돌 시 표준 클레임이 우선한다.
-const RESERVED_ID_TOKEN_CLAIMS = new Set(["iss", "sub", "aud", "azp", "iat", "exp", "auth_time", "jti", "nonce", "sid", "acr", "amr", "at_hash", "c_hash"]);
+//
+// 표준 클레임이 아닌 셋(`entitlements`·`roles`·`roles_label`)도 여기 넣는다. **인가 판정에 쓰이는
+// 값**이기 때문이다 — attributesJson 은 관리 화면의 자유 입력 텍스트인데, 그걸로 권한 클레임을
+// 덮어쓸 수 있으면 권한 모델 자체가 무의미해진다. `roles` 는 원래 빠져 있어서
+// `{"roles":["approver"]}` 한 줄로 실제 역할을 위조할 수 있었다(이 커밋에서 닫는다).
+// `groups` 는 대입 순서상 지금도 덮이지 않지만, 순서에 의존하지 않도록 같이 예약한다.
+const RESERVED_ID_TOKEN_CLAIMS = new Set([
+    "iss",
+    "sub",
+    "aud",
+    "azp",
+    "iat",
+    "exp",
+    "auth_time",
+    "jti",
+    "nonce",
+    "sid",
+    "acr",
+    "amr",
+    "at_hash",
+    "c_hash",
+    "entitlements",
+    "roles",
+    "roles_label",
+    "groups",
+]);
 
 const ACCESS_TOKEN_TTL_S = 300; // 5분
 const ID_TOKEN_TTL_S = 600; // 10분
@@ -95,6 +121,11 @@ async function buildTokens(params: BuildTokenParams): Promise<{ idToken: string;
 
     const idTokenPayload: Record<string, unknown> = {
         iss: issuer,
+        // 계약: sub === users.id. 이 동일성에 외부 소비자가 의존한다 —
+        // Service-to-Service TOTP API(`/api/totp/{enroll,verify,status}`)가 받는 `userId` 가
+        // 바로 이 값이고, RP 는 로그인에서 얻은 sub 를 그대로 그 body 에 넣는다.
+        // 불투명 식별자(pairwise 등)로 바꾸려면 그 API 와 RP 연동을 함께 옮겨야 한다.
+        // 그냥 바꾸면 TOTP 검증이 조용히 404(TOTP not enrolled)로 떨어진다.
         sub: user.id,
         aud: clientId,
         azp: clientId,
@@ -139,6 +170,16 @@ async function buildTokens(params: BuildTokenParams): Promise<{ idToken: string;
         idTokenPayload.roles_label = assignment.role.label;
     }
     if (assignment) {
+        // entitlement 클레임 — roles 와 직교하는 권한 축. scope 게이트가 없다(roles 와 동일 규칙,
+        // groups/organization 과 다름). **0개면 키를 아예 넣지 않는다** — 빈 배열도 넣지 않으므로
+        // entitlement 를 정의하지 않은 기존 RP 의 페이로드는 키 단위로 변경 전과 동일하다.
+        //
+        // attributesJson 머지 **앞에** 둔다. 뒤에 두면 순서가 우연히 보호해 주는 상태가 되어
+        // RESERVED_ID_TOKEN_CLAIMS 가 실제로는 아무 일도 하지 않게 되고, 나중에 이 줄을 옮긴
+        // 사람이 위조 경로를 되살릴 수 있다. 앞에 두면 예약 목록이 유일한 방어이고 테스트가 그것을 검증한다.
+        const entitlements = await listActiveEntitlements(db, assignment, tenantId);
+        if (entitlements.length > 0) idTokenPayload.entitlements = entitlements;
+
         const extra = parseAssignmentAttributes(assignment.attributesJson);
         for (const [k, v] of Object.entries(extra)) {
             if (RESERVED_ID_TOKEN_CLAIMS.has(k)) continue;
@@ -158,6 +199,10 @@ async function buildTokens(params: BuildTokenParams): Promise<{ idToken: string;
             Object.assign(idTokenPayload, buildOrganizationClaims(membership, parseOrganizationClaimConfig(params.organizationClaimConfig)));
         }
     }
+
+    // 로그아웃 통지 대상 기록 — 이 세션이 이 클라이언트에 토큰을 받았다는 사실을 세션 수명 동안
+    // 남긴다. grant/refresh 행은 단명해서 이것 없이는 몇 분 뒤 이 연결을 되찾을 수 없다.
+    await recordClientSession(db, tenantId, params.sessionId, clientId);
 
     const idToken = await signJwt(idTokenPayload, signingKey.privateKey, signingKey.kid);
 

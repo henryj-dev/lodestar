@@ -1,16 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { eq } from "drizzle-orm";
-import { addAssignment, revokeAssignment } from "../../src/lib/server/admin/user-actions/service";
+import { and, eq, isNull } from "drizzle-orm";
+import { addAssignment, revokeAssignment, setAssignmentEntitlements, updateAssignmentExpiry } from "../../src/lib/server/admin/user-actions/service";
 import { b64uDecode, getActiveSigningKey } from "../../src/lib/server/crypto/keys";
 import { getRuntimeConfig } from "../../src/lib/server/auth/runtime";
-import { ROLE_CHANGE_EVENT } from "../../src/lib/server/oidc/role-change";
-import { auditEvents, oidcClients, serviceRoles, userServiceAssignments } from "../../src/lib/server/db/schema";
+import { ROLE_CHANGE_EVENT, sendRoleChangeSet } from "../../src/lib/server/oidc/role-change";
+import { auditEvents, oidcClients, oidcRefreshTokens, serviceEntitlements, serviceRoles, userServiceAssignments } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedOidcClient, seedSamlSp, makeEvent, makePlatform, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant, User } from "../../src/lib/server/db/schema";
 
 // role 부여/회수 시 대상 OIDC 클라이언트의 role_change_uri 로 서명된 SET 이 발행되는지를
 // 실 DB + 실 admin 액션(addAssignment/revokeAssignment)으로 검증한다.
-// 계약(§1): iss / aud(=clientId) / sub / iat / jti / events[ROLE_CHANGE_EVENT].roles, nonce 금지, typ=secevent+jwt.
+// 계약(§1): iss / aud(=clientId) / sub / iat / jti / events[ROLE_CHANGE_EVENT].{roles,entitlements}, nonce 금지, typ=secevent+jwt.
 
 const CLIENT_ID = "role-change-client-abc123";
 const ROLE_CHANGE_URI = "https://rp.test.example/auth/oidc/role-change";
@@ -153,13 +153,13 @@ describe("role-change SET 발행", () => {
         expect(payload.iat as number).toBeGreaterThanOrEqual(before);
         expect(payload.iat as number).toBeLessThanOrEqual(after);
         expect(payload.nonce).toBeUndefined(); // nonce 금지
-        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["admin"] } });
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["admin"], entitlements: [] } });
 
         // 발행 성공 audit 기록
         const audits = await roleChangeAudits();
         expect(audits).toHaveLength(1);
         expect(audits[0].outcome).toBe("success");
-        expect(JSON.parse(audits[0].detailJson!)).toMatchObject({ clientId: CLIENT_ID, roles: ["admin"] });
+        expect(JSON.parse(audits[0].detailJson!)).toMatchObject({ clientId: CLIENT_ID, roles: ["admin"], entitlements: [] });
     });
 
     it("addAssignment(role 없이 access 만): roles: [] 로 발행 (로그인 roles 클레임과 동일)", async () => {
@@ -169,7 +169,7 @@ describe("role-change SET 발행", () => {
 
         expect(captured).toHaveLength(1);
         const { payload } = decodeJwt(extractToken(captured[0].body));
-        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [] } });
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [], entitlements: [] } });
     });
 
     it("revokeAssignment(회수): roles: [] SET 을 발행한다", async () => {
@@ -185,7 +185,7 @@ describe("role-change SET 발행", () => {
         expect(captured[0].url).toBe(ROLE_CHANGE_URI);
         const { payload } = decodeJwt(extractToken(captured[0].body));
         expect(payload.sub).toBe(target.id);
-        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [] } });
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [], entitlements: [] } });
     });
 
     it("role_change_uri 미설정 클라이언트면 발행하지 않는다", async () => {
@@ -219,5 +219,237 @@ describe("role-change SET 발행", () => {
         const audits = await roleChangeAudits();
         expect(audits).toHaveLength(1);
         expect(audits[0].outcome).toBe("failure");
+    });
+});
+
+// 권한(entitlement)만 바뀌어도 SET 이 나가야 한다. 이게 P6 의 본체 — 없으면 권한 회수가
+// RP 세션 수명 동안 조용히 남는다.
+describe("권한 변경 시 SET 발행", () => {
+    async function seedEntitlement(clientDbId: string, key: string): Promise<string> {
+        const id = crypto.randomUUID();
+        await mem.db.insert(serviceEntitlements).values({ id, tenantId: tenant.id, serviceType: "oidc", serviceRefId: clientDbId, key, label: key });
+        return id;
+    }
+
+    function userEvent(form: Record<string, string | string[]>) {
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/users/${target.id}`,
+            form,
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        (event as unknown as { params: { id: string } }).params = { id: target.id };
+        return event as Parameters<typeof setAssignmentEntitlements>[0];
+    }
+
+    it("권한 추가만으로도 SET 이 나가고 entitlements 가 실린다", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        captured = []; // 배정 부여 시 발행분은 제외하고 본다
+
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+
+        expect(captured).toHaveLength(1);
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["approver"], entitlements: ["site.read"] } });
+    });
+
+    it("권한 전부 회수 시 entitlements: [] 로 발행한다", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+        captured = [];
+
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id }));
+
+        expect(captured).toHaveLength(1);
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["approver"], entitlements: [] } });
+    });
+
+    it("바뀐 것이 없으면 발행하지 않는다 (같은 집합 재제출)", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+        captured = [];
+
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+
+        expect(captured).toHaveLength(0);
+    });
+
+    // 정책 C — 제거는 refresh family 를 폐기하고, 추가는 폐기하지 않는다(재로그인 강요 없음).
+    it("권한 제거 시에만 refresh token 이 폐기된다", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+
+        async function liveRefreshCount(): Promise<number> {
+            const rows = await mem.db
+                .select()
+                .from(oidcRefreshTokens)
+                .where(and(eq(oidcRefreshTokens.userId, target.id), isNull(oidcRefreshTokens.revokedAt)));
+            return rows.length;
+        }
+        async function issueRefresh(): Promise<void> {
+            await mem.db.insert(oidcRefreshTokens).values({
+                id: crypto.randomUUID(),
+                tenantId: tenant.id,
+                userId: target.id,
+                clientId: CLIENT_ID,
+                tokenHash: crypto.randomUUID(),
+                scope: "openid",
+                expiresAt: new Date(Date.now() + 86_400_000),
+            });
+        }
+
+        // 추가 → 폐기되지 않아야 한다
+        await issueRefresh();
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+        expect(await liveRefreshCount()).toBe(1);
+
+        // 제거 → 폐기돼야 한다
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id }));
+        expect(await liveRefreshCount()).toBe(0);
+    });
+});
+
+// 만료 변경은 인가 변경이다 — 과거로 당기면 회수, 미래로 밀면 부활.
+describe("만료 변경 시 SET 발행", () => {
+    // 실제 폼은 datetime-local(타임존 없음)을 보내고 서버는 그것을 로컬 시각으로 파싱한다.
+    // 테스트는 의도한 순간을 명확히 하려고 완전한 ISO(Z) 를 준다 — new Date() 가 양쪽 다 받는다.
+    function expiryEvent(assignmentId: string, expiresAt: string) {
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/users/${target.id}`,
+            form: { assignmentId, expiresAt },
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        (event as unknown as { params: { id: string } }).params = { id: target.id };
+        return event as Parameters<typeof updateAssignmentExpiry>[0];
+    }
+
+    it("활성 → 만료로 당기면 SET 을 발행한다 (회수)", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const [a] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        captured = [];
+
+        await updateAssignmentExpiry(expiryEvent(a.id, new Date(Date.now() - 60_000).toISOString()));
+
+        expect(captured).toHaveLength(1);
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        // 배정이 죽었으므로 roles·entitlements 둘 다 빈 배열이어야 한다.
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: [], entitlements: [] } });
+    });
+
+    it("만료 → 활성으로 밀면 SET 을 발행한다 (부활 통지)", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const [a] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        await mem.db
+            .update(userServiceAssignments)
+            .set({ expiresAt: new Date(Date.now() - 60_000) })
+            .where(eq(userServiceAssignments.id, a.id));
+        captured = [];
+
+        await updateAssignmentExpiry(expiryEvent(a.id, new Date(Date.now() + 3_600_000).toISOString()));
+
+        expect(captured).toHaveLength(1);
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["approver"], entitlements: [] } });
+    });
+
+    it("활성 상태에서 만료만 늘리면 발행하지 않는다 (전이 없음)", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const [a] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        captured = [];
+
+        await updateAssignmentExpiry(expiryEvent(a.id, new Date(Date.now() + 7_200_000).toISOString()));
+
+        expect(captured).toHaveLength(0);
+    });
+});
+
+// SET payload 의 **wire 계약**을 직접 검증한다.
+//
+// 관리 액션 경로(addAssignment/revokeAssignment)로는 entitlements 가 비어 있는 경우밖에 만들 수
+// 없다 — 권한 행이 배정을 FK 로 참조하므로, 배정이 막 생겼거나(부여) 막 사라진(회수) 시점에는
+// 부여된 권한이 존재할 수 없기 때문이다. 권한만 바뀌는 발행 경로는 관리 UI 단계에서 붙는다.
+// 그때까지 RP(소비자)가 파서를 만들 대상은 이 함수의 출력이므로, 여기서 두 키를 모두 검증한다.
+describe("role-change SET wire 계약", () => {
+    it("roles 와 entitlements 를 같은 event 객체에 함께 싣는다", async () => {
+        const config = getRuntimeConfig(makePlatform(mem.env));
+        const key = await getActiveSigningKey(mem.db, tenant.id, config.signingKeySecrets);
+        if (!key) throw new Error("활성 서명키 없음");
+
+        await sendRoleChangeSet({ clientId: CLIENT_ID, roleChangeUri: ROLE_CHANGE_URI }, target.id, ["approver"], ["site.read", "plan.approve"], TEST_ISSUER_URL, key.privateKey, key.kid);
+
+        expect(captured).toHaveLength(1);
+        const { header, payload } = decodeJwt(extractToken(captured[0].body));
+        expect(header.typ).toBe("secevent+jwt");
+        expect(payload.sub).toBe(target.id);
+        expect(payload.nonce).toBeUndefined();
+        // 기존 RP 가 읽던 roles 의 위치·형태가 그대로이고, 같은 객체에 키가 하나 늘었을 뿐이다.
+        expect(payload.events).toEqual({
+            [ROLE_CHANGE_EVENT]: { roles: ["approver"], entitlements: ["site.read", "plan.approve"] },
+        });
+    });
+
+    it("exp 와 txn 을 실어 재생·역순 적용을 RP 가 막을 수 있게 한다", async () => {
+        const config = getRuntimeConfig(makePlatform(mem.env));
+        const key = await getActiveSigningKey(mem.db, tenant.id, config.signingKeySecrets);
+        if (!key) throw new Error("활성 서명키 없음");
+
+        const before = Date.now();
+        await sendRoleChangeSet({ clientId: CLIENT_ID, roleChangeUri: ROLE_CHANGE_URI }, target.id, [], [], TEST_ISSUER_URL, key.privateKey, key.kid);
+        const after = Date.now();
+
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        // exp: 재생 상한
+        expect(typeof payload.exp).toBe("number");
+        expect(payload.exp as number).toBeGreaterThan(payload.iat as number);
+        // txn: ms 단위 순서 표식 — iat(초)로는 같은 초의 두 변경을 구분할 수 없다
+        expect(typeof payload.txn).toBe("string");
+        const txn = Number(payload.txn);
+        expect(txn).toBeGreaterThanOrEqual(before);
+        expect(txn).toBeLessThanOrEqual(after);
+    });
+
+    it("연속 발행의 txn 이 단조 증가한다 (역순 도착을 RP 가 판별 가능)", async () => {
+        const config = getRuntimeConfig(makePlatform(mem.env));
+        const key = await getActiveSigningKey(mem.db, tenant.id, config.signingKeySecrets);
+        if (!key) throw new Error("활성 서명키 없음");
+        const t = { clientId: CLIENT_ID, roleChangeUri: ROLE_CHANGE_URI };
+
+        await sendRoleChangeSet(t, target.id, ["approver"], ["site.read"], TEST_ISSUER_URL, key.privateKey, key.kid);
+        await new Promise((r) => setTimeout(r, 2));
+        await sendRoleChangeSet(t, target.id, [], [], TEST_ISSUER_URL, key.privateKey, key.kid);
+
+        const first = Number(decodeJwt(extractToken(captured[0].body)).payload.txn);
+        const second = Number(decodeJwt(extractToken(captured[1].body)).payload.txn);
+        expect(second).toBeGreaterThan(first);
+    });
+
+    it("권한 전부 회수는 빈 배열로 전달된다 (키 생략이 아님)", async () => {
+        const config = getRuntimeConfig(makePlatform(mem.env));
+        const key = await getActiveSigningKey(mem.db, tenant.id, config.signingKeySecrets);
+        if (!key) throw new Error("활성 서명키 없음");
+
+        await sendRoleChangeSet({ clientId: CLIENT_ID, roleChangeUri: ROLE_CHANGE_URI }, target.id, [], [], TEST_ISSUER_URL, key.privateKey, key.kid);
+
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        const event = (payload.events as Record<string, unknown>)[ROLE_CHANGE_EVENT] as Record<string, unknown>;
+        // 키가 있어야 RP 가 "전부 회수됨"과 "변경 없음"을 구분할 수 있다.
+        expect("entitlements" in event).toBe(true);
+        expect(event.entitlements).toEqual([]);
     });
 });

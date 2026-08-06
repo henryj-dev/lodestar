@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { mysqlTable, varchar, text, int, boolean, datetime, index, uniqueIndex, type AnyMySqlColumn } from "drizzle-orm/mysql-core";
+import { mysqlTable, varchar, text, int, boolean, datetime, index, uniqueIndex, foreignKey, type AnyMySqlColumn } from "drizzle-orm/mysql-core";
 
 // ---------- Tenancy ----------
 
@@ -551,7 +551,6 @@ export const userServiceAssignments = mysqlTable(
             .notNull()
             .default(sql`(CURRENT_TIMESTAMP(3))`),
         expiresAt: datetime("expires_at", { mode: "date", fsp: 3 }),
-        revokedAt: datetime("revoked_at", { mode: "date", fsp: 3 }),
         createdAt: datetime("created_at", { mode: "date", fsp: 3 })
             .notNull()
             .default(sql`(CURRENT_TIMESTAMP(3))`),
@@ -560,6 +559,87 @@ export const userServiceAssignments = mysqlTable(
         uniqueIndex("user_service_assignments_user_service_uidx").on(t.tenantId, t.userId, t.serviceType, t.serviceRefId),
         index("user_service_assignments_tenant_user_idx").on(t.tenantId, t.userId),
         index("user_service_assignments_tenant_service_idx").on(t.tenantId, t.serviceType, t.serviceRefId),
+    ],
+);
+
+/**
+ * 서비스가 정의하는 권한(entitlement) 키. `groups`(조직 소속)·`roles`(단일 역할)와 직교하는 세 번째 축.
+ * `serviceRoles` 를 본떴으나 두 가지가 다르다:
+ *   - `isDefault` 없음 — 권한의 기본 부여는 "누가 줬는가" 에 답이 없는 권한을 만든다. 전부 명시 부여.
+ *   - `displayOrder` 가 장식이 아니다 — 권한 간 의존(B 를 켜려면 A 도 필요)은 RP 의 의미론이라
+ *     모델에 넣지 않는 대신, 관리 UI 가 이 순서로 체크박스를 세워 관리자에게 안내한다.
+ * serviceRefId 는 oidcClients.id 또는 samlSps.id 를 가리키지만 FK 는 걸지 않는다(serviceRoles 와 동일).
+ */
+export const serviceEntitlements = mysqlTable(
+    "service_entitlements",
+    {
+        id: varchar("id", { length: 64 })
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: varchar("tenant_id", { length: 64 })
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        serviceType: varchar("service_type", { length: 64, enum: ["oidc", "saml"] }).notNull(),
+        serviceRefId: varchar("service_ref_id", { length: 64 }).notNull(),
+        key: varchar("key", { length: 255 }).notNull(),
+        label: varchar("label", { length: 255 }).notNull(),
+        description: text("description"),
+        displayOrder: int("display_order").notNull().default(0),
+        createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+            .notNull()
+            .default(sql`(CURRENT_TIMESTAMP(3))`),
+        updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+            .notNull()
+            .default(sql`(CURRENT_TIMESTAMP(3))`),
+    },
+    (t) => [
+        uniqueIndex("service_entitlements_service_key_uidx").on(t.serviceType, t.serviceRefId, t.key),
+        index("service_entitlements_tenant_service_idx").on(t.tenantId, t.serviceType, t.serviceRefId),
+    ],
+);
+
+/**
+ * 사용자에게 부여된 서비스 권한(다대다). 역할(`roles`)과 직교한다.
+ *
+ * userId/serviceType/serviceRefId 대신 **assignmentId 를 FK 로** 거는 이유:
+ *   - 접근 배정 없이 권한만 가진 상태가 표현 불가능해진다(기본 deny 를 구조로 강제).
+ *   - 배정 회수는 하드 삭제이므로(`revokeAssignment()`) 권한이 그대로 cascade 된다 — 회수 경로에 코드 추가 불필요.
+ *   - 배정의 expiresAt/revokedAt 필터가 `getActiveAssignment()` 에 이미 있어, 배정이 죽으면 권한 조회가 시작되지 않는다.
+ * 대가: 접근을 회수했다가 재부여하면 이전 권한은 복구되지 않는다(새 배정 행 = 새 id). 접근 재부여가
+ * 이전 권한을 조용히 되살리는 것보다 안전하다고 보고 수용한다 — 관리 UI 가 이 점을 명시한다.
+ *
+ * **revokedAt 을 두지 않는다.** userServiceAssignments 의 같은 컬럼은 읽히기만 하고 쓰는 곳이 없는
+ * 죽은 컬럼이다(회수 = 하드 삭제). 같은 것을 복제하지 않고, 회수 이력은 감사 이벤트에 남긴다.
+ */
+export const userServiceEntitlements = mysqlTable(
+    "user_service_entitlements",
+    {
+        id: varchar("id", { length: 64 })
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: varchar("tenant_id", { length: 64 })
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        assignmentId: varchar("assignment_id", { length: 64 }).notNull(),
+        serviceEntitlementId: varchar("service_entitlement_id", { length: 64 }).notNull(),
+        grantedBy: text("granted_by"),
+        grantedAt: datetime("granted_at", { mode: "date", fsp: 3 })
+            .notNull()
+            .default(sql`(CURRENT_TIMESTAMP(3))`),
+        expiresAt: datetime("expires_at", { mode: "date", fsp: 3 }),
+        createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+            .notNull()
+            .default(sql`(CURRENT_TIMESTAMP(3))`),
+    },
+    (t) => [
+        // 이 두 FK 만 `.references()` 대신 명시 이름을 준다. drizzle 자동 이름
+        // (`<table>_<col>_<ftable>_<fcol>_fk`)이 두 긴 테이블명을 이어 붙여 70·75자가 되는데,
+        // **MySQL 은 64자 초과 식별자를 에러로 거부**한다(ER_TOO_LONG_IDENT). PostgreSQL 은
+        // 63자에서 조용히 자를 뿐이라 방언 간 적용 가능성이 갈린다. 이름을 직접 고정한다.
+        foreignKey({ columns: [t.assignmentId], foreignColumns: [userServiceAssignments.id], name: "user_service_entitlements_assignment_fk" }).onDelete("cascade"),
+        foreignKey({ columns: [t.serviceEntitlementId], foreignColumns: [serviceEntitlements.id], name: "user_service_entitlements_entitlement_fk" }).onDelete("cascade"),
+        uniqueIndex("user_service_entitlements_assignment_ent_uidx").on(t.assignmentId, t.serviceEntitlementId),
+        index("user_service_entitlements_tenant_ent_idx").on(t.tenantId, t.serviceEntitlementId),
     ],
 );
 
@@ -1059,5 +1139,31 @@ export type Part = typeof parts.$inferSelect;
 export type UserPart = typeof userParts.$inferSelect;
 export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect;
 export type ClientSkin = typeof clientSkins.$inferSelect;
+/**
+ * IdP 세션 ↔ OIDC 클라이언트 연결 기록. (설명은 schema.pg.ts 참조 — 3방언 동일 정의)
+ */
+export const oidcClientSessions = mysqlTable(
+    "oidc_client_sessions",
+    {
+        id: varchar("id", { length: 64 })
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: varchar("tenant_id", { length: 64 })
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        sessionId: varchar("session_id", { length: 64 })
+            .notNull()
+            .references(() => sessions.id, { onDelete: "cascade" }),
+        clientId: varchar("client_id", { length: 255 }).notNull(),
+        createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+            .notNull()
+            .default(sql`(CURRENT_TIMESTAMP(3))`),
+    },
+    (t) => [uniqueIndex("oidc_client_sessions_session_client_uidx").on(t.sessionId, t.clientId), index("oidc_client_sessions_tenant_session_idx").on(t.tenantId, t.sessionId)],
+);
+
+export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
+export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;
+export type UserServiceEntitlement = typeof userServiceEntitlements.$inferSelect;

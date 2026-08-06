@@ -7,6 +7,7 @@ import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import { buildOtpAuthUri, generateTotpSecret } from "$lib/server/auth/totp";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { credentials, users } from "$lib/server/db/schema";
+import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { translate } from "$lib/i18n/server";
 
 /**
@@ -21,7 +22,7 @@ import { translate } from "$lib/i18n/server";
 export const POST: RequestHandler = async (event) => {
     const { request, locals } = event;
     await requireServiceToken(event);
-    const { db, rateLimitStore } = requireDbContext(locals);
+    const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
     const body = (await request.json().catch(() => null)) as { userId?: string } | null;
     const userId = body?.userId?.trim();
@@ -49,6 +50,18 @@ export const POST: RequestHandler = async (event) => {
     const issuerHost = new URL(issuer).host;
     const username = u.username ?? u.id;
     const otpAuthUri = buildOtpAuthUri(secret, username, issuerHost);
+
+    // TOTP seed 가 발급된 사건. confirm 전이라 크레덴셜은 아직 없지만, 시드가 밖으로 나간 것은
+    // 기록할 가치가 있다 — 유출 조사에서 "언제 누구 것이 발급됐나" 를 묻게 된다.
+    const meta = getRequestMetadata(event);
+    await recordAuditEvent(db, {
+        tenantId: tenant.id,
+        userId: u.id,
+        kind: "service_totp_enroll_started",
+        outcome: "success",
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+    }).catch(() => undefined);
 
     return json({ secret, otpAuthUri, userId: u.id, username });
 };

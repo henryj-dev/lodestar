@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { requireAdminContext } from "$lib/server/auth/guards";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { departments, parts, positions, teams, userDepartments, userParts, userTeams, users } from "$lib/server/db/schema";
-import { adminError, requireFormId } from "$lib/server/admin/errors";
+import { adminError, requireCsrf, requireFormId } from "$lib/server/admin/errors";
 
 // 사용자 상세 페이지의 조직 소속(부서/팀/파트) 배치 액션.
 type UserActionEvent = RequestEvent<{ id: string }, "/admin/users/[id]">;
@@ -15,6 +15,8 @@ export async function addDept(event: UserActionEvent) {
     const { db, tenant } = requireAdminContext(locals);
     const locale = locals.locale;
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const userId = params.id;
     const departmentId = String(fd.get("departmentId") ?? "");
     const positionId = String(fd.get("positionId") ?? "").trim() || null;
@@ -69,6 +71,8 @@ export async function removeDept(event: UserActionEvent) {
     const { locals, params, request } = event;
     const { db, tenant } = requireAdminContext(locals);
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const idr = requireFormId(fd, locals.locale, { field: "membershipId" });
     if (!idr.ok) return idr.failure;
     const membershipId = idr.id;
@@ -101,6 +105,8 @@ export async function addTeam(event: UserActionEvent) {
     const { db, tenant } = requireAdminContext(locals);
     const locale = locals.locale;
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const userId = params.id;
     const teamId = String(fd.get("teamId") ?? "");
     const jobTitle = String(fd.get("jobTitle") ?? "").trim() || null;
@@ -145,6 +151,8 @@ export async function removeTeam(event: UserActionEvent) {
     const { locals, params, request } = event;
     const { db, tenant } = requireAdminContext(locals);
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const idr = requireFormId(fd, locals.locale, { field: "membershipId" });
     if (!idr.ok) return idr.failure;
     const membershipId = idr.id;
@@ -175,6 +183,8 @@ export async function addPart(event: UserActionEvent) {
     const { db, tenant } = requireAdminContext(locals);
     const locale = locals.locale;
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const userId = params.id;
     const partId = String(fd.get("partId") ?? "");
     const jobTitle = String(fd.get("jobTitle") ?? "").trim() || null;
@@ -219,6 +229,8 @@ export async function removePart(event: UserActionEvent) {
     const { locals, params, request } = event;
     const { db, tenant } = requireAdminContext(locals);
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const idr = requireFormId(fd, locals.locale, { field: "membershipId" });
     if (!idr.ok) return idr.failure;
     const membershipId = idr.id;

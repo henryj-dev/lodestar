@@ -113,6 +113,27 @@
       "when": 1784536907934,
       "tag": "0015_rainy_kingpin",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "5",
+      "when": 1785982884701,
+      "tag": "0016_cooing_giant_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1785988956917,
+      "tag": "0017_same_silverclaw",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1785989546516,
+      "tag": "0018_living_colonel_america",
+      "breakpoints": true
     }
   ]
 }
