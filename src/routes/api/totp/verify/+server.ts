@@ -7,6 +7,7 @@ import { decryptTotpSecret, verifyTotp } from "$lib/server/auth/totp";
 import { tryWithSecrets } from "$lib/server/crypto/keys";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { credentials } from "$lib/server/db/schema";
+import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { translate } from "$lib/i18n/server";
 
 /**
@@ -17,7 +18,23 @@ import { translate } from "$lib/i18n/server";
 export const POST: RequestHandler = async (event) => {
     const { request, locals } = event;
     await requireServiceToken(event);
-    const { db, rateLimitStore } = requireDbContext(locals);
+    const { db, tenant, rateLimitStore } = requireDbContext(locals);
+
+    // 이 호출은 호출자(RP)에게 **2단계 검증**이다 — 방화벽 변경 승인 같은 행위의 보상 통제로
+    // 쓰인다. 그런데 requireServiceToken 은 성공 시 조용히 반환하고 여기도 기록이 없어서,
+    // "누구의 OTP 가 언제 검증됐는가" 에 답할 자료가 아예 없었다. 성공·실패 모두 남긴다.
+    // (서비스 토큰이 하나뿐이라 호출자 신원까지는 아직 구분되지 않는다 — 별도 과제.)
+    const meta = getRequestMetadata(event);
+    const audit = (outcome: "success" | "failure", userId: string | null, detail?: Record<string, unknown>) =>
+        recordAuditEvent(db, {
+            tenantId: tenant.id,
+            userId,
+            kind: "service_totp_verified",
+            outcome,
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            detail,
+        }).catch(() => undefined); // 감사 실패가 검증 결과를 바꾸면 안 된다
 
     const config = locals.runtimeConfig;
     if (!config.signingKeySecret) {
@@ -42,7 +59,10 @@ export const POST: RequestHandler = async (event) => {
         .from(credentials)
         .where(and(eq(credentials.userId, userId), eq(credentials.type, TOTP_CREDENTIAL_TYPE)))
         .limit(1);
-    if (!cred || !cred.secret) throw error(404, "TOTP not enrolled");
+    if (!cred || !cred.secret) {
+        await audit("failure", userId, { reason: "not_enrolled" });
+        throw error(404, "TOTP not enrolled");
+    }
 
     const plain = await tryWithSecrets(config.signingKeySecrets, (s) => decryptTotpSecret(cred.secret!, s, userId));
     // ctrls C3: counter 컬럼을 마지막 사용 스텝으로 활용해 코드 재사용을 거부한다
@@ -50,11 +70,13 @@ export const POST: RequestHandler = async (event) => {
     const lastUsedStep = cred.counter ?? undefined;
     const step = await verifyTotp(code, plain, lastUsedStep);
     if (step === null) {
+        await audit("failure", userId, { reason: "invalid_code" });
         return json({ ok: false }, { status: 401 });
     }
 
     const now = new Date();
     await db.update(credentials).set({ lastUsedAt: now, usedAt: now, counter: step }).where(eq(credentials.id, cred.id));
+    await audit("success", userId);
 
     return json({ ok: true, verifiedAt: now.toISOString() });
 };

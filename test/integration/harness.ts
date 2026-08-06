@@ -145,6 +145,8 @@ export interface MakeEventOptions {
     /** application/x-www-form-urlencoded 폼 본문(POST 액션/토큰 엔드포인트용). */
     /** 값에 배열을 주면 같은 이름으로 반복 전송된다(체크박스 그룹 → formData.getAll). */
     form?: Record<string, string | string[]>;
+    /** JSON 본문(service API 등 request.json() 을 쓰는 핸들러용). form 과 함께 쓰지 않는다. */
+    json?: unknown;
     locals: {
         db: DB;
         tenant: Tenant | null;
@@ -178,6 +180,9 @@ export function makeEvent(opts: MakeEventOptions): RequestEvent<never, never> {
         }
         body = params;
         if (!headers.has("content-type")) headers.set("content-type", "application/x-www-form-urlencoded");
+    } else if (opts.json !== undefined) {
+        body = JSON.stringify(opts.json);
+        if (!headers.has("content-type")) headers.set("content-type", "application/json");
     }
     const request = new Request(url.toString(), { method, headers, body });
 
