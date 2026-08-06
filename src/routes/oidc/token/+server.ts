@@ -95,6 +95,11 @@ async function buildTokens(params: BuildTokenParams): Promise<{ idToken: string;
 
     const idTokenPayload: Record<string, unknown> = {
         iss: issuer,
+        // 계약: sub === users.id. 이 동일성에 외부 소비자가 의존한다 —
+        // Service-to-Service TOTP API(`/api/totp/{enroll,verify,status}`)가 받는 `userId` 가
+        // 바로 이 값이고, RP 는 로그인에서 얻은 sub 를 그대로 그 body 에 넣는다.
+        // 불투명 식별자(pairwise 등)로 바꾸려면 그 API 와 RP 연동을 함께 옮겨야 한다.
+        // 그냥 바꾸면 TOTP 검증이 조용히 404(TOTP not enrolled)로 떨어진다.
         sub: user.id,
         aud: clientId,
         azp: clientId,
