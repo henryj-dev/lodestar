@@ -194,7 +194,8 @@ payload 모양은 P3 에서 이미 고정됐고, 여기서는 **언제 쏘는가
 - [x] 권한 미정의 기존 RP 의 토큰 페이로드 무회귀(2-2 수용 기준 — 키 부재 테스트)
 - [x] SET 의 `roles` 키가 기존 형태 그대로(3-1 수용 기준 — 기존 계약 테스트 유지)
 - [x] 마이그레이션은 생성만, 적용은 사용자 실행(pg 적용 완료)
-- [ ] **작성자와 분리된 독립 리뷰 통과** ← 유일한 미완
+- [x] **작성자와 분리된 독립 리뷰 통과** — 코드 리뷰 + 보안 리뷰를 각각 독립으로 받고 지적을 반영했다.
+- [ ] **배포 전 사람 확인 3건** — `DEPLOY-CHECKLIST.md`(컬럼 비어있음·attributesJson 충돌·D1 cascade)
 
 ---
 
@@ -202,18 +203,17 @@ payload 모양은 P3 에서 이미 고정됐고, 여기서는 **언제 쏘는가
 
 heliopause 답신에서 나온 것과, 설계 중 보인 것. **entitlement 와 독립이므로 여기서 하지 않는다.**
 
-- **`isNull(revokedAt)` 죽은 필터**(`service-permissions.ts:49`) — 값이 절대 채워지지 않아 항상 참.
-  안전 검사처럼 보이는 죽은 코드. 필터 제거 또는 소프트 회수 전환 중 택일(PLAN §7).
-- **관리자 강제 로그아웃이 RP 에 도달하지 않음** — `admin/user-actions/security.ts` 의
-  `sessions_revoked` 가 back-channel logout 을 보내지 않는다. 발화점은 사용자 로그아웃 경로 3곳뿐
-  (`oidc/end-session:185` · `(auth)/logout:48` · `saml/slo:58`).
-  heliopause **필요하다고 회답**(답신2). 단 **순서는 당기지 말라**고 명시 — SET 이 더 급하다.
-- **back-channel logout 타깃 탐색이 단명 행에 묶임** ⚠️ 위 항목의 선행 조건. `getOidcBackchannelTargets()`
-  (`oidc/logout.ts:54`)가 `oidcGrants`(수 분 TTL, GC 삭제 — `db/gc.ts:198`) 또는 미폐기
-  `oidcRefreshTokens`(`offline_access` 필요 — `oidc/token/+server.ts:514`)로만 대상을 찾는다.
-  **`offline_access` 를 안 쓰는 RP 는 grant GC 후 도달 불가** — 강제 로그아웃에 배선해도 마찬가지.
-  발화점 추가가 아니라 **내구성 있는 타깃 탐색**이 필요하다(PLAN §7 의 (a)/(b) 후보).
-- **`roles`/`roles_label` 이 예약 클레임 목록에 없음** — `attributesJson` 으로 덮어쓰기 가능.
-  heliopause 가 `roles` 를 표시용으로 계속 쓰겠다고 확정해 **수명이 길어졌다**(답신 Q5).
+- ~~**`isNull(revokedAt)` 죽은 필터**~~ → **해결.** 필터 3곳·load·UI 분기·컬럼까지 제거하고
+  마이그레이션(②)을 만들었다. 적용 전 컬럼이 비어 있는지 확인할 것 — `DEPLOY-CHECKLIST.md` §1.
+- ~~**관리자 강제 로그아웃이 RP 에 도달하지 않음**~~ → **해결.** 주체 단위 타깃 탐색
+  (`getOidcBackchannelTargetsForUser`)을 만들어 배선했다. 배선만으로는 부족했다 — 아래 항목 참조.
+- **back-channel logout 타깃 탐색이 단명 행에 묶임** — **부분 해결.**
+  주체 단위 경로(관리자 강제 로그아웃)는 배정/allowAllUsers 기준 탐색으로 바꿔 단명 행 의존을
+  없앴다. **세션 단위 경로(`end-session` · `(auth)/logout` · `saml/slo`)는 그대로 남아 있다** —
+  그쪽은 세션 하나를 끊는 것이 의도라 `sid` 가 필요하고, 탐색을 넓히면 과다 통지가 된다.
+  제대로 고치려면 토큰 발급 시 (sessionId, clientId)를 남기는 테이블이 필요하다.
+- ~~**`roles`/`roles_label` 이 예약 클레임 목록에 없음**~~ → **해결.** `groups` 까지 함께 예약했다.
+  기존에 그 경로로 클레임을 넣어 쓰던 배정이 있으면 사라지므로 배포 전 확인 필요 —
+  `DEPLOY-CHECKLIST.md` §2.
 - **핸드오프 §3 — `groups` 문서화.** `ADMIN_GUIDE.md:91` scope 표 + `README.md`.
 - **핸드오프 §8 — `sub` 계약 주석.** `token/+server.ts:98` 옆 한 줄.
