@@ -19,9 +19,32 @@ import type { DB } from "$lib/server/db";
 import type { OidcClientRecord } from "$lib/server/oidc/client";
 
 // ID Token 표준 클레임 — assignment.attributesJson 의 키와 충돌 시 표준 클레임이 우선한다.
-// `entitlements` 는 표준 클레임은 아니지만 **인가 판정에 쓰이는 값**이라 여기 넣는다 —
-// attributesJson(자유 입력)이 권한을 덮어쓸 수 있으면 권한 모델 자체가 무의미해진다.
-const RESERVED_ID_TOKEN_CLAIMS = new Set(["iss", "sub", "aud", "azp", "iat", "exp", "auth_time", "jti", "nonce", "sid", "acr", "amr", "at_hash", "c_hash", "entitlements"]);
+//
+// 표준 클레임이 아닌 셋(`entitlements`·`roles`·`roles_label`)도 여기 넣는다. **인가 판정에 쓰이는
+// 값**이기 때문이다 — attributesJson 은 관리 화면의 자유 입력 텍스트인데, 그걸로 권한 클레임을
+// 덮어쓸 수 있으면 권한 모델 자체가 무의미해진다. `roles` 는 원래 빠져 있어서
+// `{"roles":["approver"]}` 한 줄로 실제 역할을 위조할 수 있었다(이 커밋에서 닫는다).
+// `groups` 는 대입 순서상 지금도 덮이지 않지만, 순서에 의존하지 않도록 같이 예약한다.
+const RESERVED_ID_TOKEN_CLAIMS = new Set([
+    "iss",
+    "sub",
+    "aud",
+    "azp",
+    "iat",
+    "exp",
+    "auth_time",
+    "jti",
+    "nonce",
+    "sid",
+    "acr",
+    "amr",
+    "at_hash",
+    "c_hash",
+    "entitlements",
+    "roles",
+    "roles_label",
+    "groups",
+]);
 
 const ACCESS_TOKEN_TTL_S = 300; // 5분
 const ID_TOKEN_TTL_S = 600; // 10분
@@ -153,7 +176,7 @@ async function buildTokens(params: BuildTokenParams): Promise<{ idToken: string;
         // attributesJson 머지 **앞에** 둔다. 뒤에 두면 순서가 우연히 보호해 주는 상태가 되어
         // RESERVED_ID_TOKEN_CLAIMS 가 실제로는 아무 일도 하지 않게 되고, 나중에 이 줄을 옮긴
         // 사람이 위조 경로를 되살릴 수 있다. 앞에 두면 예약 목록이 유일한 방어이고 테스트가 그것을 검증한다.
-        const entitlements = await listActiveEntitlements(db, assignment.id);
+        const entitlements = await listActiveEntitlements(db, assignment, tenantId);
         if (entitlements.length > 0) idTokenPayload.entitlements = entitlements;
 
         const extra = parseAssignmentAttributes(assignment.attributesJson);

@@ -106,13 +106,25 @@ export async function listServiceRoles(
  * 관리자가 읽은 그 순서가 RP 에도 그대로 전달되게 한다.
  * (unique index (assignment_id, service_entitlement_id) 가 있어 중복 제거는 불필요.)
  */
-export async function listActiveEntitlements(db: DB, assignmentId: string): Promise<string[]> {
+export async function listActiveEntitlements(db: DB, assignment: Pick<ActiveAssignment, "id" | "serviceType" | "serviceRefId">, tenantId: string): Promise<string[]> {
     const now = new Date();
     const rows = await db
         .select({ key: serviceEntitlements.key })
         .from(userServiceEntitlements)
         .innerJoin(serviceEntitlements, eq(userServiceEntitlements.serviceEntitlementId, serviceEntitlements.id))
-        .where(and(eq(userServiceEntitlements.assignmentId, assignmentId), or(isNull(userServiceEntitlements.expiresAt), gt(userServiceEntitlements.expiresAt, now))))
+        .where(
+            and(
+                eq(userServiceEntitlements.assignmentId, assignment.id),
+                or(isNull(userServiceEntitlements.expiresAt), gt(userServiceEntitlements.expiresAt, now)),
+                // 읽기 쪽에서도 테넌트와 서비스를 다시 확인한다. 오늘은 쓰기 경로가 하나뿐이고
+                // 거기서 검증하지만, 그 하나가 유일한 방어이면 벌크 임포트·데이터 수정 스크립트·
+                // 나중에 붙을 SAML 부여 경로가 어긋난 쌍을 넣는 순간 **다른 서비스의 권한 키가
+                // 이 서비스의 id_token 에 그대로 실린다.** 읽기 경로가 스스로를 지키게 한다.
+                eq(serviceEntitlements.tenantId, tenantId),
+                eq(serviceEntitlements.serviceType, assignment.serviceType),
+                eq(serviceEntitlements.serviceRefId, assignment.serviceRefId),
+            ),
+        )
         .orderBy(asc(serviceEntitlements.displayOrder), asc(serviceEntitlements.key));
     return rows.map((r) => r.key);
 }

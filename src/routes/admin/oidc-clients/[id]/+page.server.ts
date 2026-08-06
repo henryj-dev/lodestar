@@ -4,7 +4,10 @@ import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import type { DB } from "$lib/server/db";
-import { oidcClients, serviceEntitlements, serviceRoles } from "$lib/server/db/schema";
+import { oidcClients, serviceEntitlements, serviceRoles, userServiceAssignments, userServiceEntitlements } from "$lib/server/db/schema";
+import { isUniqueViolation } from "$lib/server/db/errors";
+import { revokeRefreshTokenFamily } from "$lib/server/oidc/refresh";
+import { emitRoleChangeSet } from "$lib/server/admin/user-actions/service";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
 import { SERVICE_KEY_RE } from "$lib/server/admin/schemas";
 import { ORGANIZATION_CLAIM_FIELDS, type OrganizationClaimConfig } from "$lib/server/oidc/claims";
@@ -190,8 +193,10 @@ export const actions: Actions = {
                 description,
                 displayOrder,
             });
-        } catch {
-            // unique (serviceType, serviceRefId, key)
+        } catch (err) {
+            // unique (serviceType, serviceRefId, key) 만 409 로 매핑한다. 나머지(연결 오류 등)를
+            // 함께 삼키면 실제 장애가 "중복 key" 라는 엉뚱한 메시지로 보인다.
+            if (!isUniqueViolation(err)) throw err;
             return fail(409, { error: adminError(locale, "entitlement_key_exists") });
         }
 
@@ -223,16 +228,50 @@ export const actions: Actions = {
 
         if (!id || !label) return fail(400, { error: adminError(locale, "required_field_missing") });
 
-        await db
-            .update(serviceEntitlements)
-            .set({ label, description, displayOrder, updatedAt: new Date() })
-            .where(and(eq(serviceEntitlements.id, id), eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, "oidc"), eq(serviceEntitlements.serviceRefId, params.id)));
+        const scope = and(eq(serviceEntitlements.id, id), eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, "oidc"), eq(serviceEntitlements.serviceRefId, params.id));
+
+        // 대상이 실제로 이 서비스의 것인지 먼저 확인한다. 없는데도 성공을 돌려주면
+        // 다른 서비스의 id 를 넣어 본 사람이 "되었다" 는 응답을 받는다.
+        const [before] = await db
+            .select({ key: serviceEntitlements.key, label: serviceEntitlements.label, displayOrder: serviceEntitlements.displayOrder })
+            .from(serviceEntitlements)
+            .where(scope)
+            .limit(1);
+        if (!before) return fail(404, { error: adminError(locale, "entitlement_not_found") });
+
+        await db.update(serviceEntitlements).set({ label, description, displayOrder, updatedAt: new Date() }).where(scope);
+
+        // label 과 displayOrder 는 관리자가 부여를 판단하는 근거다(체크박스 옆 설명과 순서).
+        // 조용히 바꿀 수 있으면 "다른 것인 줄 알고 체크했다" 가 성립하므로 변경을 남긴다.
+        const meta = getRequestMetadata(event);
+        await recordAuditEvent(db, {
+            tenantId: tenant.id,
+            actorId: locals.user!.id,
+            spOrClientId: params.id,
+            kind: "service_entitlement_updated",
+            outcome: "success",
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            detail: {
+                serviceType: "oidc",
+                serviceRefId: params.id,
+                entitlementId: id,
+                key: before.key,
+                from: { label: before.label, displayOrder: before.displayOrder },
+                to: { label, displayOrder },
+            },
+        });
 
         return { entitlementUpdated: true };
     },
 
-    // 삭제는 부여된 사용자 권한까지 cascade 로 지운다(user_service_entitlements FK).
-    // role 삭제가 매핑을 null 로 두는 것과 다르므로 UI 경고 문구도 다르게 간다.
+    // 정의를 지우면 그 권한을 부여받은 **모든 사용자**의 권한이 cascade 로 사라진다.
+    // 즉 이것은 대량 회수이므로, 개별 회수(setAssignmentEntitlements)가 하는 세 가지를 여기서도 한다:
+    //   1. 보유자별 감사 — revokedAt 컬럼을 두지 않았으므로 이력이 남는 곳은 감사뿐이다. 정의 행이
+    //      지워지면 id→key 매핑이 사라지므로 **key 를 먼저 읽어** 기록한다(id 만 남기면
+    //      "누가 그 권한을 갖고 있었나" 에 영영 답할 수 없다).
+    //   2. refresh family 폐기 — 정책 C 의 "제거" 에 해당한다.
+    //   3. SET 발행 — 자체 세션을 쓰는 RP 에게는 이것이 유일한 회수 수단이다.
     deleteEntitlement: async (event) => {
         const { locals, params } = event;
         const { db, tenant } = requireAdminContext(locals);
@@ -242,9 +281,20 @@ export const actions: Actions = {
         if (!idr.ok) return idr.failure;
         const id = idr.id;
 
-        await db
-            .delete(serviceEntitlements)
-            .where(and(eq(serviceEntitlements.id, id), eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, "oidc"), eq(serviceEntitlements.serviceRefId, params.id)));
+        const scope = and(eq(serviceEntitlements.id, id), eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, "oidc"), eq(serviceEntitlements.serviceRefId, params.id));
+
+        // 삭제 전에 key 와 영향받는 사용자를 확보한다 — 삭제 후에는 둘 다 복원 불가.
+        const [ent] = await db.select({ key: serviceEntitlements.key }).from(serviceEntitlements).where(scope).limit(1);
+        if (!ent) return fail(404, { error: adminError(locale, "entitlement_not_found") });
+
+        const affected = await db
+            .select({ userId: userServiceAssignments.userId })
+            .from(userServiceEntitlements)
+            .innerJoin(userServiceAssignments, eq(userServiceEntitlements.assignmentId, userServiceAssignments.id))
+            .where(eq(userServiceEntitlements.serviceEntitlementId, id));
+        const affectedUserIds = [...new Set(affected.map((a) => a.userId))];
+
+        await db.delete(serviceEntitlements).where(scope);
 
         const meta = getRequestMetadata(event);
         await recordAuditEvent(db, {
@@ -255,10 +305,32 @@ export const actions: Actions = {
             outcome: "success",
             ip: meta.ip,
             userAgent: meta.userAgent,
-            detail: { serviceType: "oidc", serviceRefId: params.id, entitlementId: id },
+            detail: { serviceType: "oidc", serviceRefId: params.id, entitlementId: id, key: ent.key, affectedUsers: affectedUserIds.length },
         });
 
-        return { entitlementDeleted: true };
+        const [client] = await db
+            .select({ clientId: oidcClients.clientId })
+            .from(oidcClients)
+            .where(and(eq(oidcClients.id, params.id), eq(oidcClients.tenantId, tenant.id)))
+            .limit(1);
+
+        for (const userId of affectedUserIds) {
+            await recordAuditEvent(db, {
+                tenantId: tenant.id,
+                userId,
+                actorId: locals.user!.id,
+                spOrClientId: params.id,
+                kind: "user_entitlement_revoked",
+                outcome: "success",
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                detail: { serviceType: "oidc", serviceRefId: params.id, entitlementKey: ent.key, cause: "definition_deleted" },
+            });
+            if (client) await revokeRefreshTokenFamily(db, tenant.id, userId, client.clientId);
+            await emitRoleChangeSet(event, db, tenant.id, userId, "oidc", params.id);
+        }
+
+        return { entitlementDeleted: true, affectedUsers: affectedUserIds.length };
     },
 
     deleteRole: async (event) => {

@@ -1,10 +1,11 @@
 import { fail } from "@sveltejs/kit";
 import type { RequestEvent } from "@sveltejs/kit";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { requireAdminContext, assertUserInTenant } from "$lib/server/auth/guards";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { oidcClients, samlSps, serviceEntitlements, serviceRoles, userServiceAssignments, userServiceEntitlements } from "$lib/server/db/schema";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
+import { isUniqueViolation } from "$lib/server/db/errors";
 import type { DB } from "$lib/server/db";
 import { getActiveAssignment, listActiveEntitlements } from "$lib/server/access/service-permissions";
 import { getActiveSigningKey } from "$lib/server/crypto/keys";
@@ -32,7 +33,7 @@ type UserActionEvent = RequestEvent<{ id: string }, "/admin/users/[id]">;
  * serviceType !== 'oidc' 이거나, role_change_uri 미설정 클라이언트, 서명키/issuer 미비 등에서는
  * 조용히 skip 한다. 전송/조립 오류는 삼킨다(재시도 없음, back-channel logout 과 동일).
  */
-async function emitRoleChangeSet(event: UserActionEvent, db: DB, tenantId: string, userId: string, serviceType: string, serviceRefId: string): Promise<void> {
+export async function emitRoleChangeSet(event: RequestEvent, db: DB, tenantId: string, userId: string, serviceType: string, serviceRefId: string): Promise<void> {
     if (serviceType !== "oidc") return;
     try {
         const { locals, url, platform } = event;
@@ -46,7 +47,7 @@ async function emitRoleChangeSet(event: UserActionEvent, db: DB, tenantId: strin
         // 배정이 사라졌으면 둘 다 [] — RP 는 그것을 "전부 회수됨"으로 읽는다.
         const assignment = await getActiveAssignment(db, { tenantId, userId, serviceType: "oidc", serviceRefId });
         const roles = assignment?.role ? [assignment.role.key] : [];
-        const entitlements = assignment ? await listActiveEntitlements(db, assignment.id) : [];
+        const entitlements = assignment ? await listActiveEntitlements(db, assignment, tenantId) : [];
 
         const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
         const signingKey = await getActiveSigningKey(db, tenantId, signingKeySecrets);
@@ -277,10 +278,49 @@ export async function updateAssignmentExpiry(event: UserActionEvent) {
         expiresAt = d;
     }
 
-    await db
-        .update(userServiceAssignments)
-        .set({ expiresAt })
-        .where(and(eq(userServiceAssignments.id, assignmentId), eq(userServiceAssignments.userId, params.id), eq(userServiceAssignments.tenantId, tenant.id)));
+    const scope = and(eq(userServiceAssignments.id, assignmentId), eq(userServiceAssignments.userId, params.id), eq(userServiceAssignments.tenantId, tenant.id));
+
+    const [before] = await db
+        .select({ serviceType: userServiceAssignments.serviceType, serviceRefId: userServiceAssignments.serviceRefId, expiresAt: userServiceAssignments.expiresAt })
+        .from(userServiceAssignments)
+        .where(scope)
+        .limit(1);
+    if (!before) return fail(404, { error: adminError(locale, "assignment_not_found") });
+
+    await db.update(userServiceAssignments).set({ expiresAt }).where(scope);
+
+    // **만료 변경은 인가 변경이다.** 과거로 당기면 roles·entitlements 가 전부 사라지고, 미래로
+    // 밀면 만료됐던 배정과 **그 배정에 남아 있던 권한이 통째로 되살아난다**(권한 행은 배정 행에
+    // FK 로 매달려 있고 이 경로는 행을 지우지 않는다). 어느 쪽이든 RP 가 알아야 한다.
+    const now = Date.now();
+    const wasActive = before.expiresAt === null || before.expiresAt.getTime() > now;
+    const isActive = expiresAt === null || expiresAt.getTime() > now;
+
+    const meta = getRequestMetadata(event);
+    await recordAuditEvent(db, {
+        tenantId: tenant.id,
+        userId: params.id,
+        actorId: locals.user!.id,
+        spOrClientId: before.serviceRefId,
+        kind: "service_assignment_expiry_updated",
+        outcome: "success",
+        ip: meta.ip,
+        userAgent: meta.userAgent,
+        detail: { assignmentId, from: before.expiresAt?.toISOString() ?? null, to: expiresAt?.toISOString() ?? null, wasActive, isActive },
+    });
+
+    // 활성 → 비활성은 회수다. 정책 C 의 "제거" 와 같이 refresh family 도 폐기한다.
+    if (wasActive && !isActive && before.serviceType === "oidc") {
+        const [oc] = await db
+            .select({ clientId: oidcClients.clientId })
+            .from(oidcClients)
+            .where(and(eq(oidcClients.id, before.serviceRefId), eq(oidcClients.tenantId, tenant.id)))
+            .limit(1);
+        if (oc) await revokeRefreshTokenFamily(db, tenant.id, params.id, oc.clientId);
+    }
+    if (wasActive !== isActive) {
+        await emitRoleChangeSet(event, db, tenant.id, params.id, before.serviceType, before.serviceRefId);
+    }
 
     return { updatedExpiry: true };
 }
@@ -315,7 +355,17 @@ export async function setAssignmentEntitlements(event: UserActionEvent) {
     const [assignment] = await db
         .select({ id: userServiceAssignments.id, serviceType: userServiceAssignments.serviceType, serviceRefId: userServiceAssignments.serviceRefId })
         .from(userServiceAssignments)
-        .where(and(eq(userServiceAssignments.id, assignmentId), eq(userServiceAssignments.userId, userId), eq(userServiceAssignments.tenantId, tenant.id)))
+        .where(
+            and(
+                eq(userServiceAssignments.id, assignmentId),
+                eq(userServiceAssignments.userId, userId),
+                eq(userServiceAssignments.tenantId, tenant.id),
+                // 읽기 경로(getActiveAssignment)와 같은 활성 조건을 쓴다. 이게 없으면 만료·회수된
+                // 배정에 권한을 미리 적재해 둘 수 있고, 나중에 만료가 연장되는 순간 통지 없이 살아난다.
+                isNull(userServiceAssignments.revokedAt),
+                or(isNull(userServiceAssignments.expiresAt), gt(userServiceAssignments.expiresAt, new Date())),
+            ),
+        )
         .limit(1);
     if (!assignment) return fail(404, { error: adminError(locale, "assignment_not_found") });
 
@@ -347,15 +397,22 @@ export async function setAssignmentEntitlements(event: UserActionEvent) {
     const toRemove = [...currentIds].filter((id) => !requestedIds.has(id));
 
     if (toAdd.length > 0) {
-        await db.insert(userServiceEntitlements).values(
-            toAdd.map((serviceEntitlementId) => ({
-                id: crypto.randomUUID(),
-                tenantId: tenant.id,
-                assignmentId,
-                serviceEntitlementId,
-                grantedBy: locals.user!.id,
-            })),
-        );
+        try {
+            await db.insert(userServiceEntitlements).values(
+                toAdd.map((serviceEntitlementId) => ({
+                    id: crypto.randomUUID(),
+                    tenantId: tenant.id,
+                    assignmentId,
+                    serviceEntitlementId,
+                    grantedBy: locals.user!.id,
+                })),
+            );
+        } catch (err) {
+            // diff 는 직전 읽기 기준이라 동시 제출(더블클릭/두 관리자)이면 unique 위반이 난다.
+            // addAssignment 와 같이 409 로 돌려주고, 삭제는 아직 실행하지 않았으므로 부분 적용도 없다.
+            if (!isUniqueViolation(err)) throw err;
+            return fail(409, { error: adminError(locale, "entitlement_conflict") });
+        }
     }
     if (toRemove.length > 0) {
         await db.delete(userServiceEntitlements).where(and(eq(userServiceEntitlements.assignmentId, assignmentId), inArray(userServiceEntitlements.serviceEntitlementId, toRemove)));
