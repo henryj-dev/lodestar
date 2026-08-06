@@ -3,16 +3,18 @@
  *
  * Back-channel (BC):
  *   - IdP POSTs signed logout_token (JWT) to clients' `backchannel_logout_uri`.
- *   - Target set = clients with an active grant or refresh-token bound to this IdP session.
+ *   - 세션 단위 target set = 이 IdP 세션에 묶인 grant/refresh_token 이 있는 클라이언트.
+ *   - **주체 단위** target set(`getOidcBackchannelTargetsForUser`) = 이 사용자가 접근 가능한
+ *     클라이언트 전부. 관리자 강제 로그아웃처럼 세션 하나가 아니라 사용자를 대상으로 할 때 쓴다.
  *
  * Front-channel (FC):
  *   - IdP renders <iframe src=<frontchannel_logout_uri>?iss=...&sid=...> for each client.
  *   - Same target-set strategy as BC.
  */
 
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, gt, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
-import { oidcClients, oidcGrants, oidcRefreshTokens } from "$lib/server/db/schema";
+import { oidcClients, oidcGrants, oidcRefreshTokens, userServiceAssignments } from "$lib/server/db/schema";
 import { signJwt } from "$lib/server/crypto/keys";
 import { isForbiddenWebhookHost, assertResolvedHostAllowed } from "$lib/server/validation";
 
@@ -72,6 +74,69 @@ export async function getOidcBackchannelTargets(db: DB, tenantId: string, sessio
         })
         .from(oidcClients)
         .where(and(eq(oidcClients.tenantId, tenantId), inArray(oidcClients.clientId, clientIds), eq(oidcClients.enabled, true), isNotNull(oidcClients.backchannelLogoutUri)));
+
+    const targets: BackchannelTarget[] = [];
+    for (const row of rows) {
+        if (!row.backchannelLogoutUri) continue;
+        targets.push({
+            clientId: row.clientId,
+            backchannelLogoutUri: row.backchannelLogoutUri,
+            backchannelLogoutSessionRequired: row.backchannelLogoutSessionRequired,
+        });
+    }
+    return targets;
+}
+
+/**
+ * **주체 단위** back-channel logout 타깃 — 이 사용자가 접근 가능한 모든 OIDC 클라이언트 중
+ * backchannel_logout_uri 가 설정된 것.
+ *
+ * 세션 단위(`getOidcBackchannelTargets`)와 달리 **단명 행에 의존하지 않는다.** 그쪽은 대상을
+ * `oidcGrants`(authorization code, 수 분 TTL — GC 가 삭제한다) 또는 미폐기 `oidcRefreshTokens`
+ * (`offline_access` scope 가 있어야 발급)로만 찾기 때문에, **offline_access 를 쓰지 않고 자체
+ * 세션을 오래 유지하는 RP 는 grant 가 GC 된 뒤 아예 탐색되지 않는다.** 관리자 강제 로그아웃처럼
+ * "이 사용자를 지금 전부 로그아웃시킨다" 는 의도에는 그 탐색이 맞지 않는다.
+ *
+ * 대신 SSO 게이트와 같은 기준을 쓴다 — 사용자가 클라이언트에 로그인할 수 있는 경로는 둘뿐이다:
+ *   1. 활성 서비스 배정(`user_service_assignments`)이 있거나
+ *   2. 클라이언트가 `allowAllUsers` 라 배정 없이도 허용되거나
+ * 따라서 이 둘의 합집합이 "세션이 있을 수 있는 클라이언트" 전부를 덮는다.
+ *
+ * 세션을 실제로 가진 적 없는 클라이언트에도 갈 수 있는데, 그 경우 RP 는 없는 세션을 끊으려다
+ * no-op 이 된다(OIDC BC logout 규격상 허용). 못 보내는 것보다 낫다.
+ */
+export async function getOidcBackchannelTargetsForUser(db: DB, tenantId: string, userId: string): Promise<BackchannelTarget[]> {
+    const now = new Date();
+    const assigned = await db
+        .select({ serviceRefId: userServiceAssignments.serviceRefId })
+        .from(userServiceAssignments)
+        .where(
+            and(
+                eq(userServiceAssignments.tenantId, tenantId),
+                eq(userServiceAssignments.userId, userId),
+                eq(userServiceAssignments.serviceType, "oidc"),
+                isNull(userServiceAssignments.revokedAt),
+                or(isNull(userServiceAssignments.expiresAt), gt(userServiceAssignments.expiresAt, now)),
+            ),
+        );
+    const assignedDbIds = assigned.map((a) => a.serviceRefId);
+
+    // 배정 대상(oidcClients.id) 이거나 allowAllUsers 인 클라이언트.
+    const rows = await db
+        .select({
+            clientId: oidcClients.clientId,
+            backchannelLogoutUri: oidcClients.backchannelLogoutUri,
+            backchannelLogoutSessionRequired: oidcClients.backchannelLogoutSessionRequired,
+        })
+        .from(oidcClients)
+        .where(
+            and(
+                eq(oidcClients.tenantId, tenantId),
+                eq(oidcClients.enabled, true),
+                isNotNull(oidcClients.backchannelLogoutUri),
+                assignedDbIds.length > 0 ? or(eq(oidcClients.allowAllUsers, true), inArray(oidcClients.id, assignedDbIds)) : eq(oidcClients.allowAllUsers, true),
+            ),
+        );
 
     const targets: BackchannelTarget[] = [];
     for (const row of rows) {
