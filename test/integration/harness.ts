@@ -32,9 +32,11 @@ import {
     identityProviders,
     oidcClients,
     samlSps,
+    serviceEntitlements,
     sessions,
     tenants,
     userServiceAssignments,
+    userServiceEntitlements,
     users,
     type IdentityProvider,
     type SamlSp,
@@ -292,14 +294,49 @@ export async function seedOidcClient(db: DB, opts: SeedOidcClientOptions): Promi
     return row!;
 }
 
-/** 유저에게 서비스(OIDC/SAML) 접근 권한을 부여한다(기본 deny 를 통과시키기 위함). */
-export async function seedServiceAssignment(db: DB, args: { tenantId: string; userId: string; serviceType: "oidc" | "saml"; serviceRefId: string }): Promise<void> {
+/**
+ * 유저에게 서비스(OIDC/SAML) 접근 권한을 부여한다(기본 deny 를 통과시키기 위함).
+ * 생성된 assignment id 를 돌려준다 — entitlement 부여가 이 id 를 FK 로 참조한다.
+ */
+export async function seedServiceAssignment(db: DB, args: { tenantId: string; userId: string; serviceType: "oidc" | "saml"; serviceRefId: string; attributesJson?: string }): Promise<string> {
+    const id = crypto.randomUUID();
     await db.insert(userServiceAssignments).values({
-        id: crypto.randomUUID(),
+        id,
         tenantId: args.tenantId,
         userId: args.userId,
         serviceType: args.serviceType,
         serviceRefId: args.serviceRefId,
+        attributesJson: args.attributesJson ?? null,
+    });
+    return id;
+}
+
+/** 서비스가 정의하는 권한(entitlement) 키를 하나 만든다. 생성된 id 를 돌려준다. */
+export async function seedServiceEntitlement(
+    db: DB,
+    args: { tenantId: string; serviceType: "oidc" | "saml"; serviceRefId: string; key: string; label?: string; displayOrder?: number },
+): Promise<string> {
+    const id = crypto.randomUUID();
+    await db.insert(serviceEntitlements).values({
+        id,
+        tenantId: args.tenantId,
+        serviceType: args.serviceType,
+        serviceRefId: args.serviceRefId,
+        key: args.key,
+        label: args.label ?? args.key,
+        displayOrder: args.displayOrder ?? 0,
+    });
+    return id;
+}
+
+/** 배정에 권한을 부여한다. expiresAt 을 과거로 주면 만료된 부여를 만들 수 있다. */
+export async function grantEntitlement(db: DB, args: { tenantId: string; assignmentId: string; serviceEntitlementId: string; expiresAt?: Date }): Promise<void> {
+    await db.insert(userServiceEntitlements).values({
+        id: crypto.randomUUID(),
+        tenantId: args.tenantId,
+        assignmentId: args.assignmentId,
+        serviceEntitlementId: args.serviceEntitlementId,
+        expiresAt: args.expiresAt ?? null,
     });
 }
 

@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
-import { serviceRoles, userServiceAssignments } from "$lib/server/db/schema";
+import { serviceEntitlements, serviceRoles, userServiceAssignments, userServiceEntitlements } from "$lib/server/db/schema";
 
 export type ServiceType = "oidc" | "saml";
 
@@ -93,6 +93,28 @@ export async function listServiceRoles(
         .where(and(eq(serviceRoles.tenantId, args.tenantId), eq(serviceRoles.serviceType, args.serviceType), eq(serviceRoles.serviceRefId, args.serviceRefId)))
         .orderBy(asc(serviceRoles.displayOrder), asc(serviceRoles.key));
     return rows;
+}
+
+/**
+ * 배정에 부여된 **활성 권한(entitlement) 키** 목록. `roles` 와 직교하는 축이다.
+ *
+ * 만료된 부여는 제외한다 — `getActiveAssignment()` 의 expiresAt 필터와 같은 시맨틱.
+ * 배정 자체의 유효성(revoked/expired)은 호출 전에 `getActiveAssignment()` 로 판정된 것을
+ * 전제한다. 배정 행이 사라지면 FK cascade 로 권한 행도 함께 사라지므로 여기서 재검증하지 않는다.
+ *
+ * 정렬은 displayOrder → key. 관리 UI 의 체크박스 순서와 클레임 순서를 일치시켜, 권한 간 의존을
+ * 관리자가 읽은 그 순서가 RP 에도 그대로 전달되게 한다.
+ * (unique index (assignment_id, service_entitlement_id) 가 있어 중복 제거는 불필요.)
+ */
+export async function listActiveEntitlements(db: DB, assignmentId: string): Promise<string[]> {
+    const now = new Date();
+    const rows = await db
+        .select({ key: serviceEntitlements.key })
+        .from(userServiceEntitlements)
+        .innerJoin(serviceEntitlements, eq(userServiceEntitlements.serviceEntitlementId, serviceEntitlements.id))
+        .where(and(eq(userServiceEntitlements.assignmentId, assignmentId), or(isNull(userServiceEntitlements.expiresAt), gt(userServiceEntitlements.expiresAt, now))))
+        .orderBy(asc(serviceEntitlements.displayOrder), asc(serviceEntitlements.key));
+    return rows.map((r) => r.key);
 }
 
 /**

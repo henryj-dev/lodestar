@@ -12,14 +12,16 @@ import { findAndConsumeGrant } from "$lib/server/oidc/grant";
 import { verifyPkce } from "$lib/server/oidc/pkce";
 import { issueRefreshToken, rotateRefreshToken, revokeRefreshTokenFamily } from "$lib/server/oidc/refresh";
 import { generateAccessToken, getActiveSigningKey, signJwt } from "$lib/server/crypto/keys";
-import { getActiveAssignment, hasServiceAccess, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
+import { getActiveAssignment, hasServiceAccess, listActiveEntitlements, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
 import { getUserMembership, membershipToGroups } from "$lib/server/org/membership";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import type { DB } from "$lib/server/db";
 import type { OidcClientRecord } from "$lib/server/oidc/client";
 
 // ID Token 표준 클레임 — assignment.attributesJson 의 키와 충돌 시 표준 클레임이 우선한다.
-const RESERVED_ID_TOKEN_CLAIMS = new Set(["iss", "sub", "aud", "azp", "iat", "exp", "auth_time", "jti", "nonce", "sid", "acr", "amr", "at_hash", "c_hash"]);
+// `entitlements` 는 표준 클레임은 아니지만 **인가 판정에 쓰이는 값**이라 여기 넣는다 —
+// attributesJson(자유 입력)이 권한을 덮어쓸 수 있으면 권한 모델 자체가 무의미해진다.
+const RESERVED_ID_TOKEN_CLAIMS = new Set(["iss", "sub", "aud", "azp", "iat", "exp", "auth_time", "jti", "nonce", "sid", "acr", "amr", "at_hash", "c_hash", "entitlements"]);
 
 const ACCESS_TOKEN_TTL_S = 300; // 5분
 const ID_TOKEN_TTL_S = 600; // 10분
@@ -144,6 +146,16 @@ async function buildTokens(params: BuildTokenParams): Promise<{ idToken: string;
         idTokenPayload.roles_label = assignment.role.label;
     }
     if (assignment) {
+        // entitlement 클레임 — roles 와 직교하는 권한 축. scope 게이트가 없다(roles 와 동일 규칙,
+        // groups/organization 과 다름). **0개면 키를 아예 넣지 않는다** — 빈 배열도 넣지 않으므로
+        // entitlement 를 정의하지 않은 기존 RP 의 페이로드는 키 단위로 변경 전과 동일하다.
+        //
+        // attributesJson 머지 **앞에** 둔다. 뒤에 두면 순서가 우연히 보호해 주는 상태가 되어
+        // RESERVED_ID_TOKEN_CLAIMS 가 실제로는 아무 일도 하지 않게 되고, 나중에 이 줄을 옮긴
+        // 사람이 위조 경로를 되살릴 수 있다. 앞에 두면 예약 목록이 유일한 방어이고 테스트가 그것을 검증한다.
+        const entitlements = await listActiveEntitlements(db, assignment.id);
+        if (entitlements.length > 0) idTokenPayload.entitlements = entitlements;
+
         const extra = parseAssignmentAttributes(assignment.attributesJson);
         for (const [k, v] of Object.entries(extra)) {
             if (RESERVED_ID_TOKEN_CLAIMS.has(k)) continue;
