@@ -22,6 +22,19 @@ import { z } from "zod";
  */
 export const SERVICE_KEY_RE = /^[A-Za-z0-9_.-]{1,64}$/;
 
+/**
+ * entitlement key 정규화 — 소문자로 낮춘다.
+ *
+ * 유니크 인덱스에 collation 을 지정하지 않아 방언마다 대소문자 취급이 다르다: MySQL 기본
+ * collation 은 대소문자를 구분하지 않아 `Site.Read` 가 `site.read` 와 충돌(409)하지만,
+ * PostgreSQL·SQLite 는 서로 다른 행으로 받아들이고 **둘 다 클레임 배열에 실린다.**
+ * 인가에 쓰이는 값이 방언에 따라 달라지면 안 되므로 입력 시점에 하나로 모은다.
+ * (role key 는 기존 데이터가 있을 수 있어 건드리지 않는다 — 클레임 의미가 이미 표시용이다.)
+ */
+export function normalizeEntitlementKey(raw: string): string {
+    return raw.trim().toLowerCase();
+}
+
 /** 필수 텍스트: trim 후 최소 1자. 값 미존재(undefined)/빈값 모두 같은 메시지. */
 export const requiredText = (message: string) => z.string(message).trim().min(1, message);
 

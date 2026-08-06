@@ -549,7 +549,6 @@ export const userServiceAssignments = sqliteTable(
             .notNull()
             .default(sql`(unixepoch() * 1000)`),
         expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
-        revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
         createdAt: integer("created_at", { mode: "timestamp_ms" })
             .notNull()
             .default(sql`(unixepoch() * 1000)`),

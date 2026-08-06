@@ -239,6 +239,13 @@
       "when": 1785982883688,
       "tag": "0033_colossal_bloodaxe",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1785988956087,
+      "tag": "0034_jazzy_spitfire",
+      "breakpoints": true
     }
   ]
 }

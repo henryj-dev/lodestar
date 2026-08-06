@@ -3,7 +3,7 @@ import { desc, eq, and } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
-import { oidcClients } from "$lib/server/db/schema";
+import { oidcClients, serviceEntitlements, serviceRoles } from "$lib/server/db/schema";
 import { hashClientSecret } from "$lib/server/oidc/client";
 import { ensureCsrfToken, isValidCsrf } from "$lib/server/auth/csrf";
 import { isLoopbackHost, validateWebhookUrl } from "$lib/server/validation";
@@ -367,6 +367,13 @@ export const actions: Actions = {
         const id = idr.id;
 
         await db.delete(oidcClients).where(and(eq(oidcClients.id, id), eq(oidcClients.tenantId, tenant.id)));
+
+        // serviceRoles / serviceEntitlements 는 serviceRefId 로 클라이언트를 가리키지만 FK 는 걸지
+        // 않는다(oidcClients / samlSps 둘 중 하나라 걸 수 없다). 그래서 클라이언트를 지워도 정의가
+        // 남는다 — 여기서 정리하지 않으면 두 테이블이 계속 자란다. entitlement 정의가 사라지면
+        // 부여 행은 FK cascade 로 함께 사라진다.
+        await db.delete(serviceEntitlements).where(and(eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, "oidc"), eq(serviceEntitlements.serviceRefId, id)));
+        await db.delete(serviceRoles).where(and(eq(serviceRoles.tenantId, tenant.id), eq(serviceRoles.serviceType, "oidc"), eq(serviceRoles.serviceRefId, id)));
 
         const requestMetadata = getRequestMetadata(event);
         await recordAuditEvent(db, {

@@ -21,8 +21,12 @@ export interface ActiveAssignment {
 }
 
 /**
- * 사용자의 서비스 매핑(활성) 1개 조회. revokedAt 이 null 이고 expiresAt 이 미래(또는 null)인 row 만.
+ * 사용자의 서비스 매핑(활성) 1개 조회. expiresAt 이 미래(또는 null)인 row 만.
  * role 정보는 left join 으로 같이 가져온다 (role 미지정도 허용).
+ *
+ * 회수는 행을 지운다(`revokeAssignment`) — 소프트 회수 컬럼은 없다. 예전에는 여기에
+ * `isNull(revokedAt)` 필터가 있었지만 그 컬럼을 쓰는 코드가 하나도 없어 조건이 항상 참이었고,
+ * "회수된 배정은 걸러진다" 고 읽히는 죽은 안전장치였다. 실제로 거르는 것은 하드 삭제다.
  */
 export async function getActiveAssignment(db: DB, query: ServicePermissionQuery): Promise<ActiveAssignment | null> {
     const now = new Date();
@@ -46,7 +50,6 @@ export async function getActiveAssignment(db: DB, query: ServicePermissionQuery)
                 eq(userServiceAssignments.userId, query.userId),
                 eq(userServiceAssignments.serviceType, query.serviceType),
                 eq(userServiceAssignments.serviceRefId, query.serviceRefId),
-                isNull(userServiceAssignments.revokedAt),
                 or(isNull(userServiceAssignments.expiresAt), gt(userServiceAssignments.expiresAt, now)),
             ),
         )

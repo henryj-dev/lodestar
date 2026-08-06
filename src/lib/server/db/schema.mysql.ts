@@ -551,7 +551,6 @@ export const userServiceAssignments = mysqlTable(
             .notNull()
             .default(sql`(CURRENT_TIMESTAMP(3))`),
         expiresAt: datetime("expires_at", { mode: "date", fsp: 3 }),
-        revokedAt: datetime("revoked_at", { mode: "date", fsp: 3 }),
         createdAt: datetime("created_at", { mode: "date", fsp: 3 })
             .notNull()
             .default(sql`(CURRENT_TIMESTAMP(3))`),

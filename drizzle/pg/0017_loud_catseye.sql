@@ -1,0 +1,1 @@
+ALTER TABLE "user_service_assignments" DROP COLUMN "revoked_at";

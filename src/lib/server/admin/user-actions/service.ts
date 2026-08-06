@@ -7,6 +7,7 @@ import { oidcClients, samlSps, serviceEntitlements, serviceRoles, userServiceAss
 import { adminError, requireFormId } from "$lib/server/admin/errors";
 import { isUniqueViolation } from "$lib/server/db/errors";
 import type { DB } from "$lib/server/db";
+import { runAtomic } from "$lib/server/db/atomic";
 import { getActiveAssignment, listActiveEntitlements } from "$lib/server/access/service-permissions";
 import { getActiveSigningKey } from "$lib/server/crypto/keys";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
@@ -199,7 +200,9 @@ export async function addAssignment(event: UserActionEvent) {
         outcome: "success",
         ip: meta.ip,
         userAgent: meta.userAgent,
-        detail: { serviceType, serviceRefId, serviceRoleId, expiresAt },
+        // attributesJson 은 토큰 클레임으로 머지되는 값이다 — 무엇을 넣었는지 남기지 않으면
+        // 클레임을 바꾸고도 흔적이 남지 않는 경로가 된다.
+        detail: { serviceType, serviceRefId, serviceRoleId, expiresAt, attributesJson },
     });
 
     // role 변경을 대상 RP 에 push (oidc + role_change_uri 설정 시). 변경 후 active role 스냅샷.
@@ -362,7 +365,6 @@ export async function setAssignmentEntitlements(event: UserActionEvent) {
                 eq(userServiceAssignments.tenantId, tenant.id),
                 // 읽기 경로(getActiveAssignment)와 같은 활성 조건을 쓴다. 이게 없으면 만료·회수된
                 // 배정에 권한을 미리 적재해 둘 수 있고, 나중에 만료가 연장되는 순간 통지 없이 살아난다.
-                isNull(userServiceAssignments.revokedAt),
                 or(isNull(userServiceAssignments.expiresAt), gt(userServiceAssignments.expiresAt, new Date())),
             ),
         )
@@ -396,9 +398,13 @@ export async function setAssignmentEntitlements(event: UserActionEvent) {
     const toAdd = requested.filter((id) => !currentIds.has(id));
     const toRemove = [...currentIds].filter((id) => !requestedIds.has(id));
 
+    // 추가와 삭제를 원자적으로 적용한다. 따로 실행하면 사이에서 실패했을 때 절반만 반영된 채
+    // 감사와 SET 이 실행되지 않아 DB 와 RP 가 어긋나고, 그 사실이 어디에도 남지 않는다.
+    // runAtomic 이 d1/sqlite=batch, postgres/mysql=transaction 분기를 흡수한다.
+    const writes: ((h: Pick<DB, "insert" | "delete">) => unknown)[] = [];
     if (toAdd.length > 0) {
-        try {
-            await db.insert(userServiceEntitlements).values(
+        writes.push((h) =>
+            h.insert(userServiceEntitlements).values(
                 toAdd.map((serviceEntitlementId) => ({
                     id: crypto.randomUUID(),
                     tenantId: tenant.id,
@@ -406,16 +412,21 @@ export async function setAssignmentEntitlements(event: UserActionEvent) {
                     serviceEntitlementId,
                     grantedBy: locals.user!.id,
                 })),
-            );
+            ),
+        );
+    }
+    if (toRemove.length > 0) {
+        writes.push((h) => h.delete(userServiceEntitlements).where(and(eq(userServiceEntitlements.assignmentId, assignmentId), inArray(userServiceEntitlements.serviceEntitlementId, toRemove))));
+    }
+    if (writes.length > 0) {
+        try {
+            await runAtomic(db, writes as Parameters<typeof runAtomic>[1]);
         } catch (err) {
             // diff 는 직전 읽기 기준이라 동시 제출(더블클릭/두 관리자)이면 unique 위반이 난다.
-            // addAssignment 와 같이 409 로 돌려주고, 삭제는 아직 실행하지 않았으므로 부분 적용도 없다.
+            // addAssignment 와 같이 409 로 돌려준다 — 원자적이므로 부분 적용은 없다.
             if (!isUniqueViolation(err)) throw err;
             return fail(409, { error: adminError(locale, "entitlement_conflict") });
         }
-    }
-    if (toRemove.length > 0) {
-        await db.delete(userServiceEntitlements).where(and(eq(userServiceEntitlements.assignmentId, assignmentId), inArray(userServiceEntitlements.serviceEntitlementId, toRemove)));
     }
 
     // 감사는 건별로 — "언제 누가 무엇을 줬다/뺐다" 가 이력이 남는 유일한 자리다

@@ -502,7 +502,6 @@ export const userServiceAssignments = pgTable(
         grantedBy: text("granted_by"),
         grantedAt: timestamp("granted_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
         expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true, precision: 3 }),
-        revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true, precision: 3 }),
         createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
     },
     (t) => [

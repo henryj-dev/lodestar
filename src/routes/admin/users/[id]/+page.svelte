@@ -30,8 +30,10 @@ function entitlementsForAssignment(a: { serviceType: string; serviceRefId: strin
     return (data.allServiceEntitlements as EntitlementRow[]).filter((e) => e.serviceType === a.serviceType && e.serviceRefId === a.serviceRefId);
 }
 
-function assignmentStatus(a: { revokedAt: Date | null; expiresAt: Date | null }): { label: string; className: string } {
-    if (a.revokedAt) return { label: t("user_detail.svc_revoked"), className: "bg-gray-100 text-gray-500" };
+// 회수는 행을 지우는 방식이라(revokeAssignment) "회수됨" 상태는 존재하지 않는다 —
+// 목록에 남아 있으면 활성이거나 만료된 것뿐이다. 예전에는 revokedAt 을 봤지만 그 컬럼은
+// 아무도 쓰지 않아 항상 null 이었고, 그래서 그 분기는 영원히 죽은 코드였다.
+function assignmentStatus(a: { expiresAt: Date | null }): { label: string; className: string } {
     if (a.expiresAt && a.expiresAt.getTime() <= Date.now()) return { label: t("user_detail.svc_expired"), className: "bg-amber-100 text-amber-700" };
     return { label: t("user_detail.svc_active"), className: "bg-green-100 text-green-700" };
 }

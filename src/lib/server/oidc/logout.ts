@@ -115,7 +115,6 @@ export async function getOidcBackchannelTargetsForUser(db: DB, tenantId: string,
                 eq(userServiceAssignments.tenantId, tenantId),
                 eq(userServiceAssignments.userId, userId),
                 eq(userServiceAssignments.serviceType, "oidc"),
-                isNull(userServiceAssignments.revokedAt),
                 or(isNull(userServiceAssignments.expiresAt), gt(userServiceAssignments.expiresAt, now)),
             ),
         );

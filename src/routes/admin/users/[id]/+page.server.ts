@@ -1,5 +1,5 @@
 import { error } from "@sveltejs/kit";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
 import {
@@ -138,7 +138,6 @@ export const load: PageServerLoad = async ({ locals, params }) => {
                 attributesJson: userServiceAssignments.attributesJson,
                 grantedAt: userServiceAssignments.grantedAt,
                 expiresAt: userServiceAssignments.expiresAt,
-                revokedAt: userServiceAssignments.revokedAt,
             })
             .from(userServiceAssignments)
             .leftJoin(serviceRoles, eq(userServiceAssignments.serviceRoleId, serviceRoles.id))
@@ -187,11 +186,20 @@ export const load: PageServerLoad = async ({ locals, params }) => {
             .orderBy(asc(serviceEntitlements.displayOrder), asc(serviceEntitlements.key)),
 
         // 이 사용자의 배정에 실제로 부여된 권한(배정 id 기준). 체크박스 초기 상태.
+        // **만료 필터를 읽기 경로(listActiveEntitlements)와 맞춘다.** 어긋나면 만료된 부여가
+        // 화면에는 체크된 채로 보이는데 클레임에는 없고, 그 폼을 그대로 저장하면 만료를
+        // 지우지 않은 채 재확인하는 셈이 된다.
         db
             .select({ assignmentId: userServiceEntitlements.assignmentId, serviceEntitlementId: userServiceEntitlements.serviceEntitlementId })
             .from(userServiceEntitlements)
             .innerJoin(userServiceAssignments, eq(userServiceEntitlements.assignmentId, userServiceAssignments.id))
-            .where(and(eq(userServiceAssignments.tenantId, tenant.id), eq(userServiceAssignments.userId, userId))),
+            .where(
+                and(
+                    eq(userServiceAssignments.tenantId, tenant.id),
+                    eq(userServiceAssignments.userId, userId),
+                    or(isNull(userServiceEntitlements.expiresAt), gt(userServiceEntitlements.expiresAt, new Date())),
+                ),
+            ),
     ]);
 
     // 표시용 — service ref 별 이름 매핑

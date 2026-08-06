@@ -8,9 +8,18 @@
  * 계약(수신 RP 와 바이트 단위 일치):
  *   - 전송: Content-Type: application/x-www-form-urlencoded, body `role_change_token=<JWT>`
  *   - 서명: 테넌트 서명키 RS256 (RP 가 KeyStone JWKS 로 검증), typ=secevent+jwt
- *   - 클레임: iss / aud(=clientId) / iat / sub(=userId) / jti / events
+ *   - 클레임: iss / aud(=clientId) / iat / exp / txn / sub(=userId) / jti / events
  *   - events = { "https://idp.hyochan.site/event/role-change": { roles: string[], entitlements: string[] } }
  *   - nonce 금지 (RP 가 있으면 거부 — id_token 오용 방지)
+ *
+ * **`txn` 은 스냅샷 순서 표식이다(ms 단위 발행 시각 문자열).** 이 SET 은 델타가 아니라 변경 후
+ * 전체 상태를 싣는데, 발행은 fire-and-forget 이고 재시도가 없어 두 변경이 짧은 간격으로 일어나면
+ * 도착 순서가 뒤집힐 수 있다. 그러면 나중 상태(회수)를 먼저 적용하고 이전 상태(부여)를 나중에
+ * 적용해 **회수가 조용히 되돌아간다.** `iat` 는 초 단위라 같은 초에 난 두 변경을 구분하지 못한다.
+ * RP 는 마지막으로 적용한 `txn` 을 기억하고 그보다 작거나 같으면 버려야 한다.
+ *
+ * **`exp` 는 재생(replay) 상한이다.** 지연 도착한 오래된 스냅샷이 현재 상태를 덮지 않도록,
+ * RP 는 만료된 SET 을 거부한다.
  *
  * `entitlements` 는 나중에 추가됐다. **같은 event 객체에 키를 하나 더한 것이라 하위 호환**이다 —
  * `roles` 만 읽던 기존 RP 는 영향이 없고, 새 RP 는 처음부터 두 키를 가정하고 만들면 된다
@@ -34,6 +43,9 @@ import { signJwt } from "$lib/server/crypto/keys";
  * 변경 시 RP 검증이 즉시 깨진다.
  */
 export const ROLE_CHANGE_EVENT = "https://idp.hyochan.site/event/role-change";
+
+/** SET 유효 기간(초). 지연 도착한 오래된 스냅샷의 재생을 막는다. */
+const SET_TTL_S = 300;
 
 export interface RoleChangeTarget {
     clientId: string;
@@ -73,11 +85,15 @@ export async function getRoleChangeTarget(db: DB, tenantId: string, oidcClientDb
  *              정보다. 키를 빼면 RP 가 "변경 없음"과 구분할 수 없다.
  */
 export async function sendRoleChangeSet(target: RoleChangeTarget, userId: string, roles: string[], entitlements: string[], issuerUrl: string, privateKey: CryptoKey, kid: string): Promise<void> {
+    const nowMs = Date.now();
     const payload: Record<string, unknown> = {
         iss: issuerUrl,
         sub: userId,
         aud: target.clientId,
-        iat: Math.floor(Date.now() / 1000),
+        iat: Math.floor(nowMs / 1000),
+        exp: Math.floor(nowMs / 1000) + SET_TTL_S,
+        // ms 단위 문자열. 초 단위 iat 로는 같은 초에 난 두 변경의 선후를 가릴 수 없다.
+        txn: String(nowMs),
         jti: crypto.randomUUID(),
         events: { [ROLE_CHANGE_EVENT]: { roles, entitlements } },
     };

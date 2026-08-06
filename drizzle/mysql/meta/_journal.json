@@ -120,6 +120,13 @@
       "when": 1785982884701,
       "tag": "0016_cooing_giant_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1785988956917,
+      "tag": "0017_same_silverclaw",
+      "breakpoints": true
     }
   ]
 }

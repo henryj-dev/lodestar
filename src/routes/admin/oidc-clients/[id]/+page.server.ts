@@ -9,7 +9,7 @@ import { isUniqueViolation } from "$lib/server/db/errors";
 import { revokeRefreshTokenFamily } from "$lib/server/oidc/refresh";
 import { emitRoleChangeSet } from "$lib/server/admin/user-actions/service";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
-import { SERVICE_KEY_RE } from "$lib/server/admin/schemas";
+import { SERVICE_KEY_RE, normalizeEntitlementKey } from "$lib/server/admin/schemas";
 import { ORGANIZATION_CLAIM_FIELDS, type OrganizationClaimConfig } from "$lib/server/oidc/claims";
 
 export const load: PageServerLoad = async ({ locals, params }) => {
@@ -118,6 +118,20 @@ export const actions: Actions = {
             .set({ label, description, isDefault, displayOrder, updatedAt: new Date() })
             .where(and(eq(serviceRoles.id, id), eq(serviceRoles.tenantId, tenant.id), eq(serviceRoles.serviceType, "oidc"), eq(serviceRoles.serviceRefId, params.id)));
 
+        // entitlement 쪽과 같은 이유로 남긴다 — label 은 관리자가 부여를 판단하는 근거이고,
+        // 조용히 바꿀 수 있으면 "다른 것인 줄 알고 골랐다" 가 성립한다.
+        const roleMeta = getRequestMetadata(event);
+        await recordAuditEvent(db, {
+            tenantId: tenant.id,
+            actorId: locals.user!.id,
+            spOrClientId: params.id,
+            kind: "service_role_updated",
+            outcome: "success",
+            ip: roleMeta.ip,
+            userAgent: roleMeta.userAgent,
+            detail: { serviceType: "oidc", serviceRefId: params.id, roleId: id, label, isDefault, displayOrder },
+        });
+
         return { updated: true };
     },
 
@@ -171,7 +185,7 @@ export const actions: Actions = {
         const locale = locals.locale;
         const fd = await event.request.formData();
 
-        const key = String(fd.get("key") ?? "").trim();
+        const key = normalizeEntitlementKey(String(fd.get("key") ?? ""));
         const label = String(fd.get("label") ?? "").trim();
         const description = String(fd.get("description") ?? "").trim() || null;
         const displayOrder = Number(fd.get("displayOrder") ?? "0") | 0;

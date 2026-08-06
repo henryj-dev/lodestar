@@ -331,6 +331,18 @@ describe("entitlement 정의 액션 (admin)", () => {
         expect(await listKeys()).toEqual(["plan.approve_own"]);
     });
 
+    it("key 를 소문자로 정규화한다 (방언 간 대소문자 취급 차이 제거)", async () => {
+        // MySQL 기본 collation 은 대소문자를 구분하지 않아 Site.Read 가 site.read 와 충돌하지만,
+        // PostgreSQL/SQLite 는 별개 행으로 받아 **둘 다 클레임에 실린다.** 입력에서 하나로 모은다.
+        await addEntitlement(adminEvent({ key: "Site.Read", label: "대문자 입력" }));
+        expect(await listKeys()).toEqual(["site.read"]);
+
+        // 같은 키의 다른 표기는 중복으로 걸린다 — 방언과 무관하게.
+        const dup = (await addEntitlement(adminEvent({ key: "SITE.READ", label: "또 다른 표기" }))) as { status?: number };
+        expect(dup.status).toBe(409);
+        expect(await listKeys()).toEqual(["site.read"]);
+    });
+
     it("허용되지 않는 문자는 400 으로 거부한다", async () => {
         const res = (await addEntitlement(adminEvent({ key: "site read!", label: "bad" }))) as { status?: number };
         expect(res.status).toBe(400);
