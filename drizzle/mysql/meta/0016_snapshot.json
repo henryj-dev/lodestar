@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "8b296b2c-1e84-498f-9a72-ec2be97e7aa3",
+  "id": "ff0651ff-1148-41fc-bb27-42572f3ebb11",
   "prevId": "effd1af2-a813-4e08-81e3-f024b4f2dec8",
   "tables": {
     "audit_events": {
@@ -4152,8 +4152,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_service_entitlements_assignment_id_user_service_assignments_id_fk": {
-          "name": "user_service_entitlements_assignment_id_user_service_assignments_id_fk",
+        "user_service_entitlements_assignment_fk": {
+          "name": "user_service_entitlements_assignment_fk",
           "tableFrom": "user_service_entitlements",
           "tableTo": "user_service_assignments",
           "columnsFrom": [
@@ -4165,8 +4165,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_service_entitlements_service_entitlement_id_service_entitlements_id_fk": {
-          "name": "user_service_entitlements_service_entitlement_id_service_entitlements_id_fk",
+        "user_service_entitlements_entitlement_fk": {
+          "name": "user_service_entitlements_entitlement_fk",
           "tableFrom": "user_service_entitlements",
           "tableTo": "service_entitlements",
           "columnsFrom": [

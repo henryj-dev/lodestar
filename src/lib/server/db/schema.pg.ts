@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, index, uniqueIndex, type AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, index, uniqueIndex, foreignKey, type AnyPgColumn } from "drizzle-orm/pg-core";
 
 // ---------- Tenancy ----------
 
@@ -566,18 +566,20 @@ export const userServiceEntitlements = pgTable(
         tenantId: text("tenant_id")
             .notNull()
             .references(() => tenants.id, { onDelete: "cascade" }),
-        assignmentId: text("assignment_id")
-            .notNull()
-            .references(() => userServiceAssignments.id, { onDelete: "cascade" }),
-        serviceEntitlementId: text("service_entitlement_id")
-            .notNull()
-            .references(() => serviceEntitlements.id, { onDelete: "cascade" }),
+        assignmentId: text("assignment_id").notNull(),
+        serviceEntitlementId: text("service_entitlement_id").notNull(),
         grantedBy: text("granted_by"),
         grantedAt: timestamp("granted_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
         expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true, precision: 3 }),
         createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
     },
     (t) => [
+        // 이 두 FK 만 `.references()` 대신 명시 이름을 준다. drizzle 자동 이름
+        // (`<table>_<col>_<ftable>_<fcol>_fk`)이 두 긴 테이블명을 이어 붙여 70·75자가 되는데,
+        // **PostgreSQL 은 63자에서 조용히 잘라내지만 MySQL 은 64자 초과를 에러로 거부**한다
+        // (ER_TOO_LONG_IDENT). 방언 간 적용 가능성이 갈리므로 이름을 직접 고정한다.
+        foreignKey({ columns: [t.assignmentId], foreignColumns: [userServiceAssignments.id], name: "user_service_entitlements_assignment_fk" }).onDelete("cascade"),
+        foreignKey({ columns: [t.serviceEntitlementId], foreignColumns: [serviceEntitlements.id], name: "user_service_entitlements_entitlement_fk" }).onDelete("cascade"),
         uniqueIndex("user_service_entitlements_assignment_ent_uidx").on(t.assignmentId, t.serviceEntitlementId),
         index("user_service_entitlements_tenant_ent_idx").on(t.tenantId, t.serviceEntitlementId),
     ],

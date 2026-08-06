@@ -28,7 +28,7 @@ CREATE TABLE `user_service_entitlements` (
 --> statement-breakpoint
 ALTER TABLE `service_entitlements` ADD CONSTRAINT `service_entitlements_tenant_id_tenants_id_fk` FOREIGN KEY (`tenant_id`) REFERENCES `tenants`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE `user_service_entitlements` ADD CONSTRAINT `user_service_entitlements_tenant_id_tenants_id_fk` FOREIGN KEY (`tenant_id`) REFERENCES `tenants`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE `user_service_entitlements` ADD CONSTRAINT `user_service_entitlements_assignment_id_user_service_assignments_id_fk` FOREIGN KEY (`assignment_id`) REFERENCES `user_service_assignments`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE `user_service_entitlements` ADD CONSTRAINT `user_service_entitlements_service_entitlement_id_service_entitlements_id_fk` FOREIGN KEY (`service_entitlement_id`) REFERENCES `service_entitlements`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `user_service_entitlements` ADD CONSTRAINT `user_service_entitlements_assignment_fk` FOREIGN KEY (`assignment_id`) REFERENCES `user_service_assignments`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE `user_service_entitlements` ADD CONSTRAINT `user_service_entitlements_entitlement_fk` FOREIGN KEY (`service_entitlement_id`) REFERENCES `service_entitlements`(`id`) ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX `service_entitlements_tenant_service_idx` ON `service_entitlements` (`tenant_id`,`service_type`,`service_ref_id`);--> statement-breakpoint
 CREATE INDEX `user_service_entitlements_tenant_ent_idx` ON `user_service_entitlements` (`tenant_id`,`service_entitlement_id`);

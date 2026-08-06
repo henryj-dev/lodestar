@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e80ac0f1-bb0a-455e-935a-2a59197afc84",
+  "id": "520c41d0-dfd8-44e9-9419-43244a35e6a4",
   "prevId": "1e10f4af-8cc7-45fd-9996-6c174861c2c5",
   "tables": {
     "audit_events": {
@@ -3957,8 +3957,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_service_entitlements_assignment_id_user_service_assignments_id_fk": {
-          "name": "user_service_entitlements_assignment_id_user_service_assignments_id_fk",
+        "user_service_entitlements_assignment_fk": {
+          "name": "user_service_entitlements_assignment_fk",
           "tableFrom": "user_service_entitlements",
           "tableTo": "user_service_assignments",
           "columnsFrom": [
@@ -3970,8 +3970,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_service_entitlements_service_entitlement_id_service_entitlements_id_fk": {
-          "name": "user_service_entitlements_service_entitlement_id_service_entitlements_id_fk",
+        "user_service_entitlements_entitlement_fk": {
+          "name": "user_service_entitlements_entitlement_fk",
           "tableFrom": "user_service_entitlements",
           "tableTo": "service_entitlements",
           "columnsFrom": [

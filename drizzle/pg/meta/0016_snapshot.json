@@ -1,5 +1,5 @@
 {
-  "id": "27b401fe-63b6-4dcc-bc41-b9e629dd1491",
+  "id": "93b2d505-c998-4cb0-a336-73f029423c87",
   "prevId": "74afafb5-e9b8-4dea-923b-9c858a2e91b8",
   "version": "7",
   "dialect": "postgresql",
@@ -4454,8 +4454,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_service_entitlements_assignment_id_user_service_assignments_id_fk": {
-          "name": "user_service_entitlements_assignment_id_user_service_assignments_id_fk",
+        "user_service_entitlements_assignment_fk": {
+          "name": "user_service_entitlements_assignment_fk",
           "tableFrom": "user_service_entitlements",
           "tableTo": "user_service_assignments",
           "columnsFrom": [
@@ -4467,8 +4467,8 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "user_service_entitlements_service_entitlement_id_service_entitlements_id_fk": {
-          "name": "user_service_entitlements_service_entitlement_id_service_entitlements_id_fk",
+        "user_service_entitlements_entitlement_fk": {
+          "name": "user_service_entitlements_entitlement_fk",
           "tableFrom": "user_service_entitlements",
           "tableTo": "service_entitlements",
           "columnsFrom": [

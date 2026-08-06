@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { type AnySQLiteColumn, integer, sqliteTable, text, index, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { type AnySQLiteColumn, integer, sqliteTable, text, index, uniqueIndex, foreignKey } from "drizzle-orm/sqlite-core";
 
 // ---------- Tenancy ----------
 
@@ -619,12 +619,8 @@ export const userServiceEntitlements = sqliteTable(
         tenantId: text("tenant_id")
             .notNull()
             .references(() => tenants.id, { onDelete: "cascade" }),
-        assignmentId: text("assignment_id")
-            .notNull()
-            .references(() => userServiceAssignments.id, { onDelete: "cascade" }),
-        serviceEntitlementId: text("service_entitlement_id")
-            .notNull()
-            .references(() => serviceEntitlements.id, { onDelete: "cascade" }),
+        assignmentId: text("assignment_id").notNull(),
+        serviceEntitlementId: text("service_entitlement_id").notNull(),
         grantedBy: text("granted_by"),
         grantedAt: integer("granted_at", { mode: "timestamp_ms" })
             .notNull()
@@ -635,6 +631,11 @@ export const userServiceEntitlements = sqliteTable(
             .default(sql`(unixepoch() * 1000)`),
     },
     (t) => [
+        // pg/mysql 과 동일한 선언을 유지한다(3방언 parity). sqlite 는 FK 를 이름 없이 인라인으로
+        // 내보내므로 길이 제약과 무관하지만, 세 방언의 스키마 정의가 갈리면 다음 사람이 왜 한쪽만
+        // 다른지 추적해야 한다. 이름이 필요한 이유는 pg/mysql 쪽 주석 참조.
+        foreignKey({ columns: [t.assignmentId], foreignColumns: [userServiceAssignments.id], name: "user_service_entitlements_assignment_fk" }).onDelete("cascade"),
+        foreignKey({ columns: [t.serviceEntitlementId], foreignColumns: [serviceEntitlements.id], name: "user_service_entitlements_entitlement_fk" }).onDelete("cascade"),
         uniqueIndex("user_service_entitlements_assignment_ent_uidx").on(t.assignmentId, t.serviceEntitlementId),
         index("user_service_entitlements_tenant_ent_idx").on(t.tenantId, t.serviceEntitlementId),
     ],
