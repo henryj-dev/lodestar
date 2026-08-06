@@ -29,7 +29,9 @@ import type { Tenant, User, Session } from "../../src/lib/server/db/schema";
 // 이제 토큰 발급 시 (세션, 클라이언트) 를 기록하고 그 기록으로도 찾는다.
 
 const CLIENT_ID = "durable-logout-client";
-const CLIENT_SECRET = "durable-secret-0123456789abcdef";
+// 다른 통합 테스트와 같은 고정 리터럴을 쓴다 — 테스트 픽스처이고, 값이 무엇이든 무관하다.
+// (엔트로피가 높은 새 문자열을 쓰면 gitleaks 의 generic-api-key 가 오탐한다.)
+const CLIENT_SECRET = "s3cr3t-client-secret-value-0123456789";
 const REDIRECT_URI = "https://rp.test.example/callback";
 const SCOPE = "openid profile email"; // offline_access 없음 = heliopause 형태
 
