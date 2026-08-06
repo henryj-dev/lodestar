@@ -39,3 +39,9 @@ wrangler.jsonc
 wrangler.*.jsonc
 !wrangler.example.jsonc
 worker-configuration.d.ts
+
+# 작업용 핸드오프/설계 문서 — 로컬에만 둔다 (제품 문서인 README·docs/ADMIN_GUIDE 는 계속 추적)
+docs/keystone-핸드오프.md
+docs/keystone-핸드오프2-서비스토큰.md
+docs/plans/service-entitlements/
+docs/plans/service-api-tokens/
