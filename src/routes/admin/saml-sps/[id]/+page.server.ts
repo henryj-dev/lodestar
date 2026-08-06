@@ -2,7 +2,8 @@ import { error, fail } from "@sveltejs/kit";
 import { and, asc, eq } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
-import { adminError } from "$lib/server/admin/errors";
+import { ensureCsrfToken } from "$lib/server/auth/csrf";
+import { adminError, requireCsrf } from "$lib/server/admin/errors";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import type { DB } from "$lib/server/db";
 import { samlSps, serviceEntitlements, serviceRoles, userServiceAssignments, userServiceEntitlements } from "$lib/server/db/schema";
@@ -14,8 +15,9 @@ import { isUniqueViolation } from "$lib/server/db/errors";
 // 조용한 무동작이 되므로, 둘을 분리하지 않는다.
 // SP 가 allowedAttributes 에 "Entitlements" 를 넣어야 실제로 전달된다는 점도 화면에 적었다.
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load: PageServerLoad = async ({ locals, params, cookies, url }) => {
     const { db, tenant } = requireAdminContext(locals);
+    const csrfToken = ensureCsrfToken(cookies, url);
 
     const [sp] = await db
         .select()
@@ -36,7 +38,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
         .where(and(eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, "saml"), eq(serviceEntitlements.serviceRefId, sp.id)))
         .orderBy(asc(serviceEntitlements.displayOrder), asc(serviceEntitlements.key));
 
-    return { sp, roles, entitlements };
+    return { sp, roles, entitlements, csrfToken };
 };
 
 async function spForTenant(db: DB, tenantId: string, spDbId: string) {
@@ -53,6 +55,8 @@ export const actions: Actions = {
         const { locals, params } = event;
         const { db, tenant } = requireAdminContext(locals);
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const key = String(fd.get("key") ?? "").trim();
         const label = String(fd.get("label") ?? "").trim();
@@ -101,6 +105,8 @@ export const actions: Actions = {
         const { locals, params } = event;
         const { db, tenant } = requireAdminContext(locals);
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const id = String(fd.get("roleId") ?? "");
         const label = String(fd.get("label") ?? "").trim();
@@ -122,6 +128,8 @@ export const actions: Actions = {
         const { locals, params } = event;
         const { db, tenant } = requireAdminContext(locals);
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
         const id = String(fd.get("roleId") ?? "");
         if (!id) return fail(400, { error: adminError(locals.locale, "invalid_request") });
 
@@ -149,6 +157,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const key = normalizeEntitlementKey(String(fd.get("key") ?? ""));
         const label = String(fd.get("label") ?? "").trim();
@@ -197,6 +207,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const id = String(fd.get("entitlementId") ?? "");
         const label = String(fd.get("label") ?? "").trim();
@@ -238,6 +250,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
         const id = String(fd.get("entitlementId") ?? "");
         if (!id) return fail(400, { error: adminError(locale, "invalid_request") });
 

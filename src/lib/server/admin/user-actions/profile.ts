@@ -6,7 +6,7 @@ import { revokeAllUserSessions } from "$lib/server/auth/session";
 import { revokeAllUserRefreshTokens } from "$lib/server/oidc/refresh";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { users } from "$lib/server/db/schema";
-import { adminError } from "$lib/server/admin/errors";
+import { adminError, requireCsrf } from "$lib/server/admin/errors";
 
 // 사용자 상세 페이지의 프로필/역할/상태 수정 액션.
 type UserActionEvent = RequestEvent<{ id: string }, "/admin/users/[id]">;
@@ -17,6 +17,8 @@ export async function updateProfile(event: UserActionEvent) {
     const { db, tenant } = requireAdminContext(locals);
     const uiLocale = locals.locale;
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const userId = params.id;
 
     const rawRole = String(fd.get("role") ?? "user");

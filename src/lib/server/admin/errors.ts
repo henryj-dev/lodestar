@@ -7,6 +7,8 @@
 import { fail } from "@sveltejs/kit";
 import type { Locale } from "$lib/i18n/core";
 import { translate } from "$lib/i18n/server";
+import { isValidCsrf } from "$lib/server/auth/csrf";
+import type { Cookies } from "@sveltejs/kit";
 
 /** admin.errors.<key> 를 현재 로케일로 해석한다. params 는 {{placeholder}} 치환용. */
 export function adminError(locale: Locale, key: string, params?: Record<string, string | number>): string {
@@ -31,4 +33,19 @@ export function requireFormId(
         return { ok: false, failure: fail(400, { ...(opts.extra ?? {}), error: adminError(locale, "invalid_request") }) };
     }
     return { ok: true, id };
+}
+
+/**
+ * admin 액션의 double-submit CSRF 검증.
+ *
+ * `/admin` 은 hooks 의 Origin/Referer 검사가 이미 막고 있다(둘 다 없으면 403). 이것은 그 위의
+ * 2차 계층이고, 예전에는 클라이언트 목록 화면에만 적용돼 있어 상세 화면 액션들은 빠져 있었다.
+ * 계층이 화면마다 다르면 어느 것이 보호되는지 읽는 사람이 알 수 없으므로 상세 화면 전체에 맞춘다.
+ *
+ * 실패 시 그대로 반환할 fail(403) 을 돌려주고, 통과면 null.
+ * 사용: `const bad = requireCsrf(event, fd); if (bad) return bad;`
+ */
+export function requireCsrf(event: { cookies: Cookies; locals: App.Locals }, formData: FormData) {
+    if (isValidCsrf(event.cookies, formData)) return null;
+    return fail(403, { error: adminError(event.locals.locale, "csrf_failed") });
 }

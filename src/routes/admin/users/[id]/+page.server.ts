@@ -2,6 +2,7 @@ import { error } from "@sveltejs/kit";
 import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
+import { ensureCsrfToken } from "$lib/server/auth/csrf";
 import {
     departments,
     oidcClients,
@@ -24,8 +25,9 @@ import { addAssignment, revokeAssignment, updateAssignmentExpiry, setAssignmentE
 import { forceLogout } from "$lib/server/admin/user-actions/security";
 import { adminError } from "$lib/server/admin/errors";
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load: PageServerLoad = async ({ locals, params, cookies, url }) => {
     const { db, tenant } = requireAdminContext(locals);
+    const csrfToken = ensureCsrfToken(cookies, url);
     const userId = params.id;
 
     // 유저 조회
@@ -227,6 +229,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
             return acc;
         }, {}),
         serviceLabelMap,
+        csrfToken,
     };
 };
 

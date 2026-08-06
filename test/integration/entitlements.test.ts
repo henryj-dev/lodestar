@@ -631,3 +631,71 @@ describe("회수·위조 경로", () => {
         expect(rows).toEqual([]);
     });
 });
+
+// admin 상세 화면 액션의 double-submit CSRF.
+//
+// /admin 은 hooks 의 Origin/Referer 검사가 이미 막고 있고 이것은 그 위의 2차 계층이다.
+// 예전에는 클라이언트 **목록** 화면에만 있어서 상세 화면 액션(role·organization·entitlement)은
+// 전부 빠져 있었다 — 계층이 화면마다 다르면 어느 것이 보호되는지 읽는 사람이 알 수 없다.
+describe("admin 액션 CSRF", () => {
+    const addEntitlement = clientDetailActions.addEntitlement!;
+    let admin: User;
+
+    beforeEach(async () => {
+        admin = await seedUser(mem.db, { tenantId: tenant.id, email: "csrf-admin@test.example", role: "admin" });
+    });
+
+    /** csrf:false 로 토큰 없는 요청을 만든다(정상 화면은 hidden input 으로 항상 보낸다). */
+    function noCsrfEvent(form: Record<string, string>) {
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/oidc-clients/${clientDbId}`,
+            form,
+            csrf: false,
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        (event as unknown as { params: { id: string } }).params = { id: clientDbId };
+        return event as Parameters<typeof addEntitlement>[0];
+    }
+
+    function withCsrfEvent(form: Record<string, string>) {
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/oidc-clients/${clientDbId}`,
+            form,
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        (event as unknown as { params: { id: string } }).params = { id: clientDbId };
+        return event as Parameters<typeof addEntitlement>[0];
+    }
+
+    it("토큰이 없으면 403 이고 아무것도 만들어지지 않는다", async () => {
+        const res = (await addEntitlement(noCsrfEvent({ key: "site.read", label: "권한" }))) as { status?: number };
+
+        expect(res.status).toBe(403);
+        const rows = await mem.db.select().from(serviceEntitlements).where(eq(serviceEntitlements.serviceRefId, clientDbId));
+        expect(rows).toEqual([]);
+    });
+
+    it("토큰이 있으면 통과한다", async () => {
+        const res = await addEntitlement(withCsrfEvent({ key: "site.read", label: "권한" }));
+
+        expect(res).toMatchObject({ entitlementAdded: true });
+        const rows = await mem.db.select().from(serviceEntitlements).where(eq(serviceEntitlements.serviceRefId, clientDbId));
+        expect(rows).toHaveLength(1);
+    });
+
+    it("사용자 상세 액션도 동일하게 막힌다", async () => {
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/users/${user.id}`,
+            form: { assignmentId },
+            csrf: false,
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        (event as unknown as { params: { id: string } }).params = { id: user.id };
+
+        const res = (await setAssignmentEntitlements(event as Parameters<typeof setAssignmentEntitlements>[0])) as { status?: number };
+        expect(res.status).toBe(403);
+    });
+});

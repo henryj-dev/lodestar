@@ -2,18 +2,20 @@ import { error, fail } from "@sveltejs/kit";
 import { and, asc, eq } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
+import { ensureCsrfToken } from "$lib/server/auth/csrf";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import type { DB } from "$lib/server/db";
 import { oidcClients, serviceEntitlements, serviceRoles, userServiceAssignments, userServiceEntitlements } from "$lib/server/db/schema";
 import { isUniqueViolation } from "$lib/server/db/errors";
 import { revokeRefreshTokenFamily } from "$lib/server/oidc/refresh";
 import { emitRoleChangeSet } from "$lib/server/admin/user-actions/service";
-import { adminError, requireFormId } from "$lib/server/admin/errors";
+import { adminError, requireCsrf, requireFormId } from "$lib/server/admin/errors";
 import { SERVICE_KEY_RE, normalizeEntitlementKey } from "$lib/server/admin/schemas";
 import { ORGANIZATION_CLAIM_FIELDS, type OrganizationClaimConfig } from "$lib/server/oidc/claims";
 
-export const load: PageServerLoad = async ({ locals, params }) => {
+export const load: PageServerLoad = async ({ locals, params, cookies, url }) => {
     const { db, tenant } = requireAdminContext(locals);
+    const csrfToken = ensureCsrfToken(cookies, url);
 
     const [client] = await db
         .select()
@@ -36,7 +38,7 @@ export const load: PageServerLoad = async ({ locals, params }) => {
         .where(and(eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, "oidc"), eq(serviceEntitlements.serviceRefId, client.id)))
         .orderBy(asc(serviceEntitlements.displayOrder), asc(serviceEntitlements.key));
 
-    return { client, roles, entitlements };
+    return { client, roles, entitlements, csrfToken };
 };
 
 async function clientForTenant(db: DB, tenantId: string, clientDbId: string) {
@@ -54,6 +56,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const key = String(fd.get("key") ?? "").trim();
         const label = String(fd.get("label") ?? "").trim();
@@ -104,6 +108,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const id = String(fd.get("roleId") ?? "");
         const label = String(fd.get("label") ?? "").trim();
@@ -143,6 +149,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const c = await clientForTenant(db, tenant.id, params.id);
         if (!c) return fail(404, { error: adminError(locale, "client_not_found") });
@@ -184,6 +192,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const key = normalizeEntitlementKey(String(fd.get("key") ?? ""));
         const label = String(fd.get("label") ?? "").trim();
@@ -234,6 +244,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
 
         const id = String(fd.get("entitlementId") ?? "");
         const label = String(fd.get("label") ?? "").trim();
@@ -291,6 +303,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
         const idr = requireFormId(fd, locale, { field: "entitlementId" });
         if (!idr.ok) return idr.failure;
         const id = idr.id;
@@ -352,6 +366,8 @@ export const actions: Actions = {
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await event.request.formData();
+        const csrfFail = requireCsrf(event, fd);
+        if (csrfFail) return csrfFail;
         const idr = requireFormId(fd, locale, { field: "roleId" });
         if (!idr.ok) return idr.failure;
         const id = idr.id;

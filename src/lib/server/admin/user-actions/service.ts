@@ -4,7 +4,7 @@ import { and, eq, gt, inArray, isNull, or } from "drizzle-orm";
 import { requireAdminContext, assertUserInTenant } from "$lib/server/auth/guards";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { oidcClients, samlSps, serviceEntitlements, serviceRoles, userServiceAssignments, userServiceEntitlements } from "$lib/server/db/schema";
-import { adminError, requireFormId } from "$lib/server/admin/errors";
+import { adminError, requireCsrf, requireFormId } from "$lib/server/admin/errors";
 import { isUniqueViolation } from "$lib/server/db/errors";
 import type { DB } from "$lib/server/db";
 import { runAtomic } from "$lib/server/db/atomic";
@@ -104,6 +104,8 @@ export async function addAssignment(event: UserActionEvent) {
     const { db, tenant } = requireAdminContext(locals);
     const locale = locals.locale;
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const userId = params.id;
 
     // ctrls C-13: 다른 tenant 의 userId 가 본 tenant 의 권한 row 로 박혀 들어가는
@@ -215,6 +217,8 @@ export async function revokeAssignment(event: UserActionEvent) {
     const { locals, params, request } = event;
     const { db, tenant } = requireAdminContext(locals);
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const idr = requireFormId(fd, locals.locale, { field: "assignmentId" });
     if (!idr.ok) return idr.failure;
     const assignmentId = idr.id;
@@ -269,6 +273,8 @@ export async function updateAssignmentExpiry(event: UserActionEvent) {
     const { db, tenant } = requireAdminContext(locals);
     const locale = locals.locale;
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const idr = requireFormId(fd, locale, { field: "assignmentId" });
     if (!idr.ok) return idr.failure;
     const assignmentId = idr.id;
@@ -345,6 +351,8 @@ export async function setAssignmentEntitlements(event: UserActionEvent) {
     const { db, tenant } = requireAdminContext(locals);
     const locale = locals.locale;
     const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
     const userId = params.id;
 
     const tenantCheck = await assertUserInTenant(db, tenant.id, userId);

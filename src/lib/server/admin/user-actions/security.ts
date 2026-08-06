@@ -8,6 +8,7 @@ import { sessions } from "$lib/server/db/schema";
 import { getOidcBackchannelTargetsForUser, sendOneBackchannelLogout } from "$lib/server/oidc/logout";
 import { getActiveSigningKey } from "$lib/server/crypto/keys";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
+import { requireCsrf } from "$lib/server/admin/errors";
 
 // 사용자 상세 페이지의 보안 관련 액션(강제 로그아웃 등).
 type UserActionEvent = RequestEvent<{ id: string }, "/admin/users/[id]">;
@@ -33,7 +34,9 @@ export async function forceLogout(event: UserActionEvent) {
     if (!tenantCheck.ok) return tenantCheck.error;
 
     // 폼 요청 파싱(사용 값은 없지만 액션 계약 일관성 유지).
-    await request.formData();
+    const fd = await request.formData();
+    const csrfFail = requireCsrf(event, fd);
+    if (csrfFail) return csrfFail;
 
     // 폐기 **전에** 살아 있는 세션의 idpSessionId 를 읽어 둔다. sid 를 요구하는 클라이언트
     // (backchannel_logout_session_required)에는 세션별로 한 건씩 보내야 하는데, 폐기 후에는

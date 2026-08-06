@@ -65,6 +65,7 @@ let orgClaims = $derived(parseOrgClaimConfig((data.client as { organizationClaim
                                         if (result.type === "success") editingId = null;
                                     }}
                                 class="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                                <input type="hidden" name="csrf" value={data.csrfToken} />
                                 <input type="hidden" name="roleId" value={r.id} />
                                 <label class="block text-xs text-gray-500 sm:col-span-1">
                                     key
@@ -104,6 +105,7 @@ let orgClaims = $derived(parseOrgClaimConfig((data.client as { organizationClaim
                                 <div class="flex items-center gap-2">
                                     <button type="button" onclick={() => (editingId = r.id)} class="text-xs text-blue-500">{t("roles.edit")}</button>
                                     <form method="POST" action="?/deleteRole" use:enhance>
+                                        <input type="hidden" name="csrf" value={data.csrfToken} />
                                         <input type="hidden" name="roleId" value={r.id} />
                                         <button
                                             type="submit"
@@ -123,6 +125,7 @@ let orgClaims = $derived(parseOrgClaimConfig((data.client as { organizationClaim
         {/if}
 
         <form method="POST" action="?/addRole" use:enhance class="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 sm:grid-cols-5">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <input type="text" name="key" placeholder={t("roles.key_placeholder")} required class="rounded-md border border-gray-300 px-2 py-1.5 font-mono text-sm" />
             <input type="text" name="label" placeholder="label" required class="rounded-md border border-gray-300 px-2 py-1.5 text-sm" />
             <input type="text" name="description" placeholder="description (optional)" class="rounded-md border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2" />
@@ -158,6 +161,7 @@ let orgClaims = $derived(parseOrgClaimConfig((data.client as { organizationClaim
                                         if (result.type === "success") editingEntitlementId = null;
                                     }}
                                 class="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                                <input type="hidden" name="csrf" value={data.csrfToken} />
                                 <input type="hidden" name="entitlementId" value={e.id} />
                                 <label class="block text-xs text-gray-500 sm:col-span-1">
                                     key
@@ -194,6 +198,7 @@ let orgClaims = $derived(parseOrgClaimConfig((data.client as { organizationClaim
                                 <div class="flex items-center gap-2">
                                     <button type="button" onclick={() => (editingEntitlementId = e.id)} class="text-xs text-blue-500">{t("entitlements.edit")}</button>
                                     <form method="POST" action="?/deleteEntitlement" use:enhance>
+                                        <input type="hidden" name="csrf" value={data.csrfToken} />
                                         <input type="hidden" name="entitlementId" value={e.id} />
                                         <button
                                             type="submit"
@@ -213,6 +218,7 @@ let orgClaims = $derived(parseOrgClaimConfig((data.client as { organizationClaim
         {/if}
 
         <form method="POST" action="?/addEntitlement" use:enhance class="grid grid-cols-2 gap-2 border-t border-gray-100 pt-4 sm:grid-cols-5">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             <input type="text" name="key" placeholder={t("entitlements.key_placeholder")} required class="rounded-md border border-gray-300 px-2 py-1.5 font-mono text-sm" />
             <input type="text" name="label" placeholder="label" required class="rounded-md border border-gray-300 px-2 py-1.5 text-sm" />
             <input type="text" name="description" placeholder="description (optional)" class="rounded-md border border-gray-300 px-2 py-1.5 text-sm sm:col-span-2" />
@@ -235,6 +241,7 @@ let orgClaims = $derived(parseOrgClaimConfig((data.client as { organizationClaim
         {/if}
 
         <form method="POST" action="?/updateOrganizationClaims" use:enhance class="space-y-3">
+            <input type="hidden" name="csrf" value={data.csrfToken} />
             {#each ORG_CLAIM_FIELDS as field (field)}
                 <label class="flex items-start gap-3">
                     <input type="checkbox" name={field} value="true" bind:checked={orgClaims[field]} class="mt-0.5 rounded" />
