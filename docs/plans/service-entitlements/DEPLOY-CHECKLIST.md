@@ -13,8 +13,9 @@
 
 | 순서 | D1 | PostgreSQL | MySQL | libSQL |
 |---|---|---|---|---|
-| ① 테이블 2개 추가 | `0033_colossal_bloodaxe` | `pg/0016_talented_lockheed` | `mysql/0016_cooing_giant_girl` | `sqlite/0016_jazzy_starfox` |
+| ① entitlement 테이블 2개 | `0033_colossal_bloodaxe` | `pg/0016_talented_lockheed` | `mysql/0016_cooing_giant_girl` | `sqlite/0016_jazzy_starfox` |
 | ② `revoked_at` 컬럼 제거 | `0034_jazzy_spitfire` | `pg/0017_loud_catseye` | `mysql/0017_same_silverclaw` | `sqlite/0017_needy_madelyne_pryor` |
+| ③ `oidc_client_sessions` 추가 | `0035_square_speed_demon` | `pg/0018_smiling_nuke` | `mysql/0018_living_colonel_america` | `sqlite/0018_tricky_goblin_queen` |
 
 > pg 는 ①이 이미 적용돼 있다(FK 이름 길이 문제로 한 번 재생성·재적용함). ②만 남았다.
 
@@ -111,6 +112,7 @@ SET payload 에 `exp` / `txn` 을 추가했다(회수가 역순 도착으로 되
 - 교차 테넌트 테스트(뮤테이션으로 실효성 확인)
 - entitlement key 소문자 정규화
 - 관리자 강제 로그아웃의 RP 통지(주체 단위 탐색)
+- 세션 단위 로그아웃 통지의 내구성(`oidc_client_sessions`) — grant GC 후에도 도달
 - 서비스 TOTP API 성공/실패 감사
 - 클라이언트 삭제 시 role/entitlement 정의 정리
 
@@ -121,6 +123,8 @@ Origin/Referer 검사가 막고 있고(둘 다 없으면 403), 이중 토큰은 
 적용해 온 2차 계층이라 role·organization 클레임 액션에도 없다. entitlement 에만 붙이면 나머지가
 다른 방식으로 보호되는 것처럼 보인다 — 관리 상세 화면 전체를 한 번에 맞추는 별도 작업이 맞다.
 
-**세션 단위 back-channel logout 경로(`end-session` · `(auth)/logout` · `saml/slo`)의 단명 행
-의존을 남겨 뒀다.** 그 경로들은 세션 하나를 끊는 것이 의도라 `sid` 가 필요하고, 탐색을 넓히면
-과다 통지가 된다. 제대로 고치려면 토큰 발급 시 (sessionId, clientId)를 남기는 테이블이 필요하다.
+(세션 단위 로그아웃 경로의 단명 행 의존은 이후 `oidc_client_sessions` 로 해결했다 — 마이그레이션 ③.)
+
+**남은 것은 SAML 갈래뿐이다.** attribute 명이 미정이라 발행과 정의 UI 를 함께 보류했다.
+둘은 반드시 같이 붙여야 한다 — 정의 UI 만 먼저 넣으면 관리자가 권한을 만들고 배정했는데 SP 에는
+아무것도 가지 않는 조용한 무동작이 된다.

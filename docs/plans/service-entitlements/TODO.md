@@ -207,11 +207,10 @@ heliopause 답신에서 나온 것과, 설계 중 보인 것. **entitlement 와 
   마이그레이션(②)을 만들었다. 적용 전 컬럼이 비어 있는지 확인할 것 — `DEPLOY-CHECKLIST.md` §1.
 - ~~**관리자 강제 로그아웃이 RP 에 도달하지 않음**~~ → **해결.** 주체 단위 타깃 탐색
   (`getOidcBackchannelTargetsForUser`)을 만들어 배선했다. 배선만으로는 부족했다 — 아래 항목 참조.
-- **back-channel logout 타깃 탐색이 단명 행에 묶임** — **부분 해결.**
-  주체 단위 경로(관리자 강제 로그아웃)는 배정/allowAllUsers 기준 탐색으로 바꿔 단명 행 의존을
-  없앴다. **세션 단위 경로(`end-session` · `(auth)/logout` · `saml/slo`)는 그대로 남아 있다** —
-  그쪽은 세션 하나를 끊는 것이 의도라 `sid` 가 필요하고, 탐색을 넓히면 과다 통지가 된다.
-  제대로 고치려면 토큰 발급 시 (sessionId, clientId)를 남기는 테이블이 필요하다.
+- ~~**back-channel logout 타깃 탐색이 단명 행에 묶임**~~ → **해결(양쪽 다).**
+  주체 단위 경로는 배정/allowAllUsers 기준 탐색으로, 세션 단위 경로(`end-session` ·
+  `(auth)/logout` · `saml/slo`)는 `oidc_client_sessions` 기록(토큰 발급 시 1회, 세션에 cascade)으로
+  바꿨다. 기존 grant/refresh 탐색과 **합집합**이라 이 테이블 이전 세션도 회귀 없이 찾힌다.
 - ~~**`roles`/`roles_label` 이 예약 클레임 목록에 없음**~~ → **해결.** `groups` 까지 함께 예약했다.
   기존에 그 경로로 클레임을 넣어 쓰던 배정이 있으면 사라지므로 배포 전 확인 필요 —
   `DEPLOY-CHECKLIST.md` §2.
