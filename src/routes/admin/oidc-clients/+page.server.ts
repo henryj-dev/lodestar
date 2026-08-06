@@ -25,6 +25,9 @@ function generateClientSecret(): string {
 const ALLOWED_TOKEN_AUTH_METHODS = ["client_secret_basic", "client_secret_post", "none"] as const;
 type TokenAuthMethod = (typeof ALLOWED_TOKEN_AUTH_METHODS)[number];
 
+// `groups`/`organization` 은 **조직 소속**(부서·팀·파트)을 내보내는 표시용 scope 다.
+// 인가에 쓰면 팀 이동·부서 개편이 곧바로 보안 경계를 움직인다. 서비스 권한은 `roles` 클레임을
+// 쓴다(`user_service_assignments` 기반 — scope 가 아니라 배정 존재로 발행).
 const ALLOWED_OIDC_SCOPES = ["openid", "profile", "email", "address", "phone", "offline_access", "organization", "groups"] as const;
 
 /**

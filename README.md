@@ -111,6 +111,20 @@ scripts/setup.ts           # 대화형 초기 셋업 스크립트
 | `/oidc/jwks`                        | JSON Web Key Set                              |
 | `/oidc/end-session`                 | RP-Initiated Logout                           |
 
+#### 발행 클레임 — `groups` 와 `roles` 는 용도가 다릅니다
+
+| 클레임                  | 의미                               | 용도                  |
+| ----------------------- | ---------------------------------- | --------------------- |
+| `groups`                | 조직 소속 (부서 · 팀 · 파트)       | **표시용. 인가 금지** |
+| `organization` 계열     | 조직 세부 (부서/직위/직책 등)      | **표시용**            |
+| `roles` · `roles_label` | 서비스 역할 (사용자별 서비스 배정) | **인가용**            |
+
+> ⚠️ **`groups` 로 인가하지 마세요.** 이름이 인가용처럼 읽히고 값이 여러 개라 권한 집합처럼 보이지만, 실제 내용은 **인사 구조**입니다. `groups` 로 인가하면 팀 이동이 보안 경계를 움직이고 부서 개편이 권한을 재배정하며, 조직도를 고치는 사람과 권한을 주는 사람을 분리할 수 없게 됩니다. 서비스 권한은 `roles` 를 쓰세요.
+
+`roles` 는 **사용자당 서비스당 하나**입니다(배열이지만 원소는 항상 1개 — 스키마 제약). `groups`/`organization` 은 해당 scope 를 요청해야 발행되고, `roles` 는 scope 와 무관하게 서비스 배정이 있으면 발행됩니다. 역할 정의·배정 방법은 [관리자 운영 매뉴얼](docs/ADMIN_GUIDE.md#발행-클레임) 참고.
+
+`sub` 클레임은 `users.id` 와 같은 값이며, 아래 [Service-to-Service TOTP API](#service-to-service-totp-api-dispatcher_service_token-필요) 의 `userId` 로 그대로 사용할 수 있습니다.
+
 ### SAML 2.0
 
 | 경로             | 설명                                 |

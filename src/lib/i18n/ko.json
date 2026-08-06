@@ -566,6 +566,7 @@
         "secret_regenerated_title": "시크릿이 재생성되었습니다",
         "secret_regenerated_hint": "기존 시크릿은 더 이상 사용할 수 없습니다.",
         "name_label": "이름 *",
+        "scopes_hint": "groups 는 조직 소속(부서·팀·파트)이며 인가에 사용하지 마세요. 서비스 권한은 roles 클레임을 씁니다.",
         "redirect_uris_label": "Redirect URIs * (줄바꿈 구분)",
         "post_logout_label": "Post-Logout Redirect URIs (줄바꿈 구분)",
         "auth_method_label": "인증 방식",

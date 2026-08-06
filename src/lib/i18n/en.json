@@ -566,6 +566,7 @@
         "secret_regenerated_title": "Secret regenerated",
         "secret_regenerated_hint": "The previous secret can no longer be used.",
         "name_label": "Name *",
+        "scopes_hint": "groups is organizational membership (department/team/part) — do not use it for authorization. Use the roles claim for service permissions.",
         "redirect_uris_label": "Redirect URIs * (one per line)",
         "post_logout_label": "Post-Logout Redirect URIs (one per line)",
         "auth_method_label": "Authentication Method",
