@@ -2,15 +2,17 @@
 
 > 설계: `docs/plans/service-entitlements/PLAN.md` · 발단: `docs/keystone-핸드오프.md` §5
 > heliopause 답신(2026-08-06) 반영: 클레임명 `entitlements` · refresh 정책 **C** · SET 은 `{ roles, entitlements }`.
-> **잔여 미정 1건** — SAML attribute 명(PLAN §8-3). **P2-2 의 SAML 부분에만** 걸린다. P1~P3 은 지금 착수 가능.
+> **잔여 미정 1건** — SAML attribute 명(PLAN §8-3). P2-2(발행)와 P4-3(정의 UI)이 여기 묶여 있다.
 > 규칙: 스키마 변경은 `db:generate:all` 까지만(적용 금지, `CLAUDE.md`). 스텁/TODO/skip 은 블로커.
 > 순서: P1 → P2 → **P3(RP 계약 확정)** → P4 → P5 → P6. 각 페이즈가 독립 배포 가능하며, 중단해도 기존 동작이 깨지지 않는다.
 > **P3 을 UI 앞으로 당긴 이유**: heliopause 가 SET 을 구현하겠다고 확정했다. payload 모양을 먼저 고정해야 그쪽 파서 재작업이 없다.
 >
-> **진행 상황 (2026-08-06)** — P1·P2·P3 완료, 브랜치 `feat/service-entitlements`.
-> 남은 것은 UI 3페이즈(P4·P5·P6). 잔여 미정은 여전히 SAML attribute 명 하나.
-> **마이그레이션은 생성만 했고 적용하지 않았다** — 사용자 실행 대기.
-> **heliopause 에 P3 완료를 알려야 한다**(3-1 의 마지막 항목).
+> **진행 상황 (2026-08-06)** — P1·P2·P3·**P4 완료**, 브랜치 `feat/service-entitlements`.
+> 남은 것은 P5(사용자별 배정 UI) · P6(SET 발행 지점 + refresh 정책).
+> 잔여 미정은 여전히 SAML attribute 명 하나이고, 이제 **P2-2(발행)와 P4-3(정의 UI) 둘 다**
+> 거기 묶여 있다.
+> **마이그레이션은 pg 에 적용 완료**(사용자 실행). FK 이름 길이 문제로 한 번 재생성·재적용했다.
+> **heliopause 에 P3 완료를 알렸다** — `docs/plans/service-api-tokens/회신-heliopause.md` §6.
 
 ---
 
@@ -100,7 +102,7 @@
 
 **목적**: 서비스별 권한 키 CRUD. `serviceRoles` UI 복제.
 
-### [ ] 4-1. OIDC 클라이언트 상세
+### [x] 4-1. OIDC 클라이언트 상세
 
 - 파일: `src/routes/admin/oidc-clients/[id]/+page.server.ts` · `+page.svelte`
 - 작업: role CRUD(`:54-82` 생성 · `:98-109` 수정 · `:160-175` 삭제) 를 본떠 entitlement 액션 3종.
@@ -112,20 +114,23 @@
 - 수용 기준: 생성/수정/삭제 동작, 중복 key 409, 점 포함 키 통과, 감사 이벤트 기록.
   기존 role 섹션 무회귀.
 
-### [ ] 4-2. `ROLE_KEY_RE` 중복 정리
+### [x] 4-2. `ROLE_KEY_RE` 중복 정리
 
 - 파일: `admin/oidc-clients/[id]/+page.server.ts:11` · `admin/saml-sps/[id]/+page.server.ts:10`
 - 작업: 같은 상수가 두 파일에 중복돼 있다. entitlement 액션이 이걸 또 복제하지 않도록 공용 위치로
   뽑는다(`$lib/server/admin/` 하위). 기존 role 검증도 같은 상수를 쓰게 한다.
 - 수용 기준: 정의 1곳. role/entitlement 양쪽 검증 동작 무회귀.
 
-### [ ] 4-3. SAML SP 상세
+### [~] 4-3. SAML SP 상세 — **보류**
 
 - 파일: `src/routes/admin/saml-sps/[id]/+page.server.ts` · `+page.svelte`
-- 작업: 4-1 과 동일 (`serviceType: "saml"`).
-- 수용 기준: 위와 동일.
+- **P2-2 의 SAML 발행 보류에 딸려 보류한다.** SAML SSO 가 entitlement 를 발행하지 않는 상태에서
+  정의 UI 만 있으면, 관리자가 권한을 만들고 배정했는데 SP 에는 아무것도 가지 않는 **조용한
+  무동작**이 된다. attribute 명이 정해져 발행이 붙는 시점에 4-1 과 동일하게 추가한다.
+  (해당 파일에 이유를 주석으로 남겨 뒀다.)
+- 수용 기준: 발행과 함께 붙일 것 — 정의 UI 만 먼저 넣지 말 것.
 
-### [ ] 4-4. i18n
+### [x] 4-4. i18n
 
 - 작업: 4-1/4-3 에서 추가한 라벨·에러 키를 기존 locale 파일 전체에 추가.
 - 수용 기준: 누락 키 없음(기존 i18n 검증 경로 통과).
