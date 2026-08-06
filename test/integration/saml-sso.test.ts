@@ -5,6 +5,8 @@ import { POST as ssoPOST } from "../../src/routes/saml/sso/+server";
 import { samlSessions, samlSps } from "../../src/lib/server/db/schema";
 import {
     openMemoryDb,
+    seedServiceEntitlement,
+    grantEntitlement,
     seedTenantAndSigningKey,
     seedUser,
     seedSamlSp,
@@ -217,5 +219,79 @@ describe("SAML SP-initiated POST 바인딩", () => {
         expect(redirected?.location).toContain("redirectTo=");
         const sessions = await mem.db.select().from(samlSessions).where(eq(samlSessions.userId, user.id));
         expect(sessions.length).toBe(0);
+    });
+});
+
+// SAML 은 OIDC 의 `entitlements` 클레임과 같은 값을 `Entitlements` 속성으로 내보낸다.
+// 목록이므로 하나의 <saml:Attribute> 안에 여러 <saml:AttributeValue> 로 나간다(SAML 표준 표현).
+// 다른 속성과 같이 SP 의 allowedAttributes 게이트를 받는다.
+describe("SAML Entitlements 속성", () => {
+    async function grantEnts(keys: string[], opts: { attributesJson?: string } = {}): Promise<void> {
+        const assignmentId = await seedServiceAssignment(mem.db, {
+            tenantId: tenant.id,
+            userId: user.id,
+            serviceType: "saml",
+            serviceRefId: sp.id,
+            attributesJson: opts.attributesJson,
+        });
+        for (const [i, key] of keys.entries()) {
+            const entId = await seedServiceEntitlement(mem.db, { tenantId: tenant.id, serviceType: "saml", serviceRefId: sp.id, key, displayOrder: i * 10 });
+            await grantEntitlement(mem.db, { tenantId: tenant.id, assignmentId, serviceEntitlementId: entId });
+        }
+    }
+
+    async function allowAttrs(list: string[]): Promise<void> {
+        await mem.db
+            .update(samlSps)
+            .set({ allowedAttributes: JSON.stringify(list) })
+            .where(eq(samlSps.id, sp.id));
+    }
+
+    it("SP 가 허용하면 값마다 AttributeValue 로 나간다", async () => {
+        await allowAttrs(["email", "Entitlements"]);
+        await grantEnts(["site.read", "plan.approve"]);
+
+        const res = await postAuthnRequest({ id: "_ent_ok", loggedIn: true, assignUser: true });
+        const xml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
+
+        expect(xml).toContain('Name="Entitlements"');
+        expect(xml).toContain(">site.read<");
+        expect(xml).toContain(">plan.approve<");
+        // 하나의 Attribute 안에 두 값 — Attribute 가 두 번 나오면 안 된다.
+        expect(xml.match(/Name="Entitlements"/g)).toHaveLength(1);
+    });
+
+    it("SP 허용 목록에 없으면 나가지 않는다", async () => {
+        await allowAttrs(["email"]); // Entitlements 미포함
+        await grantEnts(["site.read"]);
+
+        const res = await postAuthnRequest({ id: "_ent_gated", loggedIn: true, assignUser: true });
+        const xml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
+
+        expect(xml).not.toContain("Entitlements");
+        expect(xml).not.toContain("site.read");
+    });
+
+    it("권한이 0개면 속성 자체가 없다", async () => {
+        await allowAttrs(["email", "Entitlements"]);
+        await grantEnts([]);
+
+        const res = await postAuthnRequest({ id: "_ent_none", loggedIn: true, assignUser: true });
+        const xml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
+
+        expect(xml).not.toContain('Name="Entitlements"');
+    });
+
+    it("attributesJson 으로 Entitlements/Role 을 위조할 수 없다", async () => {
+        await allowAttrs(["email", "Entitlements", "Role", "harmless"]);
+        await grantEnts(["site.read"], { attributesJson: JSON.stringify({ Entitlements: "plan.approve_own", Role: "admin", harmless: "kept" }) });
+
+        const res = await postAuthnRequest({ id: "_ent_forge", loggedIn: true, assignUser: true });
+        const xml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
+
+        expect(xml).toContain(">site.read<");
+        expect(xml).not.toContain("plan.approve_own");
+        expect(xml).not.toContain(">admin<");
+        expect(xml).toContain(">kept<"); // 예약되지 않은 키는 그대로
     });
 });

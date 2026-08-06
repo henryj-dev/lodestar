@@ -718,7 +718,8 @@
         "edit": "편집",
         "key_placeholder": "key (예: site.read)",
         "add": "권한 추가",
-        "delete_confirm": "권한 '{{key}}' 을 삭제하시겠습니까? 이 권한이 부여된 사용자 배정에서도 함께 제거됩니다."
+        "delete_confirm": "권한 '{{key}}' 을 삭제하시겠습니까? 이 권한이 부여된 사용자 배정에서도 함께 제거됩니다.",
+        "saml_allowed_hint": "SAML SP 는 허용 속성 목록에 \"Entitlements\" 를 추가해야 실제로 전달됩니다. 목록에 없으면 정의·배정해도 Assertion 에 나가지 않습니다."
     },
     "poc": {
         "title": "Workers 환경 PoC",

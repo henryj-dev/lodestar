@@ -718,7 +718,8 @@
         "edit": "Edit",
         "key_placeholder": "key (e.g. site.read)",
         "add": "Add Entitlement",
-        "delete_confirm": "Delete entitlement '{{key}}'? It will also be removed from every user assignment that was granted it."
+        "delete_confirm": "Delete entitlement '{{key}}'? It will also be removed from every user assignment that was granted it.",
+        "saml_allowed_hint": "A SAML SP must include \"Entitlements\" in its allowed-attribute list for these to be sent. Without it, defining and granting them changes nothing in the Assertion."
     },
     "poc": {
         "title": "Workers Environment PoC",

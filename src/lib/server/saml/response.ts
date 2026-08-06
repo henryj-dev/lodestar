@@ -44,7 +44,12 @@ export interface BuildSamlResponseParams {
     nameId: string;
     nameIdFormat: string;
     sessionIndex: string;
-    attributes: Record<string, string>;
+    /**
+     * SAML attribute 목록. 값이 배열이면 **하나의 `<saml:Attribute>` 안에 여러
+     * `<saml:AttributeValue>`** 로 나간다 — 목록형 값(entitlements 등)의 SAML 표준 표현이다.
+     * 빈 배열은 attribute 자체를 생략한다(값 없는 Attribute 를 보내지 않는다).
+     */
+    attributes: Record<string, string | string[]>;
     certPem: string;
     privateKey: CryptoKey;
     /** true 이면 Response 요소도 서명 (Assertion 서명 후 추가 서명) */
@@ -72,13 +77,17 @@ export async function buildSignedSamlResponse(params: BuildSamlResponseParams): 
     // unsolicited(IdP-initiated) SSO 는 InResponseTo 를 생략한다. 값이 있을 때만 속성을 추가.
     const inResponseToAttr = params.inResponseTo ? ` InResponseTo="${xmlEscape(params.inResponseTo)}"` : "";
 
-    const attributeStmtXml = Object.keys(params.attributes).length
+    const attributeEntries = Object.entries(params.attributes)
+        .map(([name, value]) => [name, Array.isArray(value) ? value : [value]] as const)
+        .filter(([, values]) => values.length > 0);
+
+    const attributeStmtXml = attributeEntries.length
         ? `<saml:AttributeStatement>` +
-          Object.entries(params.attributes)
+          attributeEntries
               .map(
-                  ([name, value]) =>
+                  ([name, values]) =>
                       `<saml:Attribute Name="${xmlEscape(name)}" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">` +
-                      `<saml:AttributeValue xsi:type="xs:string">${xmlEscape(value)}</saml:AttributeValue>` +
+                      values.map((v) => `<saml:AttributeValue xsi:type="xs:string">${xmlEscape(v)}</saml:AttributeValue>`).join("") +
                       `</saml:Attribute>`,
               )
               .join("") +
