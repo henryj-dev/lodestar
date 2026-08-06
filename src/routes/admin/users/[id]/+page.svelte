@@ -23,6 +23,13 @@ function partLabel(p: { name: string; teamName: string | null }) {
 let selectedService = $state("");
 const filteredRoles = $derived(selectedService ? data.allServiceRoles.filter((r: { serviceType: string; serviceRefId: string }) => `${r.serviceType}:${r.serviceRefId}` === selectedService) : []);
 
+// 배정이 가리키는 서비스에 정의된 권한만 그 배정의 체크박스로 보여 준다.
+// (권한은 서비스별로 정의되므로 다른 서비스의 키가 섞이면 부여 자체가 서버에서 거부된다.)
+type EntitlementRow = { id: string; serviceType: string; serviceRefId: string; key: string; label: string; description: string | null };
+function entitlementsForAssignment(a: { serviceType: string; serviceRefId: string }): EntitlementRow[] {
+    return (data.allServiceEntitlements as EntitlementRow[]).filter((e) => e.serviceType === a.serviceType && e.serviceRefId === a.serviceRefId);
+}
+
 function assignmentStatus(a: { revokedAt: Date | null; expiresAt: Date | null }): { label: string; className: string } {
     if (a.revokedAt) return { label: t("user_detail.svc_revoked"), className: "bg-gray-100 text-gray-500" };
     if (a.expiresAt && a.expiresAt.getTime() <= Date.now()) return { label: t("user_detail.svc_expired"), className: "bg-amber-100 text-amber-700" };
@@ -358,6 +365,8 @@ const TIMEZONE_OPTIONS = [
             <div class="mb-4 divide-y divide-gray-100 rounded-lg border border-gray-200">
                 {#each data.assignments as a (a.id)}
                     {@const status = assignmentStatus(a)}
+                    {@const ents = entitlementsForAssignment(a)}
+                    {@const granted = data.grantedEntitlementsByAssignment[a.id] ?? []}
                     <div class="px-4 py-3 text-sm">
                         <div class="flex flex-wrap items-center justify-between gap-2">
                             <div class="flex flex-wrap items-center gap-2">
@@ -392,6 +401,28 @@ const TIMEZONE_OPTIONS = [
                                 <span class="ml-auto truncate font-mono text-xs text-gray-400" title={a.attributesJson}>{a.attributesJson}</span>
                             {/if}
                         </form>
+
+                        <!-- 권한(entitlement) — role 과 직교. 이 배정이 가리키는 서비스에 정의된 것만 보인다. -->
+                        {#if ents.length > 0}
+                            <form method="POST" action="?/setAssignmentEntitlements" use:enhance class="mt-2 rounded-md bg-gray-50 px-3 py-2">
+                                <input type="hidden" name="assignmentId" value={a.id} />
+                                <div class="mb-1 flex items-center justify-between">
+                                    <span class="text-xs font-medium text-gray-600">{t("user_detail.ent_title")}</span>
+                                    <button type="submit" class="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-600">{t("common.save")}</button>
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    {#each ents as e (e.id)}
+                                        <label class="flex items-center gap-2 text-xs text-gray-700">
+                                            <input type="checkbox" name="entitlementId" value={e.id} checked={granted.includes(e.id)} class="rounded" />
+                                            <code class="rounded bg-white px-1 py-0.5 font-mono text-xs">{e.key}</code>
+                                            <span>{e.label}</span>
+                                            {#if e.description}<span class="text-gray-400">{e.description}</span>{/if}
+                                        </label>
+                                    {/each}
+                                </div>
+                                <p class="mt-1 text-xs text-gray-400">{t("user_detail.ent_order_hint")}</p>
+                            </form>
+                        {/if}
                     </div>
                 {/each}
             </div>

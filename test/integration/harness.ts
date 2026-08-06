@@ -143,7 +143,8 @@ export interface MakeEventOptions {
     url?: string;
     headers?: Record<string, string>;
     /** application/x-www-form-urlencoded 폼 본문(POST 액션/토큰 엔드포인트용). */
-    form?: Record<string, string>;
+    /** 값에 배열을 주면 같은 이름으로 반복 전송된다(체크박스 그룹 → formData.getAll). */
+    form?: Record<string, string | string[]>;
     locals: {
         db: DB;
         tenant: Tenant | null;
@@ -170,7 +171,11 @@ export function makeEvent(opts: MakeEventOptions): RequestEvent<never, never> {
 
     let body: BodyInit | undefined;
     if (opts.form) {
-        const params = new URLSearchParams(opts.form);
+        const params = new URLSearchParams();
+        for (const [k, v] of Object.entries(opts.form)) {
+            if (Array.isArray(v)) for (const item of v) params.append(k, item);
+            else params.append(k, v);
+        }
         body = params;
         if (!headers.has("content-type")) headers.set("content-type", "application/x-www-form-urlencoded");
     }

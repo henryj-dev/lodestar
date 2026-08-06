@@ -2,10 +2,25 @@ import { error } from "@sveltejs/kit";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
-import { departments, oidcClients, parts, positions, samlSps, serviceRoles, teams, userDepartments, userParts, userServiceAssignments, userTeams, users } from "$lib/server/db/schema";
+import {
+    departments,
+    oidcClients,
+    parts,
+    positions,
+    samlSps,
+    serviceEntitlements,
+    serviceRoles,
+    teams,
+    userDepartments,
+    userParts,
+    userServiceAssignments,
+    userServiceEntitlements,
+    userTeams,
+    users,
+} from "$lib/server/db/schema";
 import { updateProfile } from "$lib/server/admin/user-actions/profile";
 import { addDept, removeDept, addTeam, removeTeam, addPart, removePart } from "$lib/server/admin/user-actions/org";
-import { addAssignment, revokeAssignment, updateAssignmentExpiry } from "$lib/server/admin/user-actions/service";
+import { addAssignment, revokeAssignment, updateAssignmentExpiry, setAssignmentEntitlements } from "$lib/server/admin/user-actions/service";
 import { forceLogout } from "$lib/server/admin/user-actions/security";
 import { adminError } from "$lib/server/admin/errors";
 
@@ -24,7 +39,21 @@ export const load: PageServerLoad = async ({ locals, params }) => {
 
     // 아래 조회는 서로 독립적이므로 병렬 실행한다. 순차 await 워터폴을 제거해
     // 관리자 상세 페이지 로드 지연을 대폭 단축한다.
-    const [deptMemberships, teamMemberships, partMemberships, allDepts, allTeams, allParts, allPositions, assignments, allOidcClients, allSamlSps, allServiceRoles] = await Promise.all([
+    const [
+        deptMemberships,
+        teamMemberships,
+        partMemberships,
+        allDepts,
+        allTeams,
+        allParts,
+        allPositions,
+        assignments,
+        allOidcClients,
+        allSamlSps,
+        allServiceRoles,
+        allServiceEntitlements,
+        grantedEntitlements,
+    ] = await Promise.all([
         // 현재 부서 소속
         db
             .select({
@@ -140,6 +169,29 @@ export const load: PageServerLoad = async ({ locals, params }) => {
             .from(serviceRoles)
             .where(eq(serviceRoles.tenantId, tenant.id))
             .orderBy(asc(serviceRoles.displayOrder), asc(serviceRoles.key)),
+
+        // 테넌트의 모든 권한 정의. UI 에서 배정의 service 로 걸러 쓴다.
+        // displayOrder 순서가 곧 관리자가 의존 관계를 읽는 순서다(시스템은 강제하지 않는다).
+        db
+            .select({
+                id: serviceEntitlements.id,
+                serviceType: serviceEntitlements.serviceType,
+                serviceRefId: serviceEntitlements.serviceRefId,
+                key: serviceEntitlements.key,
+                label: serviceEntitlements.label,
+                description: serviceEntitlements.description,
+                displayOrder: serviceEntitlements.displayOrder,
+            })
+            .from(serviceEntitlements)
+            .where(eq(serviceEntitlements.tenantId, tenant.id))
+            .orderBy(asc(serviceEntitlements.displayOrder), asc(serviceEntitlements.key)),
+
+        // 이 사용자의 배정에 실제로 부여된 권한(배정 id 기준). 체크박스 초기 상태.
+        db
+            .select({ assignmentId: userServiceEntitlements.assignmentId, serviceEntitlementId: userServiceEntitlements.serviceEntitlementId })
+            .from(userServiceEntitlements)
+            .innerJoin(userServiceAssignments, eq(userServiceEntitlements.assignmentId, userServiceAssignments.id))
+            .where(and(eq(userServiceAssignments.tenantId, tenant.id), eq(userServiceAssignments.userId, userId))),
     ]);
 
     // 표시용 — service ref 별 이름 매핑
@@ -160,6 +212,12 @@ export const load: PageServerLoad = async ({ locals, params }) => {
         allOidcClients,
         allSamlSps,
         allServiceRoles,
+        allServiceEntitlements,
+        // assignmentId → 부여된 entitlement id 목록. 체크박스 checked 판정에 쓴다.
+        grantedEntitlementsByAssignment: grantedEntitlements.reduce<Record<string, string[]>>((acc, row) => {
+            (acc[row.assignmentId] ??= []).push(row.serviceEntitlementId);
+            return acc;
+        }, {}),
         serviceLabelMap,
     };
 };
@@ -177,5 +235,6 @@ export const actions: Actions = {
     addAssignment,
     revokeAssignment,
     updateAssignmentExpiry,
+    setAssignmentEntitlements,
     forceLogout,
 };

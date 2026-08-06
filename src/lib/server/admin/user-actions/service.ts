@@ -1,9 +1,9 @@
 import { fail } from "@sveltejs/kit";
 import type { RequestEvent } from "@sveltejs/kit";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { requireAdminContext, assertUserInTenant } from "$lib/server/auth/guards";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
-import { oidcClients, samlSps, serviceRoles, userServiceAssignments } from "$lib/server/db/schema";
+import { oidcClients, samlSps, serviceEntitlements, serviceRoles, userServiceAssignments, userServiceEntitlements } from "$lib/server/db/schema";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
 import type { DB } from "$lib/server/db";
 import { getActiveAssignment, listActiveEntitlements } from "$lib/server/access/service-permissions";
@@ -282,4 +282,105 @@ export async function updateAssignmentExpiry(event: UserActionEvent) {
         .where(and(eq(userServiceAssignments.id, assignmentId), eq(userServiceAssignments.userId, params.id), eq(userServiceAssignments.tenantId, tenant.id)));
 
     return { updatedExpiry: true };
+}
+
+// ── 배정별 권한(entitlement) 설정 ─────────────────────────────────────────────
+/**
+ * 체크박스 그룹 제출을 받아 배정의 권한 집합을 **선언적으로** 맞춘다(diff 후 추가/삭제).
+ *
+ * 부여/회수를 따로 두지 않는 이유: UI 가 체크박스라 사용자가 표현하는 것은 "최종 상태" 이고,
+ * 개별 토글로 쪼개면 두 요청 사이에 중간 상태가 생긴다. 감사에는 diff 를 건별로 남기므로
+ * "무엇이 늘고 줄었는가" 는 그대로 추적된다.
+ *
+ * **권한 간 의존은 강제하지 않는다.** `plan.approve_own` 이 `plan.approve` 를 요구한다는 것은
+ * RP 의 의미론이고, 다른 RP 에서는 같은 모양의 두 키가 무관할 수 있다. 그것을 IdP 가 알면
+ * entitlement 가 피하려던 결합이 그대로 생긴다. 관리 화면은 displayOrder 로 순서만 보여 준다.
+ */
+export async function setAssignmentEntitlements(event: UserActionEvent) {
+    const { locals, params, request } = event;
+    const { db, tenant } = requireAdminContext(locals);
+    const locale = locals.locale;
+    const fd = await request.formData();
+    const userId = params.id;
+
+    const tenantCheck = await assertUserInTenant(db, tenant.id, userId);
+    if (!tenantCheck.ok) return tenantCheck.error;
+
+    const idr = requireFormId(fd, locale, { field: "assignmentId" });
+    if (!idr.ok) return idr.failure;
+    const assignmentId = idr.id;
+
+    // IDOR 가드: 이 페이지 사용자의, 이 테넌트의 배정만 대상.
+    const [assignment] = await db
+        .select({ id: userServiceAssignments.id, serviceType: userServiceAssignments.serviceType, serviceRefId: userServiceAssignments.serviceRefId })
+        .from(userServiceAssignments)
+        .where(and(eq(userServiceAssignments.id, assignmentId), eq(userServiceAssignments.userId, userId), eq(userServiceAssignments.tenantId, tenant.id)))
+        .limit(1);
+    if (!assignment) return fail(404, { error: adminError(locale, "assignment_not_found") });
+
+    // 후보는 **그 배정이 가리키는 서비스에 정의된 권한**뿐이다. 타 서비스/타 테넌트 id 가 폼으로
+    // 들어오면 조용히 무시하지 않고 거부한다 — 정상 UI 는 그런 값을 보내지 않으므로 위조 신호다.
+    const defined = await db
+        .select({ id: serviceEntitlements.id, key: serviceEntitlements.key })
+        .from(serviceEntitlements)
+        .where(and(eq(serviceEntitlements.tenantId, tenant.id), eq(serviceEntitlements.serviceType, assignment.serviceType), eq(serviceEntitlements.serviceRefId, assignment.serviceRefId)));
+    const keyById = new Map(defined.map((d) => [d.id, d.key]));
+
+    const requested = [
+        ...new Set(
+            fd
+                .getAll("entitlementId")
+                .map((v) => String(v))
+                .filter(Boolean),
+        ),
+    ];
+    for (const id of requested) {
+        if (!keyById.has(id)) return fail(400, { error: adminError(locale, "entitlement_not_in_service") });
+    }
+
+    const current = await db.select({ serviceEntitlementId: userServiceEntitlements.serviceEntitlementId }).from(userServiceEntitlements).where(eq(userServiceEntitlements.assignmentId, assignmentId));
+    const currentIds = new Set(current.map((c) => c.serviceEntitlementId));
+    const requestedIds = new Set(requested);
+
+    const toAdd = requested.filter((id) => !currentIds.has(id));
+    const toRemove = [...currentIds].filter((id) => !requestedIds.has(id));
+
+    if (toAdd.length > 0) {
+        await db.insert(userServiceEntitlements).values(
+            toAdd.map((serviceEntitlementId) => ({
+                id: crypto.randomUUID(),
+                tenantId: tenant.id,
+                assignmentId,
+                serviceEntitlementId,
+                grantedBy: locals.user!.id,
+            })),
+        );
+    }
+    if (toRemove.length > 0) {
+        await db.delete(userServiceEntitlements).where(and(eq(userServiceEntitlements.assignmentId, assignmentId), inArray(userServiceEntitlements.serviceEntitlementId, toRemove)));
+    }
+
+    // 감사는 건별로 — "언제 누가 무엇을 줬다/뺐다" 가 이력이 남는 유일한 자리다
+    // (userServiceEntitlements 에는 revokedAt 을 두지 않았다).
+    const meta = getRequestMetadata(event);
+    for (const [ids, kind] of [
+        [toAdd, "user_entitlement_granted"],
+        [toRemove, "user_entitlement_revoked"],
+    ] as const) {
+        for (const id of ids) {
+            await recordAuditEvent(db, {
+                tenantId: tenant.id,
+                userId,
+                actorId: locals.user!.id,
+                spOrClientId: assignment.serviceRefId,
+                kind,
+                outcome: "success",
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                detail: { serviceType: assignment.serviceType, serviceRefId: assignment.serviceRefId, entitlementKey: keyById.get(id) ?? null },
+            });
+        }
+    }
+
+    return { entitlementsUpdated: true, added: toAdd.length, removed: toRemove.length };
 }
