@@ -2,7 +2,7 @@
 
 > 설계: `docs/plans/service-entitlements/PLAN.md` · 발단: `docs/keystone-핸드오프.md` §5
 > heliopause 답신(2026-08-06) 반영: 클레임명 `entitlements` · refresh 정책 **C** · SET 은 `{ roles, entitlements }`.
-> **잔여 미정 1건** — SAML attribute 명(PLAN §8-3). P2-2(발행)와 P4-3(정의 UI)이 여기 묶여 있다.
+> **잔여 미정 없음.** SAML attribute 명은 `Entitlements` 로 확정하고 발행·정의 UI 를 함께 넣었다.
 > 규칙: 스키마 변경은 `db:generate:all` 까지만(적용 금지, `CLAUDE.md`). 스텁/TODO/skip 은 블로커.
 > 순서: P1 → P2 → **P3(RP 계약 확정)** → P4 → P5 → P6. 각 페이즈가 독립 배포 가능하며, 중단해도 기존 동작이 깨지지 않는다.
 > **P3 을 UI 앞으로 당긴 이유**: heliopause 가 SET 을 구현하겠다고 확정했다. payload 모양을 먼저 고정해야 그쪽 파서 재작업이 없다.
@@ -65,8 +65,8 @@
   `src/routes/saml/sso/+server.ts:110`
 - 작업: 각 위치가 이미 들고 있는 `assignment.id` 로 2-1 호출. 클레임명 **`entitlements`**(확정).
   **결과가 빈 배열이면 클레임을 넣지 않는다**(PLAN §3-1 — 빈 배열도 넣지 않음).
-- ⚠️ **SAML 부분은 attribute 명 미정으로 보류했다**(PLAN §8-3). OIDC 2곳(token·userinfo)만 발행한다.
-  SAML SP 를 붙이는 시점에 이름을 정해 `saml/sso` 에 추가한다. **이 항목만 P2 에서 미완이다.**
+- SAML 도 완료 — 속성명 **`Entitlements`**(PascalCase, 기존 `Role`/`RoleLabel` 관례). 목록이라
+  하나의 Attribute 안에 여러 AttributeValue 로 나가고, SP 의 allowedAttributes 게이트를 받는다.
 - 수용 기준: 권한 0개 사용자의 id_token/userinfo 페이로드가 변경 전과 **키 단위로 동일**.
   권한 보유 시 발행 지점 간 값 일치.
 
@@ -121,14 +121,11 @@
   뽑는다(`$lib/server/admin/` 하위). 기존 role 검증도 같은 상수를 쓰게 한다.
 - 수용 기준: 정의 1곳. role/entitlement 양쪽 검증 동작 무회귀.
 
-### [~] 4-3. SAML SP 상세 — **보류**
+### [x] 4-3. SAML SP 상세
 
 - 파일: `src/routes/admin/saml-sps/[id]/+page.server.ts` · `+page.svelte`
-- **P2-2 의 SAML 발행 보류에 딸려 보류한다.** SAML SSO 가 entitlement 를 발행하지 않는 상태에서
-  정의 UI 만 있으면, 관리자가 권한을 만들고 배정했는데 SP 에는 아무것도 가지 않는 **조용한
-  무동작**이 된다. attribute 명이 정해져 발행이 붙는 시점에 4-1 과 동일하게 추가한다.
-  (해당 파일에 이유를 주석으로 남겨 뒀다.)
-- 수용 기준: 발행과 함께 붙일 것 — 정의 UI 만 먼저 넣지 말 것.
+- 발행(`Entitlements` 속성)과 **같은 커밋에** 넣었다 — 정의만 먼저 넣으면 조용한 무동작이 된다.
+- 수용 기준 충족: 정의 CRUD + 감사, SP allowedAttributes 게이트 안내 문구.
 
 ### [x] 4-4. i18n
 
