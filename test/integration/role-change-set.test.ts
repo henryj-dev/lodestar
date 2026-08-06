@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { eq } from "drizzle-orm";
-import { addAssignment, revokeAssignment } from "../../src/lib/server/admin/user-actions/service";
+import { and, eq, isNull } from "drizzle-orm";
+import { addAssignment, revokeAssignment, setAssignmentEntitlements } from "../../src/lib/server/admin/user-actions/service";
 import { b64uDecode, getActiveSigningKey } from "../../src/lib/server/crypto/keys";
 import { getRuntimeConfig } from "../../src/lib/server/auth/runtime";
 import { ROLE_CHANGE_EVENT, sendRoleChangeSet } from "../../src/lib/server/oidc/role-change";
-import { auditEvents, oidcClients, serviceRoles, userServiceAssignments } from "../../src/lib/server/db/schema";
+import { auditEvents, oidcClients, oidcRefreshTokens, serviceEntitlements, serviceRoles, userServiceAssignments } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedOidcClient, seedSamlSp, makeEvent, makePlatform, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant, User } from "../../src/lib/server/db/schema";
 
@@ -219,6 +219,105 @@ describe("role-change SET 발행", () => {
         const audits = await roleChangeAudits();
         expect(audits).toHaveLength(1);
         expect(audits[0].outcome).toBe("failure");
+    });
+});
+
+// 권한(entitlement)만 바뀌어도 SET 이 나가야 한다. 이게 P6 의 본체 — 없으면 권한 회수가
+// RP 세션 수명 동안 조용히 남는다.
+describe("권한 변경 시 SET 발행", () => {
+    async function seedEntitlement(clientDbId: string, key: string): Promise<string> {
+        const id = crypto.randomUUID();
+        await mem.db.insert(serviceEntitlements).values({ id, tenantId: tenant.id, serviceType: "oidc", serviceRefId: clientDbId, key, label: key });
+        return id;
+    }
+
+    function userEvent(form: Record<string, string | string[]>) {
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/users/${target.id}`,
+            form,
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        (event as unknown as { params: { id: string } }).params = { id: target.id };
+        return event as Parameters<typeof setAssignmentEntitlements>[0];
+    }
+
+    it("권한 추가만으로도 SET 이 나가고 entitlements 가 실린다", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        captured = []; // 배정 부여 시 발행분은 제외하고 본다
+
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+
+        expect(captured).toHaveLength(1);
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["approver"], entitlements: ["site.read"] } });
+    });
+
+    it("권한 전부 회수 시 entitlements: [] 로 발행한다", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+        captured = [];
+
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id }));
+
+        expect(captured).toHaveLength(1);
+        const { payload } = decodeJwt(extractToken(captured[0].body));
+        expect(payload.events).toEqual({ [ROLE_CHANGE_EVENT]: { roles: ["approver"], entitlements: [] } });
+    });
+
+    it("바뀐 것이 없으면 발행하지 않는다 (같은 집합 재제출)", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+        captured = [];
+
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+
+        expect(captured).toHaveLength(0);
+    });
+
+    // 정책 C — 제거는 refresh family 를 폐기하고, 추가는 폐기하지 않는다(재로그인 강요 없음).
+    it("권한 제거 시에만 refresh token 이 폐기된다", async () => {
+        const { clientDbId, roleId } = await seedClientWithRole({ roleKey: "approver" });
+        await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
+        const entId = await seedEntitlement(clientDbId, "site.read");
+        const [assignment] = await mem.db.select().from(userServiceAssignments).where(eq(userServiceAssignments.userId, target.id));
+
+        async function liveRefreshCount(): Promise<number> {
+            const rows = await mem.db
+                .select()
+                .from(oidcRefreshTokens)
+                .where(and(eq(oidcRefreshTokens.userId, target.id), isNull(oidcRefreshTokens.revokedAt)));
+            return rows.length;
+        }
+        async function issueRefresh(): Promise<void> {
+            await mem.db.insert(oidcRefreshTokens).values({
+                id: crypto.randomUUID(),
+                tenantId: tenant.id,
+                userId: target.id,
+                clientId: CLIENT_ID,
+                tokenHash: crypto.randomUUID(),
+                scope: "openid",
+                expiresAt: new Date(Date.now() + 86_400_000),
+            });
+        }
+
+        // 추가 → 폐기되지 않아야 한다
+        await issueRefresh();
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id, entitlementId: [entId] }));
+        expect(await liveRefreshCount()).toBe(1);
+
+        // 제거 → 폐기돼야 한다
+        await setAssignmentEntitlements(userEvent({ assignmentId: assignment.id }));
+        expect(await liveRefreshCount()).toBe(0);
     });
 });
 

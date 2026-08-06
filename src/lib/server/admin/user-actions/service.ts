@@ -25,8 +25,9 @@ type UserActionEvent = RequestEvent<{ id: string }, "/admin/users/[id]">;
  *   - 회수 후(또는 role 없음) → `[]`  → RP 가 user 로 강등
  *   - entitlements 는 배정이 살아 있으면 활성 권한 키, 배정이 사라졌으면 `[]`
  *
- * 아직 **배정 부여/회수 시점에만** 발행된다. 권한만 바뀌는 경우(배정은 그대로, 권한 체크박스만
- * 변경)의 발행은 관리 UI 가 생기는 단계에서 붙인다 — 그전까지 권한 변경 경로 자체가 없다.
+ * 발행 지점은 셋이다: 배정 부여(`addAssignment`) · 배정 회수(`revokeAssignment`) ·
+ * **권한만 변경**(`setAssignmentEntitlements`). 마지막 것이 없으면 권한 회수가 RP 세션 수명 동안
+ * 조용히 남는다 — 자체 세션으로 인가를 들고 가는 RP 에게는 이 SET 이 되돌리는 유일한 수단이다.
  *
  * serviceType !== 'oidc' 이거나, role_change_uri 미설정 클라이언트, 서명키/issuer 미비 등에서는
  * 조용히 skip 한다. 전송/조립 오류는 삼킨다(재시도 없음, back-channel logout 과 동일).
@@ -380,6 +381,28 @@ export async function setAssignmentEntitlements(event: UserActionEvent) {
                 detail: { serviceType: assignment.serviceType, serviceRefId: assignment.serviceRefId, entitlementKey: keyById.get(id) ?? null },
             });
         }
+    }
+
+    // 바뀐 게 없으면 통지도 하지 않는다 — 같은 집합 재제출은 no-op 이다.
+    if (toAdd.length > 0 || toRemove.length > 0) {
+        // ctrls M-3 의 권한 판(정책 C): **제거가 있을 때만** refresh family 를 폐기한다.
+        // 추가는 확대라 급하지 않고 재로그인 비용만 물리지만, 제거는 축소라 즉시 반영돼야 한다.
+        // (배정 회수 경로가 이미 같은 함수를 쓴다.)
+        //
+        // 다만 이것이 안전망은 아니다: refresh token 을 받지 않고 자체 세션으로 인가를 들고 가는
+        // RP 에게는 아무것도 닫아 주지 못한다. 그런 RP 를 되돌리는 수단은 아래 SET 하나뿐이다.
+        if (toRemove.length > 0 && assignment.serviceType === "oidc") {
+            const [oc] = await db
+                .select({ clientId: oidcClients.clientId })
+                .from(oidcClients)
+                .where(and(eq(oidcClients.id, assignment.serviceRefId), eq(oidcClients.tenantId, tenant.id)))
+                .limit(1);
+            if (oc) await revokeRefreshTokenFamily(db, tenant.id, userId, oc.clientId);
+        }
+
+        // 권한만 바뀐 경우에도 SET 을 발행한다. 배정 부여/회수에서만 나가던 것을 여기까지 넓히는 것이
+        // P6 의 본체다 — 이게 없으면 권한 회수가 RP 세션 수명 동안 조용히 남는다.
+        await emitRoleChangeSet(event, db, tenant.id, userId, assignment.serviceType, assignment.serviceRefId);
     }
 
     return { entitlementsUpdated: true, added: toAdd.length, removed: toRemove.length };
