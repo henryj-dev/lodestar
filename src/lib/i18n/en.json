@@ -81,6 +81,7 @@
         "teams": "Teams",
         "parts": "Parts",
         "ldap_providers": "LDAP Providers",
+        "service_tokens": "Service Tokens",
         "skins": "Login Skins",
         "errors": {
             "invalid_request": "Invalid request.",
@@ -133,6 +134,9 @@
             "entitlement_key_exists": "This entitlement key already exists.",
             "entitlement_not_found": "Entitlement not found for this service.",
             "entitlement_conflict": "Conflicted with another change. Refresh the page and try again.",
+            "invalid_service_scope": "Unknown scope.",
+            "service_scope_required": "Select at least one scope.",
+            "service_token_not_found": "Token not found.",
             "ldap_host_required": "LDAP host is required.",
             "ldap_bind_or_userdn_required": "Either Admin Bind DN or user DN pattern is required.",
             "ldap_signing_key_secret_required": "IDP_SIGNING_KEY_SECRET must be configured to store the LDAP bindPassword.",
@@ -720,6 +724,25 @@
         "add": "Add Entitlement",
         "delete_confirm": "Delete entitlement '{{key}}'? It will also be removed from every user assignment that was granted it.",
         "saml_allowed_hint": "A SAML SP must include \"Entitlements\" in its allowed-attribute list for these to be sent. Without it, defining and granting them changes nothing in the Assertion."
+    },
+    "service_tokens": {
+        "title": "Service API Tokens",
+        "subtitle": "Tokens for service-to-service calls (/api/totp/*, /api/users/lookup). Issue one per caller and grant only the scopes it needs.",
+        "created_title": "Token issued",
+        "created_hint": "This value is shown only now. Only a hash is stored, so a lost token can only be replaced.",
+        "list_title": "Issued tokens",
+        "count": "{{count}}",
+        "empty": "No tokens have been issued.",
+        "name_label": "Name *",
+        "name_placeholder": "Caller name (e.g. heliopause)",
+        "scopes_label": "Scopes *",
+        "expires_label": "Expires (optional)",
+        "add": "Issue token",
+        "never_used": "Never used",
+        "last_used": "Last used",
+        "expired": "Expired",
+        "revoke_confirm": "Revoke token '{{name}}'? Callers using it will get 401 immediately.",
+        "env_note": "DISPATCHER_SERVICE_TOKEN (env) is not listed here and holds every scope. Remove it once all callers use tokens from this screen."
     },
     "poc": {
         "title": "Workers Environment PoC",

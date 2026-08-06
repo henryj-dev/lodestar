@@ -27,6 +27,12 @@ const LAST_USED_THROTTLE_MS = 5 * 60 * 1000;
 /** 발급 토큰 접두사 — 로그·목록에서 이 값이 KeyStone 서비스 토큰임을 알아보게 한다. */
 export const SERVICE_TOKEN_PREFIX = "kst_";
 
+/**
+ * 발급 가능한 스코프 전체. 각 라우트가 요구하는 이름과 **정확히** 일치해야 한다
+ * (와일드카드/계층 없음 — 넷뿐이라 이득이 없다).
+ */
+export const SERVICE_API_SCOPES = ["totp.verify", "totp.status", "totp.enroll", "users.lookup"] as const;
+
 /** 요청이 통과한 토큰의 신원. 호출부가 감사에 남길 수 있도록 반환한다. */
 export interface ServiceTokenIdentity {
     /** DB 토큰이면 행 id, env 토큰이면 null. */

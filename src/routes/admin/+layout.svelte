@@ -13,6 +13,7 @@ const menuItems = [
     { route: "/admin/oidc-clients" as const, key: "admin.oidc_clients" },
     { route: "/admin/saml-sps" as const, key: "admin.saml_sps" },
     { route: "/admin/signing-keys" as const, key: "admin.signing_keys" },
+    { route: "/admin/service-tokens" as const, key: "admin.service_tokens" },
     { route: "/admin/ldap-providers" as const, key: "admin.ldap_providers" },
     { route: "/admin/skins" as const, key: "admin.skins" },
     { route: "/admin/audit" as const, key: "admin.audit" },

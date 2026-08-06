@@ -5,6 +5,7 @@ import { POST as enrollConfirmPOST } from "../../src/routes/api/totp/enroll/conf
 import { POST as verifyPOST } from "../../src/routes/api/totp/verify/+server";
 import { encryptTotpSecret, generateTotpCode, generateTotpSecret } from "../../src/lib/server/auth/totp";
 import { generateServiceToken, hashServiceToken } from "../../src/lib/server/auth/service-token";
+import { actions as tokenPageActions } from "../../src/routes/admin/service-tokens/+page.server";
 import { auditEvents, credentials, serviceApiTokens, tenants } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, makeEvent, catchError, TEST_ISSUER_URL, TEST_SIGNING_SECRET, type MemoryDb } from "./harness";
 import type { Tenant, User } from "../../src/lib/server/db/schema";
@@ -221,5 +222,101 @@ describe("서비스 API 토큰 스코프", () => {
         await enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, token));
         const [second] = await mem.db.select().from(serviceApiTokens);
         expect(second.lastUsedAt?.getTime()).toBe(first.lastUsedAt?.getTime());
+    });
+});
+
+// 발급·폐기 화면.
+describe("서비스 토큰 발급 UI", () => {
+    const create = tokenPageActions.create!;
+    const revoke = tokenPageActions.revoke!;
+    let admin: User;
+
+    beforeEach(async () => {
+        admin = await seedUser(mem.db, { tenantId: tenant.id, email: "tkadmin@test.example", role: "admin" });
+    });
+
+    function adminEvent(form: Record<string, string | string[]>) {
+        return makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/service-tokens`,
+            form,
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        }) as Parameters<typeof create>[0];
+    }
+
+    it("평문은 응답에만 나오고 DB 에는 해시만 저장된다", async () => {
+        const res = (await create(adminEvent({ name: "heliopause", scopes: ["totp.verify"] }))) as { token?: string };
+
+        expect(res.token).toBeTruthy();
+        const [row] = await mem.db.select().from(serviceApiTokens);
+        // 저장된 어느 컬럼에도 평문이 없다.
+        expect(row.tokenHash).not.toContain(res.token!);
+        expect(row.tokenHash).toBe(await hashServiceToken(res.token!));
+        expect(res.token!.startsWith(row.tokenPrefix)).toBe(true);
+        expect(row.scopes).toBe("totp.verify");
+    });
+
+    it("발급된 토큰이 실제로 통한다 (해시 왕복)", async () => {
+        const res = (await create(adminEvent({ name: "heliopause", scopes: ["totp.enroll"] }))) as { token: string };
+
+        const ok = (await enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, res.token))) as Response;
+        expect(ok.status).toBe(200);
+    });
+
+    it("체크하지 않은 스코프는 부여되지 않는다", async () => {
+        const res = (await create(adminEvent({ name: "heliopause", scopes: ["totp.verify"] }))) as { token: string };
+
+        const { status } = await catchError(() => enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, res.token)));
+        expect(status).toBe(401);
+    });
+
+    it("정의되지 않은 스코프는 400", async () => {
+        const res = (await create(adminEvent({ name: "bad", scopes: ["totp.verify", "admin.everything"] }))) as { status?: number };
+        expect(res.status).toBe(400);
+        expect(await mem.db.select().from(serviceApiTokens)).toEqual([]);
+    });
+
+    it("스코프를 하나도 안 고르면 400", async () => {
+        const res = (await create(adminEvent({ name: "bad" }))) as { status?: number };
+        expect(res.status).toBe(400);
+    });
+
+    it("감사에 평문을 남기지 않는다", async () => {
+        const res = (await create(adminEvent({ name: "heliopause", scopes: ["totp.verify"] }))) as { token: string };
+
+        const rows = await mem.db.select({ detailJson: auditEvents.detailJson }).from(auditEvents).where(eq(auditEvents.kind, "service_api_token_created"));
+        expect(rows).toHaveLength(1);
+        const detail = rows[0].detailJson!;
+        expect(detail).not.toContain(res.token);
+        expect(JSON.parse(detail)).toMatchObject({ name: "heliopause", scopes: ["totp.verify"] });
+    });
+
+    it("폐기하면 그 토큰은 즉시 거부된다", async () => {
+        const res = (await create(adminEvent({ name: "heliopause", scopes: ["totp.enroll"] }))) as { token: string };
+        const [row] = await mem.db.select().from(serviceApiTokens);
+
+        await revoke(adminEvent({ tokenId: row.id }));
+
+        expect(await mem.db.select().from(serviceApiTokens)).toEqual([]);
+        const { status } = await catchError(() => enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: user.id }, res.token)));
+        expect(status).toBe(401);
+    });
+
+    it("다른 테넌트의 토큰은 폐기되지 않는다", async () => {
+        const otherTenantId = crypto.randomUUID();
+        await mem.db.insert(tenants).values({ id: otherTenantId, slug: `x-${otherTenantId.slice(0, 8)}`, name: "Other" });
+        const foreignId = crypto.randomUUID();
+        await mem.db.insert(serviceApiTokens).values({
+            id: foreignId,
+            tenantId: otherTenantId,
+            name: "foreign",
+            tokenHash: await hashServiceToken("kst_foreign"),
+            tokenPrefix: "kst_foreig",
+            scopes: "totp.verify",
+        });
+
+        const res = (await revoke(adminEvent({ tokenId: foreignId }))) as { status?: number };
+        expect(res.status).toBe(404);
+        expect(await mem.db.select().from(serviceApiTokens)).toHaveLength(1);
     });
 });
