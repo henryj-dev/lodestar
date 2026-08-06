@@ -10,7 +10,7 @@ import { credentials } from "$lib/server/db/schema";
  */
 export const GET: RequestHandler = async (event) => {
     const { url, locals } = event;
-    await requireServiceToken(event);
+    await requireServiceToken(event, "totp.status");
     const { db } = requireDbContext(locals);
 
     const userId = url.searchParams.get("userId")?.trim();

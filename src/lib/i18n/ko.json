@@ -81,6 +81,7 @@
         "teams": "팀",
         "parts": "파트",
         "ldap_providers": "LDAP 프로바이더",
+        "service_tokens": "서비스 토큰",
         "skins": "로그인 스킨",
         "errors": {
             "invalid_request": "잘못된 요청입니다.",
@@ -133,6 +134,9 @@
             "entitlement_key_exists": "이미 존재하는 권한 key 입니다.",
             "entitlement_not_found": "해당 서비스에서 권한을 찾을 수 없습니다.",
             "entitlement_conflict": "다른 변경과 충돌했습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.",
+            "invalid_service_scope": "알 수 없는 스코프입니다.",
+            "service_scope_required": "스코프를 하나 이상 선택해 주세요.",
+            "service_token_not_found": "토큰을 찾을 수 없습니다.",
             "ldap_host_required": "LDAP 호스트는 필수입니다.",
             "ldap_bind_or_userdn_required": "Admin Bind DN 또는 유저 DN 패턴 중 하나는 필수입니다.",
             "ldap_signing_key_secret_required": "IDP_SIGNING_KEY_SECRET 이 설정되어야 LDAP bindPassword 를 저장할 수 있습니다.",
@@ -720,6 +724,25 @@
         "add": "권한 추가",
         "delete_confirm": "권한 '{{key}}' 을 삭제하시겠습니까? 이 권한이 부여된 사용자 배정에서도 함께 제거됩니다.",
         "saml_allowed_hint": "SAML SP 는 허용 속성 목록에 \"Entitlements\" 를 추가해야 실제로 전달됩니다. 목록에 없으면 정의·배정해도 Assertion 에 나가지 않습니다."
+    },
+    "service_tokens": {
+        "title": "서비스 API 토큰",
+        "subtitle": "service-to-service 호출(/api/totp/*, /api/users/lookup)에 쓰는 토큰입니다. 호출자마다 따로 발급하고 필요한 스코프만 주세요.",
+        "created_title": "토큰이 발급되었습니다",
+        "created_hint": "이 값은 지금만 표시됩니다. DB 에는 해시만 저장되므로 잃어버리면 재발급밖에 없습니다.",
+        "list_title": "발급된 토큰",
+        "count": "{{count}}개",
+        "empty": "발급된 토큰이 없습니다.",
+        "name_label": "이름 *",
+        "name_placeholder": "호출자 이름 (예: heliopause)",
+        "scopes_label": "스코프 *",
+        "expires_label": "만료 (선택)",
+        "add": "토큰 발급",
+        "never_used": "사용 이력 없음",
+        "last_used": "마지막 사용",
+        "expired": "만료됨",
+        "revoke_confirm": "토큰 '{{name}}' 을 폐기하시겠습니까? 이 토큰을 쓰는 호출자는 즉시 401 을 받습니다.",
+        "env_note": "DISPATCHER_SERVICE_TOKEN(환경변수)은 여기 나오지 않으며 모든 스코프를 가집니다. 호출자를 전부 이 화면의 토큰으로 옮긴 뒤 제거하세요."
     },
     "poc": {
         "title": "Workers 환경 PoC",

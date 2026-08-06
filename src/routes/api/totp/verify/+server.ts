@@ -17,7 +17,7 @@ import { translate } from "$lib/i18n/server";
  */
 export const POST: RequestHandler = async (event) => {
     const { request, locals } = event;
-    await requireServiceToken(event);
+    await requireServiceToken(event, "totp.verify");
     const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
     // 이 호출은 호출자(RP)에게 **2단계 검증**이다 — 방화벽 변경 승인 같은 행위의 보상 통제로
