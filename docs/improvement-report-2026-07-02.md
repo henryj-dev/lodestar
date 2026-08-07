@@ -3,14 +3,47 @@
 > 3개 병렬 분석(미구현·갭 전수 탐색 / 보안 취약점 리뷰 / 아키텍처·품질 리뷰) 결과를 종합.
 > 분석 기준 브랜치: `chore/remove-d1-binding` (origin/main과 동일, 미커밋 변경 없음).
 
-> **⚠️ 정오표 (2026-07-06 추가)** — 이 리포트의 일부 서술은 이후 커밋으로 stale 해졌다. 최신 현황은 `docs/plans/project-improvement-audit/PLAN.md` 참조.
+> # ⚠️ 이 문서는 2026-07-02 시점의 스냅샷입니다 — 현행 사실로 읽지 마세요
 >
-> - "Refresh Token 미구현"(A1) → **구현 완료** (`oidc/token`의 refresh_token grant, 회전+재사용 감지 family 폐기 포함).
-> - "SAML Assertion 암호화 미구현" → **구현 완료** (`test/unit/saml-encrypt.test.ts`, `verify:saml-encryption` 스크립트 존재).
-> - "TOTP enroll TOCTOU 미해소" → **해소** (deferred-followups Phase A — `totp_owner_id` unique index + INSERT 409 처리).
-> - "테스트 프레임워크·CI 테스트 단계 전무" → vitest 62+ 테스트 및 CI 게이트(lint/check/test/build/CodeQL/gitleaks) 구축됨.
-> - groups/address/organization scope "보류" → **구현 완료** (claims.ts, token/userinfo 매핑).
-> - E9(보안 감사 문서 public repo 잔존) → **처리 완료** (2026-07-06, repo에서 제거 — 히스토리에는 잔존).
+> 아래 본문의 "미구현 / 부재 / 전무" 서술은 **대부분 이미 해소되었습니다.** 이력 보존을 위해
+> 본문은 그대로 두되, 현재 상태는 이 블록을 기준으로 판단하세요.
+> 현행 문서: [README](../README.md) · [관리자 매뉴얼](ADMIN_GUIDE.md) · [시크릿 회전](SECRET_ROTATION.md).
+>
+> **정오표 (2026-07-06 작성 → 2026-08-07 갱신)**
+>
+> | 본문 서술                                   | 현재 상태                                                                                                                                                 |
+> | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+> | A1 "Refresh Token 미구현"                   | **구현 완료** — `oidc/token` refresh_token grant, 회전 + 재사용 감지 family 폐기                                                                          |
+> | A2 "SAML Assertion 암호화 미구현"           | **구현 완료** — `saml/encrypt.ts`, `verify:saml-encryption` 스크립트                                                                                      |
+> | A3 "admin users 무페이지네이션"             | **해소** — 커서 페이지네이션 + 검색                                                                                                                       |
+> | A4 "OIDC introspection·revocation 부재"     | **구현 완료** — `/oidc/introspect`(RFC 7662), `/oidc/revoke`(RFC 7009)                                                                                    |
+> | A5 "authorize 파라미터 미처리"              | **부분 해소** — `prompt`(none/login) · `max_age` · `id_token_hint` · `login_hint` 처리됨. `claims` · `request`/`request_uri` 는 여전히 미지원             |
+> | A6 "discovery 정직성"                       | **해소** — 실제 발급 클레임과 일치(2026-08-07 `entitlements` 추가로 재정합)                                                                               |
+> | A7 "AuthnRequest HTTP-POST 바인딩 미지원"   | **해소** — `POST /saml/sso` 구현됨. **IdP-initiated SSO 는 여전히 미지원**                                                                                |
+> | B1 "테스트·CI 테스트 단계 전무"             | **해소** — vitest 36 파일 340 테스트(2026-08-07 기준), CI 게이트 구축                                                                                     |
+> | B2/B3/B4 "헬스체크·관측성·에러 페이지 부재" | **해소** — `/api/health`, wrangler `observability`, 루트 `+error.svelte`                                                                                  |
+> | C1~C10 신규 보안 발견                       | **전건 처리** — 본문 "적용 현황" 절 참조                                                                                                                  |
+> | D1/D2 미반영                                | **해소** — admin CSRF 토큰, `audit_events.hash` 행 단위 MAC                                                                                               |
+> | D3 "argon2 구현체 전환 권고 미이행"         | **다른 방향으로 해소** — argon2id 가 아니라 **scrypt**(`node:crypto` 네이티브)로 전환. 아래 "의도적 보류" 절의 _"현행 유지 권장"_ 결론은 **뒤집혔습니다** |
+> | E1/E2/E3/E5/E7/E8 부채                      | **해소**                                                                                                                                                  |
+> | E4 "admin CRUD 보일러플레이트"              | **해소** — `lib/server/admin/crud-factory.ts` + Zod 스키마 도입(본문의 "의도적 보류" 는 이후 뒤집힘)                                                      |
+> | E9 "감사 문서 public repo 잔존"             | **처리 완료** (repo 에서 제거 — 히스토리에는 잔존)                                                                                                        |
+> | E10 "i18n en.json 없음"                     | **해소** — `src/lib/i18n/en.json` 존재, 콘솔 ko/en 지원                                                                                                   |
+> | 230행 "OIDC 스코프 확장 별도 메모"          | **구현 완료** — `groups` · `address` · `organization` 전부 발급됨                                                                                         |
+>
+> **아직 열려 있는 것**
+>
+> - A5 잔여 — `prompt=consent`, `claims`, `request` / `request_uri` 미지원.
+> - A7 — SAML **IdP-initiated SSO** 미지원(SP-initiated 만).
+> - A8 — `WantAuthnRequestsSigned` 는 SP 설정을 반영하도록 고쳐졌으나, metadata 에 **암호화용
+>   KeyDescriptor 가 여전히 없습니다**(`use="signing"` 만 출력).
+> - R1 — 회원가입 계정 열거. 제품 판단으로 의도적 미채택.
+> - R9 — admin Zod `.strict()`. 정상 폼을 깨뜨려 **권장하지 않음**으로 결론.
+> - (해소됨) SAML `Entitlements` 속성 — 발행·정의 UI 는 있었으나 허용 속성 화이트리스트에 키가
+>   빠져 저장이 불가능해 무동작이었다. 2026-08-07 화이트리스트 보강 + 관리자 폼 경로 회귀 테스트 추가.
+> - `audit_events.hash` 재계산 전용 배치 부재 — [SECRET_ROTATION.md](SECRET_ROTATION.md) §3 참조.
+
+---
 
 ## 종합 판정
 
@@ -214,6 +247,9 @@ gitleaks detect --log-opts="--all" --redact
 - **관련 후속 완료** — find-password 타이밍(waitUntil 분리)까지 적용.
 
 ### ⏸️ 의도적 보류 (품질·리스크 사유, 별도 작업 권장)
+
+> **⚠️ 이 절의 결론은 이후 전부 뒤집혔습니다** — E4/E5(CRUD 팩토리 + zod), D3(argon2 유지),
+> E10(i18n en.json), TOTP TOCTOU 모두 나중에 실제로 처리되었습니다. 문서 상단 정오표 참조.
 
 - **E4/E5 CRUD 팩토리 + zod 전면 도입** — teams/parts/positions/departments 팩토리화는 라우트별 고유
   검증(계층/키회전)과의 경계 설계가 필요하고, admin CRUD 통합 테스트 하네스 없이 10개 라우트를 일괄

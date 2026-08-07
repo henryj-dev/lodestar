@@ -1,5 +1,7 @@
 # 후속 2차 개선 기획서 — KeyStone (rate-limit 추상화 제외)
 
+
+
 > 요청: "rate-limit을 제외하고 나머지 계속 다 진행" — 1차 감사(`project-improvement-audit`)에서 후속 후보로 남긴 항목 전부.
 > 조사: 2026-07-06, 2개 병렬 Explore. 코드 근거 확인 완료.
 > 규칙: 스키마 변경은 `db:generate:all`까지만(적용은 사용자). 커밋은 검증 통과 + 승인 후.

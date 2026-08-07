@@ -20,21 +20,23 @@ OIDC, SAML 2.0, WebAuthn/Passkey, TOTP 2FA, LDAP 연동을 지원하며 멀티�
 
 ## 주요 기능
 
-| 기능                   | 설명                                                                                                             |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| **OIDC**               | Authorization Code + PKCE, Refresh Token, UserInfo, JWKS, End-Session                                            |
-| **SAML 2.0**           | SP-Initiated SSO, HTTP-POST 바인딩, ForceAuthn, IsPassive, RequestedAuthnContext, SLO                            |
-| **ACR / AMR**          | 인증 방식에 따른 ACR 자동 결정 — SAML Assertion 및 OIDC ID Token에 포함                                          |
-| **WebAuthn / Passkey** | 패스키 등록 및 인증, challenge 1회용 DB 처리, 테넌트 격리                                                        |
-| **TOTP 2FA**           | Google Authenticator 등 호환, 백업 코드 지원                                                                     |
-| **LDAP 연동**          | LDAP 인증 및 JIT 사용자 프로비저닝, 관리자 UI에서 프로바이더 설정                                                |
-| **계정 자가 관리**     | 프로필 편집, 비밀번호 재설정/찾기, MFA 등록, Passkey 등록·해제                                                   |
-| **조직 관리**          | 부서 → 팀 → 파트 계층, 직급/직책, 복수 소속                                                                      |
-| **멀티테넌트**         | 테넌트별 독립 사용자/클라이언트/키 관리                                                                          |
-| **관리자 UI**          | 사용자, 조직(부서·팀·파트·직급), OIDC 클라이언트, SAML SP, LDAP 프로바이더, 서명 키, 로그인 스킨, 감사 로그 CRUD |
-| **커스텀 로그인 스킨** | OIDC 클라이언트별 커스텀 CSS/스크립트, R2 캐시로 배포                                                            |
-| **감사 로그**          | 로그인, SSO, 토큰 발급 등 주요 이벤트 자동 기록, 관리자 UI에서 조회 가능                                         |
-| **국제화**             | 메시지 카탈로그 기반 i18n (현재 한국어 제공, 다국어 확장 가능)                                                   |
+| 기능                   | 설명                                                                                                                          |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| **OIDC**               | Authorization Code + PKCE, Refresh Token(회전·재사용 감지), UserInfo, JWKS, Introspection, Revocation, End-Session            |
+| **SAML 2.0**           | SP-Initiated SSO (HTTP-Redirect · HTTP-POST 바인딩), Assertion 서명·암호화, ForceAuthn, IsPassive, RequestedAuthnContext, SLO |
+| **ACR / AMR**          | 인증 방식에 따른 ACR 자동 결정 — SAML Assertion 및 OIDC ID Token에 포함                                                       |
+| **WebAuthn / Passkey** | 패스키 등록 및 인증, challenge 1회용 DB 처리, 테넌트 격리                                                                     |
+| **TOTP 2FA**           | Google Authenticator 등 호환, 백업 코드 지원                                                                                  |
+| **LDAP 연동**          | LDAP 인증 및 JIT 사용자 프로비저닝, 관리자 UI에서 프로바이더 설정                                                             |
+| **계정 자가 관리**     | 프로필 편집, 이메일 변경, 비밀번호 재설정/찾기, MFA 등록, Passkey 등록·해제, 활성 세션 조회·철회, 탈퇴(30일 유예)             |
+| **서비스 권한**        | 서비스(RP)별 `roles` 배정과 `entitlements` 부여 — OIDC 클레임으로 발행, 변경 시 RP 에 SET 통지                                |
+| **서비스 API 토큰**    | 호출자별 스코프 제한 Bearer 토큰 발급·폐기 (관리 콘솔)                                                                        |
+| **조직 관리**          | 부서 → 팀 → 파트 계층, 직급/직책, 복수 소속                                                                                   |
+| **멀티테넌트**         | 테넌트별 독립 사용자/클라이언트/키 관리                                                                                       |
+| **관리자 UI**          | 사용자, 조직(부서·팀·파트·직급), OIDC 클라이언트, SAML SP, LDAP 프로바이더, 서명 키, 서비스 토큰, 로그인 스킨, 감사 로그 CRUD |
+| **커스텀 로그인 스킨** | OIDC 클라이언트별 커스텀 CSS/스크립트, R2 또는 S3 호환 캐시로 배포                                                            |
+| **감사 로그**          | 로그인, SSO, 토큰 발급 등 주요 이벤트 자동 기록, 행 단위 무결성 MAC, 관리자 UI에서 조회 가능                                  |
+| **국제화**             | 메시지 카탈로그 기반 i18n — 한국어·영어(`ko`/`en`) 제공                                                                       |
 
 ### ACR / AMR 매핑
 
@@ -57,44 +59,56 @@ SAML SP가 `RequestedAuthnContext`로 특정 ACR을 요구하는 경우, 세션 
 
 - **Runtime**: Cloudflare Workers(기본, `nodejs_als`·`nodejs_compat`) 또는 순수 Node 서버(`adapter-node`, `BUILD_TARGET=node`) — [배포 타깃](#배포-타깃-cloudflare-workers-vs-순수-node) 참고
 - **Framework**: SvelteKit 2 + Svelte 5 (runes), `@sveltejs/adapter-cloudflare`
-- **Database**: Cloudflare D1(SQLite) / libSQL(SQLite) / PostgreSQL / MySQL 중 택1 (Drizzle ORM). PostgreSQL·MySQL 은 Hyperdrive 또는 `DATABASE_URL` 직결 ([DB 방언 선택](#db-방언-선택-d1--sqlite--postgresql--mysql) 참고)
+- **Database**: Cloudflare D1(SQLite) / libSQL(SQLite) / PostgreSQL / MySQL 중 택1 (Drizzle ORM). PostgreSQL·MySQL 은 Hyperdrive · Workers VPC · `DATABASE_URL` 직결 중 선택 ([DB 방언 선택](#db-방언-선택-d1--sqlite--postgresql--mysql) 참고)
 - **Object Storage**: Cloudflare R2 또는 S3 호환(AWS S3·MinIO 등) — 커스텀 로그인 스킨 캐시
 - **Styling**: Tailwind CSS 4
-- **Crypto**: Web Crypto API (RSA/EC 서명, argon2id 비밀번호 해시), `@simplewebauthn/*`, `xmldsigjs`
+- **Crypto**: Web Crypto API (RSA/EC 서명, HKDF 키 파생, AES-256-GCM), `node:crypto` scrypt 비밀번호 해시, `@simplewebauthn/*`, `xmldsigjs`
 - **Language / Tooling**: TypeScript, Bun, ESLint, Prettier
 
 ## 디렉터리 구조
 
 ```
 src/
-├── hooks.server.ts        # 세션 복원, 보안 헤더, 테넌트 컨텍스트
+├── hooks.server.ts        # 세션 복원, 보안 헤더, CSRF origin 검사, 테넌트 컨텍스트
 ├── app.html
 ├── routes/
-│   ├── (auth)/            # login, signup, logout, mfa, find-id, find-password, reset-password
-│   ├── account/           # profile, mfa, passkeys (계정 자가 관리)
+│   ├── +error.svelte      # 루트 에러 페이지 (404/403/503 등)
+│   ├── (auth)/            # login, signup, logout, mfa, find-id, find-password,
+│   │                      #   reset-password, verify-email, accept-invite
+│   ├── account/           # profile, mfa, passkeys, sessions, danger-zone,
+│   │                      #   confirm-email-change (계정 자가 관리)
 │   ├── admin/             # 관리자 UI (users, departments, teams, parts, positions,
-│   │                      #            oidc-clients, saml-sps, ldap-providers,
-│   │                      #            signing-keys, skins, audit, login)
-│   ├── oidc/              # authorize, token, userinfo, jwks, end-session
+│   │                      #   oidc-clients, saml-sps, ldap-providers, signing-keys,
+│   │                      #   service-tokens, skins, audit, login)
+│   ├── oidc/              # authorize, token, userinfo, jwks, end-session,
+│   │                      #   introspect, revoke
 │   ├── saml/              # sso, slo, metadata
-│   └── api/               # webauthn/*, skin-scripts/*
+│   ├── .well-known/       # openid-configuration (Discovery)
+│   └── api/               # health, webauthn/*, totp/*, users/lookup, skin-scripts/*
 └── lib/
-    ├── i18n/              # 메시지 카탈로그 (ko.json)
+    ├── components/        # 공용 Svelte 컴포넌트
+    ├── i18n/              # 메시지 카탈로그 (ko.json, en.json)
     ├── assets/
     └── server/
-        ├── auth/          # session, password, mfa, totp, webauthn, guards, bootstrap
-        ├── oidc/          # client, grant, pkce, logout
-        ├── saml/          # sp, metadata, parse-authn-request, response, slo
+        ├── auth/          # session, password(scrypt), mfa, totp, webauthn, guards,
+        │                  #   csrf, redirect, invite, email-verification, email-change,
+        │                  #   trusted-device, service-token, breach-check, bootstrap
+        ├── oidc/          # client, grant, pkce, refresh, claims, logout, role-change
+        ├── saml/          # sp, metadata, parse-authn-request, response, slo,
+        │                  #   verify-xml-signature, encrypt, cert-validity
         ├── ldap/          # auth, client, provision
-        ├── crypto/        # 서명 키 관리, JWT 발급, 키 회전
-        ├── audit/         # 감사 이벤트 기록
+        ├── access/        # 서비스 role/entitlement 판정
+        ├── admin/         # admin CRUD 팩토리 · Zod 스키마 · 사용자 액션
+        ├── crypto/        # 서명 키 관리, JWT 발급, 키 회전, HKDF 파생
+        ├── audit/         # 감사 이벤트 기록 (행 단위 무결성 MAC)
         ├── org/           # 조직 멤버십 조회
-        ├── ratelimit/     # 인증 엔드포인트 레이트 리밋
-        ├── skin/          # 커스텀 로그인 스킨
-        └── db/            # Drizzle 스키마 및 D1 초기화
+        ├── ratelimit/     # 인증 엔드포인트 레이트 리밋 (저장소 추상화)
+        ├── skin/          # 커스텀 로그인 스킨 (resolver, sanitize, storage)
+        └── db/            # Drizzle 방언별 스키마 · 드라이버 · GC
 
-drizzle/                   # 마이그레이션 SQL (drizzle-kit generate 산출물)
-docs/                      # 설계/감사 문서
+drizzle/                   # 마이그레이션 SQL (drizzle-kit generate 산출물, 방언별 하위 디렉터리)
+test/                      # vitest 유닛·통합 테스트
+docs/                      # 운영 매뉴얼 · 설계/감사 문서
 scripts/setup.ts           # 대화형 초기 셋업 스크립트
 ```
 
@@ -102,26 +116,33 @@ scripts/setup.ts           # 대화형 초기 셋업 스크립트
 
 ### OIDC (Discovery: `/.well-known/openid-configuration`)
 
-| 경로                                | 설명                                          |
-| ----------------------------------- | --------------------------------------------- |
-| `/.well-known/openid-configuration` | OIDC Discovery 문서                           |
-| `/oidc/authorize`                   | 인증 요청 (Authorization Code + PKCE)         |
-| `/oidc/token`                       | 토큰 교환 (Authorization Code, Refresh Token) |
-| `/oidc/userinfo`                    | UserInfo 엔드포인트                           |
-| `/oidc/jwks`                        | JSON Web Key Set                              |
-| `/oidc/end-session`                 | RP-Initiated Logout                           |
+| 경로                                | 설명                                                                                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `/.well-known/openid-configuration` | OIDC Discovery 문서                                                                                           |
+| `/oidc/authorize`                   | 인증 요청 (Authorization Code + PKCE). `prompt`(none/login) · `max_age` · `id_token_hint` · `login_hint` 처리 |
+| `/oidc/token`                       | 토큰 교환 (Authorization Code, Refresh Token)                                                                 |
+| `/oidc/userinfo`                    | UserInfo 엔드포인트                                                                                           |
+| `/oidc/introspect`                  | 토큰 인트로스펙션 (RFC 7662)                                                                                  |
+| `/oidc/revoke`                      | 토큰 폐기 (RFC 7009)                                                                                          |
+| `/oidc/jwks`                        | JSON Web Key Set                                                                                              |
+| `/oidc/end-session`                 | RP-Initiated Logout ([구현 노트](docs/oidc-rp-initiated-logout.md))                                           |
 
 #### 발행 클레임 — `groups` 와 `roles` 는 용도가 다릅니다
 
-| 클레임                  | 의미                               | 용도                  |
-| ----------------------- | ---------------------------------- | --------------------- |
-| `groups`                | 조직 소속 (부서 · 팀 · 파트)       | **표시용. 인가 금지** |
-| `organization` 계열     | 조직 세부 (부서/직위/직책 등)      | **표시용**            |
-| `roles` · `roles_label` | 서비스 역할 (사용자별 서비스 배정) | **인가용**            |
+| 클레임                  | 의미                                        | 용도                  |
+| ----------------------- | ------------------------------------------- | --------------------- |
+| `groups`                | 조직 소속 (부서 · 팀 · 파트)                | **표시용. 인가 금지** |
+| `organization` 계열     | 조직 세부 (부서/직위/직책 등)               | **표시용**            |
+| `roles` · `roles_label` | 서비스 역할 (사용자별 서비스 배정)          | **인가용**            |
+| `entitlements`          | 서비스 세부 권한 (role 과 직교하는 권한 축) | **인가용**            |
 
-> ⚠️ **`groups` 로 인가하지 마세요.** 이름이 인가용처럼 읽히고 값이 여러 개라 권한 집합처럼 보이지만, 실제 내용은 **인사 구조**입니다. `groups` 로 인가하면 팀 이동이 보안 경계를 움직이고 부서 개편이 권한을 재배정하며, 조직도를 고치는 사람과 권한을 주는 사람을 분리할 수 없게 됩니다. 서비스 권한은 `roles` 를 쓰세요.
+> ⚠️ **`groups` 로 인가하지 마세요.** 이름이 인가용처럼 읽히고 값이 여러 개라 권한 집합처럼 보이지만, 실제 내용은 **인사 구조**입니다. `groups` 로 인가하면 팀 이동이 보안 경계를 움직이고 부서 개편이 권한을 재배정하며, 조직도를 고치는 사람과 권한을 주는 사람을 분리할 수 없게 됩니다. 서비스 권한은 `roles` / `entitlements` 를 쓰세요.
 
-`roles` 는 **사용자당 서비스당 하나**입니다(배열이지만 원소는 항상 1개 — 스키마 제약). `groups`/`organization` 은 해당 scope 를 요청해야 발행되고, `roles` 는 scope 와 무관하게 서비스 배정이 있으면 발행됩니다. 역할 정의·배정 방법은 [관리자 운영 매뉴얼](docs/ADMIN_GUIDE.md#발행-클레임) 참고.
+`roles` 는 **사용자당 서비스당 하나**입니다(배열이지만 원소는 항상 1개 — 스키마 제약). `entitlements` 는 같은 배정에 붙는 다중 권한 키로, `roles` 와 달리 개수 제한이 없습니다. `groups`/`organization` 은 해당 scope 를 요청해야 발행되고, `roles`/`entitlements` 는 scope 와 무관하게 서비스 배정이 있으면 발행됩니다(값이 없으면 키 자체가 생략됩니다). 역할·권한 정의와 배정 방법은 [관리자 운영 매뉴얼](docs/ADMIN_GUIDE.md#발행-클레임) 참고.
+
+관리자가 역할/권한을 바꾸면, 해당 클라이언트에 `role_change_uri` 가 등록돼 있을 때 **Security Event Token(SET)** 이 그 URI 로 POST 됩니다. RP 는 세션을 끊지 않고 권한만 갱신하므로 재로그인 없이 다음 요청부터 반영됩니다(fire-and-forget, 재시도 없음 — RP 는 `txn` 순서 표식으로 늦게 도착한 스냅샷을 버려야 합니다). 계약 상세는 `src/lib/server/oidc/role-change.ts` 주석 참고.
+
+SAML 도 같은 값을 내보냅니다 — Assertion 의 **`Entitlements` 속성**(목록이므로 하나의 `<saml:Attribute>` 안에 여러 `<saml:AttributeValue>`)입니다. 단, `Role`·`RoleLabel` 과 마찬가지로 SP 의 **허용 속성 목록(`allowedAttributes`)에 `Entitlements` 를 넣어야** 실제로 전달됩니다.
 
 `sub` 클레임은 `users.id` 와 같은 값이며, 아래 [Service-to-Service TOTP API](#service-to-service-totp-api-dispatcher_service_token-필요) 의 `userId` 로 그대로 사용할 수 있습니다.
 
@@ -135,13 +156,14 @@ scripts/setup.ts           # 대화형 초기 셋업 스크립트
 
 ### WebAuthn / 기타 API
 
-| 경로                                 | 설명                                   |
-| ------------------------------------ | -------------------------------------- |
-| `/api/webauthn/register/options`     | Passkey 등록 challenge 발급            |
-| `/api/webauthn/register/verify`      | Passkey 등록 attestation 검증          |
-| `/api/webauthn/authenticate/options` | Passkey 인증 challenge 발급            |
-| `/api/webauthn/authenticate/verify`  | Passkey 인증 assertion 검증            |
-| `/api/skin-scripts/*`                | OIDC 클라이언트별 커스텀 스킨 스크립트 |
+| 경로                                 | 설명                                    |
+| ------------------------------------ | --------------------------------------- |
+| `/api/health`                        | 헬스체크 (liveness + 얕은 DB readiness) |
+| `/api/webauthn/register/options`     | Passkey 등록 challenge 발급             |
+| `/api/webauthn/register/verify`      | Passkey 등록 attestation 검증           |
+| `/api/webauthn/authenticate/options` | Passkey 인증 challenge 발급             |
+| `/api/webauthn/authenticate/verify`  | Passkey 인증 assertion 검증             |
+| `/api/skin-scripts/*`                | OIDC 클라이언트별 커스텀 스킨 스크립트  |
 
 ### Service-to-Service TOTP API (`DISPATCHER_SERVICE_TOKEN` 필요)
 
@@ -179,8 +201,8 @@ scripts/setup.ts           # 대화형 초기 셋업 스크립트
 ### 설치 및 셋업
 
 ```bash
-git clone https://github.com/mack-erel/idp.git
-cd idp
+git clone https://github.com/mack-erel/KeyStone.git
+cd KeyStone
 bun install
 bun run setup
 ```
@@ -225,12 +247,23 @@ wrangler secret put IDP_SIGNING_KEY_SECRET
 
 ## 환경변수
 
+전체 목록과 상세 주석은 [`.env.example`](.env.example) 을 참고하세요. 아래는 자주 쓰는 값입니다.
+
 | 변수                                | 필수 | 설명                                                                                                                                                  |
 | ----------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `IDP_ISSUER_URL`                    | ✅   | OIDC/SAML 발급자 URL (배포 도메인과 일치). **프로덕션 필수** — 미설정 시 요청 초기 503(fail-closed). dev 에서만 요청 origin 자동 대체                 |
 | `IDP_SIGNING_KEY_SECRET`            | ✅   | 서명 키 암호화 KEK (프로덕션은 반드시 Secret). **프로덕션 필수** — 미설정 시 요청 초기에 오류로 차단(fail-fast)                                       |
+| `IDP_SIGNING_KEY_SECRET_PREVIOUS`   | 선택 | 마스터 시크릿 **무중단 회전** 중에만 이전 값을 병기. 복호/검증이 current→previous 로 폴백 ([회전 절차](docs/SECRET_ROTATION.md))                      |
+| `BUILD_TARGET`                      | 선택 | `cloudflare`(기본) \| `node` — 어댑터 선택. **빌드 시점** 값                                                                                          |
+| `DB_DIALECT`                        | 선택 | `d1`(기본) \| `sqlite` \| `postgres` \| `mysql`. **빌드·타입체크·마이그레이션 생성 시점에도** 참조됨                                                  |
+| `DATABASE_URL`                      | 조건 | postgres/mysql/sqlite 연결 문자열. Cloudflare 에서 `HYPERDRIVE` 바인딩이 있으면 그쪽이 우선                                                           |
+| `DATABASE_AUTH_TOKEN`               | 선택 | Turso 등 원격 libSQL 인증 토큰 (`sqlite` + 원격일 때만)                                                                                               |
 | `DISPATCHER_SERVICE_TOKEN`          | 선택 | **전 스코프** service API Bearer 토큰(레거시). 호출자별 토큰은 관리 콘솔 → 서비스 토큰에서 발급하세요. 이 값도 없고 발급된 토큰도 없으면 해당 API 503 |
 | `IDP_DEFAULT_TENANT_NAME`           | 선택 | 기본 테넌트 이름 (기본: `My Organization`)                                                                                                            |
+| `IDP_ENFORCE_SP_CERT_VALIDITY`      | 선택 | SAML SP 인증서 유효기간 강제 검증. **기본 on** — `"false"` 로만 완화                                                                                  |
+| `PASSWORD_BREACH_CHECK`             | 선택 | 유출 비밀번호(HIBP k-anonymity) 스크리닝. 기본 off(opt-in), API 오류는 fail-open                                                                      |
+| `SMTP_HOSTNAME` 외 `SMTP_*`         | 선택 | 메일 발송(비밀번호 찾기·초대·이메일 인증·보안 알림). 미설정 시 해당 메일은 skip                                                                       |
+| `S3_ENDPOINT` 외 `S3_*`             | 선택 | 스킨 캐시용 S3 호환 스토리지 (R2 바인딩이 없을 때 폴백)                                                                                               |
 | `CLOUDFLARE_ACCOUNT_ID`             | 선택 | Cloudflare 계정 ID (마이그레이션 스크립트에서 사용)                                                                                                   |
 | `CLOUDFLARE_D1_DATABASE_ID`         | 선택 | D1 데이터베이스 ID (마이그레이션 스크립트에서 사용)                                                                                                   |
 | `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | 선택 | 프리뷰용 D1 데이터베이스 ID                                                                                                                           |
@@ -257,6 +290,7 @@ wrangler secret put IDP_SIGNING_KEY_SECRET
 | `bun run check`              | `wrangler types` + `svelte-check` 타입 검사        |
 | `bun run lint`               | Prettier + ESLint 검사                             |
 | `bun run format`             | Prettier 자동 포맷                                 |
+| `bun run test`               | vitest 실행 (`test:watch` / `test:coverage`)       |
 | `bun run gen`                | Wrangler 환경 타입 재생성                          |
 | `bun run db:generate`        | Drizzle 마이그레이션 SQL 생성 (D1)                 |
 | `bun run db:generate:sqlite` | Drizzle 마이그레이션 SQL 생성 (libSQL/SQLite)      |
@@ -301,6 +335,7 @@ BUILD_TARGET=node DB_DIALECT=sqlite DATABASE_URL="file:./keystone.db" bun run bu
 - 스키마는 방언별로 분리되어 있습니다: `schema.sqlite.ts`(d1·sqlite 공용) / `schema.pg.ts` / `schema.mysql.ts`. 세 스키마는 테이블·컬럼·인덱스명과 JS 추론 타입이 동일하게 유지되며, 배럴 `schema.ts` 가 `DB_DIALECT` 에 맞는 파일로 해석됩니다.
 - `src/lib/server/db/index.ts` 의 `getDb()` 가 방언에 맞는 드라이버(d1 / libSQL / postgres-js / mysql2)를 선택합니다. 빌드 시 활성 방언의 드라이버만 번들에 포함됩니다.
 - **연결 문자열 우선순위**: `sqlite` 는 `DATABASE_URL`/`SQLITE_URL`(`file:` 스킴 없으면 로컬 파일로 간주). `postgres/mysql` 은 Cloudflare 에서 `HYPERDRIVE` 바인딩 → `DATABASE_URL`(var/secret), 순수 Node 에서 `DATABASE_URL`.
+- **사설망 Postgres/MySQL — Workers VPC**: `wrangler.jsonc` 에 `vpc_networks` 로 **`VPC`** 바인딩(이름 고정 — 코드가 `platform.env.VPC` 를 참조)을 두면, 드라이버의 TCP 연결이 Cloudflare Tunnel 을 통해 사설 IP 로 나갑니다. 이 경우 접속 정보는 `DATABASE_URL` 을 **secret 으로** 주입합니다(공인 노출 없이 사설망 DB 직결).
 
 ```bash
 # (Cloudflare) Hyperdrive 구성 생성 (binding 이름은 반드시 HYPERDRIVE)
@@ -370,15 +405,19 @@ bun run db:migrate:preview  # D1 프리뷰
 
 ### 비밀번호 해싱
 
-신규 비밀번호는 **argon2id** (`@hicaru/argon2-pure.js`, Workers 호환 순수 JS 구현)로 해싱됩니다. 과거 PBKDF2-SHA256 (100,000 iterations)으로 저장된 레거시 해시는 **로그인 검증 시 자동으로 argon2id로 재해싱**됩니다.
+신규 비밀번호는 **scrypt** (`node:crypto` 네이티브, N=2^15·r=8·p=3 ≒ 32 MiB — OWASP 권고 조합)로 해싱됩니다. Workers·Node·Bun 모두에서 동일하게 동작합니다.
+
+과거 **argon2id**(`@hicaru/argon2-pure.js`)와 **PBKDF2-SHA256** 으로 저장된 레거시 해시는 검증은 계속 지원되며, **로그인 성공 시 자동으로 scrypt 로 재해싱**됩니다. argon2id 에서 전환한 이유는 순수 JS 구현이 verify 1회에 약 4.4초의 CPU 를 써서 Workers 요청 지연의 주원인이었기 때문입니다(자세한 판단 근거는 `src/lib/server/auth/password.ts` 상단 주석).
 
 ### 서명 키
 
-OIDC ID Token 및 SAML Response 서명에 사용되는 RSA 키는 `IDP_SIGNING_KEY_SECRET`으로 암호화되어 D1에 저장됩니다. 이 시크릿이 유출되면 모든 서명 키가 복호화될 수 있으므로 반드시 강한 랜덤값(`openssl rand -base64 32`)을 사용하고 정기적으로 교체하세요. 키 회전은 관리자 UI(`/admin/signing-keys`)에서 수행할 수 있습니다.
+OIDC ID Token 및 SAML Response 서명에 사용되는 RSA 키는 `IDP_SIGNING_KEY_SECRET`으로 암호화되어 DB에 저장됩니다. 이 시크릿이 유출되면 모든 서명 키가 복호화될 수 있으므로 반드시 강한 랜덤값(`openssl rand -base64 32`)을 사용하고 정기적으로 교체하세요. 서명 키 회전은 관리자 UI(`/admin/signing-keys`)에서 수행합니다.
+
+`IDP_SIGNING_KEY_SECRET` **자체**의 회전은 별개 절차입니다 — `IDP_SIGNING_KEY_SECRET_PREVIOUS` 병기로 무중단 전환한 뒤 재암호화 배치를 돌립니다. [docs/SECRET_ROTATION.md](docs/SECRET_ROTATION.md) 를 따르세요.
 
 ### WebAuthn challenge
 
-WebAuthn 등록·인증 challenge는 D1에 1회용으로 저장되며, 소진 즉시 삭제됩니다. challenge는 테넌트 ID로 격리되어 다른 테넌트의 challenge를 재사용할 수 없습니다.
+WebAuthn 등록·인증 challenge는 DB에 1회용으로 저장되며, 소진 즉시 삭제됩니다. challenge는 테넌트 ID로 격리되어 다른 테넌트의 challenge를 재사용할 수 없습니다.
 
 ### LDAP 계정 연결 정책
 
@@ -397,7 +436,11 @@ LDAP 인증 성공 시, 동일 이메일의 기존 로컬 계정이 있는 경�
 
 ### 부트스트랩 관리자
 
-초기 관리자 계정은 `bun run setup` 실행 시 D1에 직접 삽입됩니다. 셋업 완료 후 가능한 빨리 비밀번호를 변경하고 MFA를 설정하는 것을 권장합니다.
+초기 관리자 계정은 `bun run setup` 실행 시 활성 DB(방언 무관)에 직접 삽입됩니다. 셋업 완료 후 가능한 빨리 비밀번호를 변경하고 MFA를 설정하는 것을 권장합니다. 관리자는 TOTP 미등록 시 콘솔 로그인이 차단됩니다.
+
+### 감사 로그 무결성
+
+`audit_events` 의 각 행에는 안정 필드에 대한 HMAC-SHA256 MAC(`hash`)이 저장되어 행 단위 위변조를 탐지할 수 있습니다. prev-hash 체인이 아니라 동시 쓰기 fork 문제가 없는 대신, **행 삭제 자체는 탐지하지 못합니다** — 필요하면 Logpush 등 외부 미러를 함께 쓰세요.
 
 ## 라이선스
 
