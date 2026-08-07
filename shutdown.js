@@ -17,6 +17,34 @@
 export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 /**
+ * `SHUTDOWN_TIMEOUT_MS` 환경변수를 ms 로 해석한다. 못 쓸 값이면 경고하고 기본값을 쓴다.
+ *
+ * **왜 별도 검증이 필요한가**: `Number.parseInt` 는 조용히 망가진다.
+ * - `"10s"` → `10` — 10초로 적었는데 **10밀리초**가 된다.
+ * - `""`·`"abc"` → `NaN` — `setTimeout(fn, NaN)` 은 던지지 않고 **지연 1ms 로 강등**된다.
+ * - `"0"`·`"-1"` → 즉시 발화.
+ *
+ * 셋 다 결과가 같다: SIGTERM 을 받자마자 강제 종료 경로로 빠져 **드레이닝이 통째로
+ * 무력화된다.** graceful shutdown 을 넣은 이유 자체가 사라지는데, 로그에는 "상한 초과"로만
+ * 찍혀 원인이 매니페스트 오타라는 사실이 드러나지 않는다. 그래서 던지지 않고 기본값으로
+ * 폴백하되 **경고를 남긴다** — 종료 경로에서 죽는 것보다 안전하게 도는 쪽이 낫다.
+ *
+ * @param {string | undefined} raw
+ * @param {(...args: unknown[]) => void} [warn]
+ * @returns {number}
+ */
+export function resolveShutdownTimeoutMs(raw, warn = console.warn) {
+    if (raw === undefined || raw === "") return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    // parseInt 대신 Number 를 쓴다 — "10s" 를 10 으로 받아들이지 않고 NaN 으로 거절한다.
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+        warn(`[keystone] SHUTDOWN_TIMEOUT_MS='${raw}' 를 해석할 수 없음 — 기본값 ${DEFAULT_SHUTDOWN_TIMEOUT_MS}ms 사용 (양의 정수 ms 여야 한다)`);
+        return DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    }
+    return Math.floor(parsed);
+}
+
+/**
  * 시그널 핸들러를 만든다(설치는 하지 않는다 — 테스트에서 직접 호출하기 위함).
  *
  * @param {import("node:http").Server | import("node:https").Server} server
@@ -28,7 +56,10 @@ export const DEFAULT_SHUTDOWN_TIMEOUT_MS = 10_000;
  * @returns {(signal: string) => void}
  */
 export function createShutdownHandler(server, opts = {}) {
-    const timeoutMs = opts.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    // 호출부가 이미 걸러야 하지만, 여기서도 방어한다 — 못 쓸 값이 들어오면 타이머가 1ms 로
+    // 강등되어 드레이닝 없이 강제 종료된다(resolveShutdownTimeoutMs 주석 참조).
+    const rawTimeout = opts.timeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS;
+    const timeoutMs = Number.isFinite(rawTimeout) && rawTimeout > 0 ? Math.floor(rawTimeout) : DEFAULT_SHUTDOWN_TIMEOUT_MS;
     const exit = opts.exit ?? ((code) => process.exit(code));
     const log = opts.log ?? console.log;
     const error = opts.error ?? console.error;

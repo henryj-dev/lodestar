@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createShutdownHandler, DEFAULT_SHUTDOWN_TIMEOUT_MS } from "../../shutdown.js";
+import { createShutdownHandler, resolveShutdownTimeoutMs, DEFAULT_SHUTDOWN_TIMEOUT_MS } from "../../shutdown.js";
 
 // graceful shutdown 은 롤아웃 순간에만 도는 코드라 수동 확인이 어렵다.
 // server.close 콜백/타임아웃/중복 시그널을 주입으로 고정한다.
@@ -137,5 +137,54 @@ describe("createShutdownHandler", () => {
         expect(exits).toEqual([]);
         vi.advanceTimersByTime(1);
         expect(exits).toEqual([1]);
+    });
+
+    // 못 쓸 timeoutMs 가 들어오면 setTimeout 이 지연 1ms 로 강등되어 드레이닝 없이 강제
+    // 종료된다 — graceful shutdown 이 통째로 무력화되는 경로라 핸들러에서도 막는다.
+    it.each([
+        ["NaN", Number.NaN],
+        ["0", 0],
+        ["음수", -1],
+        ["Infinity", Number.POSITIVE_INFINITY],
+    ])("못 쓸 timeoutMs(%s)는 기본값으로 대체한다 — 즉시 강제 종료 금지", (_label, bad) => {
+        const { server, state } = makeServer();
+        const { shutdown, exits } = makeHandler(server, { timeoutMs: bad as number });
+
+        shutdown("SIGTERM");
+        vi.advanceTimersByTime(DEFAULT_SHUTDOWN_TIMEOUT_MS - 1);
+        expect(exits).toEqual([]); // 상한이 살아 있으면 아직 종료되지 않는다
+
+        state.cb!(); // 드레이닝 완료
+        expect(exits).toEqual([0]);
+    });
+});
+
+describe("resolveShutdownTimeoutMs", () => {
+    it("미설정·빈 문자열이면 기본값", () => {
+        expect(resolveShutdownTimeoutMs(undefined, () => {})).toBe(DEFAULT_SHUTDOWN_TIMEOUT_MS);
+        expect(resolveShutdownTimeoutMs("", () => {})).toBe(DEFAULT_SHUTDOWN_TIMEOUT_MS);
+    });
+
+    it("정상 ms 값은 그대로 쓴다", () => {
+        expect(resolveShutdownTimeoutMs("25000", () => {})).toBe(25_000);
+        expect(resolveShutdownTimeoutMs("1500.9", () => {})).toBe(1500);
+    });
+
+    it("단위 접미사는 거부한다 — parseInt 였다면 '10s' 가 10ms 가 된다", () => {
+        const warns: unknown[][] = [];
+        expect(resolveShutdownTimeoutMs("10s", (...a) => warns.push(a))).toBe(DEFAULT_SHUTDOWN_TIMEOUT_MS);
+        expect(warns).toHaveLength(1);
+    });
+
+    it.each(["abc", "0", "-1", "Infinity"])("못 쓸 값(%s)은 경고 후 기본값", (raw) => {
+        const warns: unknown[][] = [];
+        expect(resolveShutdownTimeoutMs(raw, (...a) => warns.push(a))).toBe(DEFAULT_SHUTDOWN_TIMEOUT_MS);
+        expect(warns).toHaveLength(1);
+    });
+
+    it("정상 값에는 경고하지 않는다", () => {
+        const warns: unknown[][] = [];
+        resolveShutdownTimeoutMs("5000", (...a) => warns.push(a));
+        expect(warns).toEqual([]);
     });
 });

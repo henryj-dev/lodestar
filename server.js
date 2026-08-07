@@ -20,15 +20,16 @@ import { createServer as createHttpsServer } from "node:https";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { handler } from "./build/handler.js";
-import { installGracefulShutdown, DEFAULT_SHUTDOWN_TIMEOUT_MS } from "./shutdown.js";
+import { installGracefulShutdown, resolveShutdownTimeoutMs } from "./shutdown.js";
 
 const PORT = Number.parseInt(process.env.PORT ?? "3000", 10);
 const HOST = process.env.HOST ?? "0.0.0.0";
 const TLS_DIR = process.env.TLS_DIR;
 
-// 드레이닝 상한. k8s 라면 terminationGracePeriodSeconds 보다 작게 두어야 한다 —
+// 드레이닝 상한(**밀리초**). k8s 라면 terminationGracePeriodSeconds 보다 작게 두어야 한다 —
 // 크면 우리가 정리를 끝내기 전에 SIGKILL 이 먼저 온다.
-const SHUTDOWN_TIMEOUT_MS = Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS ?? String(DEFAULT_SHUTDOWN_TIMEOUT_MS), 10);
+// 단위 접미사("10s")나 빈 문자열은 거부하고 기본값으로 폴백한다(shutdown.js 주석 참조).
+const SHUTDOWN_TIMEOUT_MS = resolveShutdownTimeoutMs(process.env.SHUTDOWN_TIMEOUT_MS);
 
 function loadTls(dir) {
     // readFileSync 가 던지면 그대로 죽인다 — 폴백하지 않는다.
