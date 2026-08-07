@@ -82,7 +82,7 @@ export const users = pgTable(
 
 /**
  * 인증 수단. 한 유저가 여러 credential 을 가질 수 있음 (password + TOTP + WebAuthn 복수).
- * - type='password': secret = pbkdf2/argon2id hash, publicKey=NULL (gitleaks:allow — 해시 형식 설명일 뿐 시크릿 아님)
+ * - type='password': secret = scrypt hash(레거시 argon2id/pbkdf2 는 로그인 시 자동 업그레이드), publicKey=NULL (gitleaks:allow — 해시 형식 설명일 뿐 시크릿 아님)
  * - type='totp': secret = encrypted TOTP seed, publicKey=NULL
  * - type='webauthn': secret=NULL, publicKey = CBOR-encoded COSE key, credentialId 별도, counter
  * - type='backup_code': secret = hash of one-time code, usedAt 로 소진 관리
@@ -1083,7 +1083,7 @@ export const oidcClientSessions = pgTable(
  * **받은 토큰을 해싱해 tokenHash 로 행을 찾는다**(unique 인덱스가 조회 키다).
  *
  * 해시는 SHA-256 으로 충분하다. 토큰이 256비트 난수라 사전 공격 대상이 아니다 —
- * 느린 해시(argon2)는 비밀번호용이고, 이 저장소가 client_secret 에 이미 같은 판단을 했다.
+ * 느린 해시(scrypt)는 비밀번호용이고, 이 저장소가 client_secret 에 이미 같은 판단을 했다.
  *
  * **revokedAt 을 두지 않는다.** 폐기는 행 삭제 + 감사 이벤트다(revokeAssignment 와 같은 방식).
  * 쓰는 코드가 없는 소프트 회수 컬럼은 "안전 검사처럼 보이는 죽은 코드" 가 된다.

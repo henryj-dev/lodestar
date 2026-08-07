@@ -1203,8 +1203,8 @@ async function step5_migrate(args: Args, hasPreviewDb: boolean, dbName: string, 
 }
 
 // ─── Password Hashing ─────────────────────────────────────────────────────────
-// 앱의 정규 해시(argon2id, @hicaru/argon2-pure.js — 순수 JS, Workers 호환)를 그대로
-// 재사용한다. 과거 PBKDF2 직접 구현은 Workers WebCrypto 의 반복 상한(100k)과 얽혀
+// 앱의 정규 해시(scrypt — `hashPassword`, node:crypto 네이티브라 Workers/Node/Bun 공통)를
+// 그대로 재사용한다. 과거 PBKDF2 직접 구현은 Workers WebCrypto 의 반복 상한(100k)과 얽혀
 // 검증 불가/OWASP 미달 문제가 있었으므로 제거했다.
 
 function generateRandomPassword(length = 20): string {

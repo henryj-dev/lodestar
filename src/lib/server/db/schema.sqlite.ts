@@ -90,7 +90,7 @@ export const users = sqliteTable(
 
 /**
  * 인증 수단. 한 유저가 여러 credential 을 가질 수 있음 (password + TOTP + WebAuthn 복수).
- * - type='password': secret = pbkdf2/argon2id hash, publicKey=NULL (gitleaks:allow — 해시 형식 설명일 뿐 시크릿 아님)
+ * - type='password': secret = scrypt hash(레거시 argon2id/pbkdf2 는 로그인 시 자동 업그레이드), publicKey=NULL (gitleaks:allow — 해시 형식 설명일 뿐 시크릿 아님)
  * - type='totp': secret = encrypted TOTP seed, publicKey=NULL
  * - type='webauthn': secret=NULL, publicKey = CBOR-encoded COSE key, credentialId 별도, counter
  * - type='backup_code': secret = hash of one-time code, usedAt 로 소진 관리

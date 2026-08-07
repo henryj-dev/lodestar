@@ -321,7 +321,7 @@ export const POST: RequestHandler = async (event) => {
         await recordTokenFailure(clientId, "invalid_client", "client_secret 검증 실패");
         return tokenError("invalid_client", "클라이언트 인증에 실패했습니다.", 401);
     }
-    // 레거시 형식(argon2/pbkdf2) 해시는 검증 성공 시 sha256 으로 업그레이드 (best-effort)
+    // 레거시 형식(scrypt/argon2/pbkdf2) 해시는 검증 성공 시 sha256 으로 업그레이드 (best-effort)
     if (secretCheck.rehash) {
         try {
             await db.update(oidcClients).set({ clientSecretHash: secretCheck.rehash, updatedAt: new Date() }).where(eq(oidcClients.id, client.id));
