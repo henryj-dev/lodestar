@@ -271,7 +271,7 @@ const NAME_ID_OPTIONS = [
                         type="text"
                         name="allowedAttributes"
                         bind:value={createAllowedAttributes}
-                        placeholder="email,username,displayName,department,team,jobTitle,position,givenName,familyName,surName,phoneNumber"
+                        placeholder="email,username,displayName,department,team,jobTitle,position,givenName,familyName,surName,phoneNumber,Role,RoleLabel,Entitlements"
                         class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 font-mono text-xs focus:border-blue-500 focus:outline-none" />
                 </div>
                 <div class="flex justify-end sm:col-span-2">

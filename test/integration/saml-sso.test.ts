@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { POST as ssoPOST } from "../../src/routes/saml/sso/+server";
+import { actions as spListActions } from "../../src/routes/admin/saml-sps/+page.server";
 import { samlSessions, samlSps } from "../../src/lib/server/db/schema";
 import {
     openMemoryDb,
@@ -280,6 +281,64 @@ describe("SAML Entitlements 속성", () => {
         const xml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
 
         expect(xml).not.toContain('Name="Entitlements"');
+    });
+
+    // ── 관리자 폼 경로 회귀 방어 ─────────────────────────────────────────────
+    //
+    // 위 테스트들은 allowedAttributes 를 DB 에 **직접** 써서 관리자 폼 검증을 건너뛴다.
+    // 그 사각지대 때문에, 발행 로직·정의 UI·안내 문구가 다 있는데도 화이트리스트
+    // (SAML_ATTRIBUTE_KEYS)에 "Entitlements" 가 없어 관리자가 저장할 수 없고 → 속성이
+    // 영원히 나가지 못하는 상태가 한동안 유지됐다. 아래 두 테스트가 그 경로를 고정한다.
+    /**
+     * 관리자 SP 수정 폼을 실제로 제출한다. 실 화면과 같이 기존 값(cert 등)을 그대로 다시
+     * 실어 보낸다 — 빈 문자열로 보내면 그 필드가 지워지는 것이 정상 동작이다.
+     */
+    async function submitAllowedAttrsForm(raw: string): Promise<void> {
+        const admin = await seedUser(mem.db, { tenantId: tenant.id, email: `admin-${raw.length}-${Date.now()}@test.example`, role: "admin" });
+        const [current] = await mem.db.select().from(samlSps).where(eq(samlSps.id, sp.id)).limit(1);
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/admin/saml-sps`,
+            form: {
+                id: sp.id,
+                name: current.name,
+                acsUrl: current.acsUrl,
+                sloUrl: current.sloUrl ?? "",
+                nameIdFormat: current.nameIdFormat ?? "",
+                cert: current.cert ?? "",
+                wantAuthnRequestsSigned: current.wantAuthnRequestsSigned ? "true" : "false",
+                signAssertion: current.signAssertion ? "true" : "false",
+                allowedAttributes: raw,
+                enabled: "true",
+            },
+            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        });
+        await spListActions.update!(event as Parameters<NonNullable<typeof spListActions.update>>[0]);
+    }
+
+    it("관리자 폼으로 저장한 allowedAttributes 에 Entitlements 가 살아남는다", async () => {
+        await submitAllowedAttrsForm("email,Role,RoleLabel,Entitlements");
+
+        const [row] = await mem.db.select({ allowedAttributes: samlSps.allowedAttributes }).from(samlSps).where(eq(samlSps.id, sp.id)).limit(1);
+        expect(JSON.parse(row.allowedAttributes!)).toEqual(["email", "Role", "RoleLabel", "Entitlements"]);
+    });
+
+    it("관리자 폼으로 허용한 뒤 실제로 Assertion 에 Entitlements 가 실린다 (끝단 연결)", async () => {
+        await submitAllowedAttrsForm("email,Entitlements");
+        await grantEnts(["site.read"]);
+
+        const res = await postAuthnRequest({ id: "_ent_admin_e2e", loggedIn: true, assignUser: true });
+        const xml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
+
+        expect(xml).toContain('Name="Entitlements"');
+        expect(xml).toContain(">site.read<");
+    });
+
+    it("화이트리스트에 없는 키는 관리자 폼에서 걸러진다 (기존 동작 유지)", async () => {
+        await submitAllowedAttrsForm("email,Entitlements,NotAnAttribute");
+
+        const [row] = await mem.db.select({ allowedAttributes: samlSps.allowedAttributes }).from(samlSps).where(eq(samlSps.id, sp.id)).limit(1);
+        expect(JSON.parse(row.allowedAttributes!)).toEqual(["email", "Entitlements"]);
     });
 
     it("attributesJson 으로 Entitlements/Role 을 위조할 수 없다", async () => {
