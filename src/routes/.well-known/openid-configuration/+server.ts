@@ -58,6 +58,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
                 "groups",
                 "roles",
                 "roles_label",
+                "entitlements",
             ],
             frontchannel_logout_supported: true,
             frontchannel_logout_session_supported: true,
