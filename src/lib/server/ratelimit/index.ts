@@ -12,7 +12,7 @@
  * 윈도우 감쇠 산식만 담당한다 — 백엔드(DB/in-memory/Redis)와 무관하게 결과가 동일하다.
  */
 
-import { sql } from "drizzle-orm";
+import { lt } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
 import { rateLimits } from "$lib/server/db/schema";
 import type { RateLimitCounts, RateLimitStore } from "./store";
@@ -73,7 +73,12 @@ export async function peekRateLimit(store: RateLimitStore, key: string, options:
     return evaluate(counts, options, now);
 }
 
-/** 만료된 rate_limit 레코드를 정리 (주기적 호출 또는 훅에서 사용). DbRateLimitStore(Workers) 전용. */
+/**
+ * 만료된 rate_limit 레코드를 정리 (주기적 호출 또는 훅에서 사용). DbRateLimitStore(Workers) 전용.
+ *
+ * **`Date` 를 drizzle 연산자에 넘긴다** — `purgeExpiredChallenges` 와 같은 이유다(raw SQL 에
+ * epoch 숫자를 박으면 postgres `timestamptz` / mysql `datetime` 과 비교되지 않아 던진다).
+ */
 export async function purgeExpiredRateLimits(db: DB): Promise<void> {
-    await db.delete(rateLimits).where(sql`${rateLimits.expiresAt} <= ${Date.now()}`);
+    await db.delete(rateLimits).where(lt(rateLimits.expiresAt, new Date()));
 }

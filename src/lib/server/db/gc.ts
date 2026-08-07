@@ -152,8 +152,14 @@ async function runUsersBatchDelete(db: DB, now: Date, tables: GcTableResult[]): 
  * 만료 데이터를 정리한다. 테이블별 에러 격리 + 삭제 건수 로깅.
  * GC 는 조회 성능·저장공간을 위한 것이며, 어떤 만료 판정도 **인증 쿼리와 동일하거나 더
  * 보수적인 조건**만 사용한다(미만료·미소진 행 보존이 최우선).
+ *
+ * @param opts.isWorkers Workers 런타임 여부. `rate_limits` 는 **Workers 에서만 쓰는 테이블**
+ *   이라(`resolveRateLimitStore` 가 Workers 가 아니면 `MemoryRateLimitStore` 를 쓴다) Node
+ *   배포에서는 청소를 건너뛴다. 쓰지도 않는 테이블에 매시간 DELETE 를 날릴 이유가 없다.
+ *   판정 조건은 `resolveRateLimitStore` 와 같아야 한다 — 어긋나면 실제로 쓰는 테이블을
+ *   청소하지 않게 된다.
  */
-export async function runExpiredDataGc(db: DB): Promise<GcResult> {
+export async function runExpiredDataGc(db: DB, opts: { isWorkers: boolean }): Promise<GcResult> {
     const startedAt = Date.now();
     const now = new Date();
     const tables: GcTableResult[] = [];
@@ -187,7 +193,10 @@ export async function runExpiredDataGc(db: DB): Promise<GcResult> {
     await runPurge("oidc_refresh_tokens", () => purgeExpiredRefreshTokens(db));
     // 2) 기존 purge 함수들 (import 호출)
     await runPurge("webauthn_challenges", () => purgeExpiredChallenges(db));
-    await runPurge("rate_limits", () => purgeExpiredRateLimits(db));
+    //    rate_limits 는 Workers 에서만 쓰인다 — 위 opts.isWorkers 주석 참조.
+    if (opts.isWorkers) {
+        await runPurge("rate_limits", () => purgeExpiredRateLimits(db));
+    }
 
     // 3) 직접 만료 DELETE ─────────────────────────────────────────────────────────
     const sessionCutoff = new Date(now.getTime() - SESSION_GC_GRACE_MS);
@@ -281,7 +290,7 @@ export function maybeRunWorkersGc(platform: App.Platform | undefined): void {
             try {
                 const handle = await getDb(platform);
                 dispose = handle.dispose;
-                await runExpiredDataGc(handle.db);
+                await runExpiredDataGc(handle.db, { isWorkers: true });
             } catch (error) {
                 console.error("[gc] Workers GC 실행 실패:", error);
             } finally {
@@ -312,7 +321,7 @@ export function ensureNodeGcScheduler(): void {
         void (async () => {
             try {
                 const { db } = await getDb(undefined);
-                await runExpiredDataGc(db);
+                await runExpiredDataGc(db, { isWorkers: false });
             } catch (error) {
                 console.error("[gc] Node GC 실행 실패:", error);
             }
