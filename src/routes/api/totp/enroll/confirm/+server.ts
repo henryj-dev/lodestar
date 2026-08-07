@@ -60,7 +60,7 @@ export const POST: RequestHandler = async (event) => {
 
     const encryptedSecret = await encryptTotpSecret(secret, config.signingKeySecret, userId);
 
-    // 백업 코드 해싱(CPU 집약적, argon2id)은 원자적 write 밖에서 미리 수행 —
+    // 백업 코드 해싱(CPU 집약적, scrypt)은 원자적 write 밖에서 미리 수행 —
     // signing-keys rotate 패턴과 동일하게 트랜잭션/배치 창을 짧게 유지한다.
     const backupCodes = generateBackupCodes();
     const backupCodeRows: (typeof credentials.$inferInsert)[] = await Promise.all(

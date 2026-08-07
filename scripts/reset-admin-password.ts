@@ -4,9 +4,9 @@
  * 배경: 과거 seed 가 PBKDF2 600,000회로 해싱했으나 Cloudflare Workers WebCrypto 는
  * PBKDF2 반복을 100,000 으로 제한한다. 그래서 그렇게 시드된 계정은 Workers 에서
  * 로그인 검증(deriveBits)이 NotSupportedError 로 실패한다. 이 스크립트는 기존
- * 사용자의 password credential 을 앱 정규 해시인 argon2id(@hicaru/argon2-pure.js,
- * Workers 호환)로 교체해 로그인을 복구한다. seed 재실행은 idempotent 라 기존 해시를
- * 덮어쓰지 않으므로 이 전용 스크립트가 필요하다.
+ * 사용자의 password credential 을 앱 정규 해시(scrypt — `hashPassword` 가 내는 형식)로
+ * 교체해 로그인을 복구한다. seed 재실행은 idempotent 라 기존 해시를 덮어쓰지 않으므로
+ * 이 전용 스크립트가 필요하다.
  *
  * 사용법 (비밀번호는 shell 히스토리/프로세스 목록 노출을 피해 env 로 전달):
  *   DB_DIALECT=postgres \
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
         }
         console.log(`  대상 사용자: username='${user.username}' email='${user.email}' role='${user.role}' status='${user.status}' (id=${user.id})`);
 
-        // 3. argon2id 해시 생성
+        // 3. 정규 해시(scrypt) 생성
         const hashed = await hashPassword(password);
         const now = new Date();
 
@@ -111,21 +111,21 @@ async function main(): Promise<void> {
         if (cred) {
             const oldPrefix = (cred.secret ?? "").slice(0, 16);
             await db.update(credentials).set({ secret: hashed, lastUsedAt: null }).where(eq(credentials.id, cred.id));
-            console.log(`  ✎ password credential 교체 (id=${cred.id}, 이전 형식='${oldPrefix}...' → argon2id)`);
+            console.log(`  ✎ password credential 교체 (id=${cred.id}, 이전 형식='${oldPrefix}...' → scrypt)`);
         } else {
             await db.insert(credentials).values({ id: uuid(), userId: user.id, type: "password", secret: hashed, label: "비밀번호", createdAt: now });
             console.log(`  + password credential 신규 생성 (기존 없음)`);
         }
 
-        // 5. 자체 검증 — 저장된 해시가 argon2id 형식이고 방금 비밀번호로 검증되는지 확인
+        // 5. 자체 검증 — 저장된 해시가 정규 형식(scrypt)이고 방금 비밀번호로 검증되는지 확인
         const [check] = await db
             .select({ secret: credentials.secret })
             .from(credentials)
             .where(and(eq(credentials.userId, user.id), eq(credentials.type, "password")))
             .limit(1);
         const stored = check?.secret ?? "";
-        if (!stored.startsWith("$argon2id$")) {
-            console.error(`✗ 검증 실패: 저장된 해시가 argon2id 형식이 아닙니다 ('${stored.slice(0, 16)}...').`);
+        if (!stored.startsWith("scrypt$")) {
+            console.error(`✗ 검증 실패: 저장된 해시가 scrypt 형식이 아닙니다 ('${stored.slice(0, 16)}...').`);
             process.exit(1);
         }
         const result = await verifyPassword(password, stored);
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
             process.exit(1);
         }
 
-        console.log("✅ 리셋 완료 — argon2id 해시로 교체되었고 검증도 통과했습니다. 이제 Workers 에서 로그인 가능합니다.");
+        console.log("✅ 리셋 완료 — scrypt 해시로 교체되었고 검증도 통과했습니다. 이제 Workers 에서 로그인 가능합니다.");
     } finally {
         await h.close();
     }

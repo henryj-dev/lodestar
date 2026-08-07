@@ -1,6 +1,6 @@
 # `IDP_SIGNING_KEY_SECRET` 회전 절차
 
-> 작성: 2026-07-06 / 갱신: 2026-07-06 (Phase 9 — 무중단 회전 지원 추가).
+> 작성: 2026-07-06 / 갱신: 2026-08-07 (access-token HMAC 이 HKDF 파생 서브키로 전환된 것을 반영).
 > 코드 기준: `src/lib/server/crypto/keys.ts`, `auth/runtime.ts`, `auth/totp.ts`, `auth/mfa.ts`, `auth/webauthn.ts`, `audit/index.ts`.
 >
 > **무중단(zero-downtime) 회전이 지원된다.** `IDP_SIGNING_KEY_SECRET_PREVIOUS` 에 old
@@ -14,7 +14,7 @@
 | #   | 용도                                  | 방식                                                                  | 저장 데이터                                                  | 근거                     |
 | --- | ------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------ |
 | 1   | OIDC/SAML 서명용 RSA private JWK 래핑 | HKDF(`idp-signing-key-wrap-v1`) → AES-256-GCM                         | `signing_keys.private_jwk_encrypted` (활성 행만 런타임 사용) | `crypto/keys.ts:37-69`   |
-| 2   | Opaque access token 서명/검증         | **원문 그대로** HMAC-SHA256 키                                        | 저장 없음 (TTL 300초)                                        | `crypto/keys.ts:213-250` |
+| 2   | Opaque access token 서명/검증         | HKDF(`idp-access-token-hmac-v1`) → HMAC-SHA256 서브키                 | 저장 없음 (TTL 300초)                                        | `crypto/keys.ts:255-288` |
 | 3   | LDAP admin bind password 암호화       | HKDF(`idp-ldap-bind-password-v1`) → AES-256-GCM                       | `identity_providers.config_json` 내 `bindPasswordEnc`        | `crypto/keys.ts:258-280` |
 | 4   | TOTP seed 암호화                      | HKDF(v2: `idp-totp-secret-wrap-v2:<userId>`, v1 레거시) → AES-256-GCM | `credentials.secret` (type='totp')                           | `auth/totp.ts:99-175`    |
 | 5   | MFA pending 쿠키 서명                 | 원문 HMAC                                                             | 저장 없음 (쿠키, TTL 5분)                                    | `auth/mfa.ts:44-92`      |
@@ -24,6 +24,8 @@
 ## 2. 회전 시 영향 분류
 
 **A. 자연 해소(조치 불필요)** — 발급된 access token(최대 5분 내 만료), MFA pending·WebAuthn challenge 쿠키(5분, 재시도로 해소). `oidc_refresh_tokens`는 이 시크릿과 무관(랜덤 토큰 + SHA-256 해시)이라 영향 없음.
+
+> access token 은 `IDP_SIGNING_KEY_SECRET_PREVIOUS` 병기 여부와 무관하게, HKDF 서브키 검증 실패 시 **레거시 raw-key 폴백 검증**도 시도한다(R10 전환기 하위호환, `deriveLegacyHmacKey`). 신규 서명은 항상 HKDF 서브키만 쓴다.
 
 **B. 재암호화 필수(누락 시 장애)** — 아래 3종은 old secret으로 복호해 new secret으로 재암호화하지 않으면 **영구 복호 불가**:
 
@@ -67,6 +69,6 @@
 
 ## 4. 알려진 한계 / 개선 여지 (별도 트랙)
 
-- access-token HMAC·쿠키 서명(#2,#5,#6,#7)이 파생 없이 원문을 공유 — HKDF 도메인 분리로 통일하면 용도별 노출 반경이 줄어든다.
+- 쿠키·audit 서명(#5,#6,#7)이 아직 파생 없이 마스터 시크릿 원문을 HMAC 키로 공유한다. access-token HMAC(#2)은 HKDF 도메인 분리로 전환됐으므로, 같은 방식으로 통일하면 용도별 노출 반경이 더 줄어든다.
 - `audit_events.hash` 재계산 전용 배치가 아직 없다(위 3절 주석 참조).
 - admin 콘솔의 "서명키 rotate" 액션은 **현재 secret으로 새 서명키를 만드는 것**이지 이 마스터 시크릿 회전과 무관하다 — 혼동 주의.

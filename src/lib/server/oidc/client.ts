@@ -68,9 +68,9 @@ export function parseBasicAuth(authHeader: string): { clientId: string; clientSe
 
 // client_secret 저장 해시. 비밀번호(저엔트로피)와 달리 client_secret 은 서버가
 // 생성한 32바이트 랜덤값(256비트 엔트로피)이라 무차별대입이 불가능하므로,
-// 메모리 하드 KDF 대신 SHA-256 단일 해시로 충분하다 (검증 <1ms — 순수 JS argon2 는
-// verify 1회 ~4.4초라 토큰 엔드포인트 지연의 주범이었다). salt 없는 결정적 해시라
-// timingSafeEqual 비교가 가능하다.
+// 메모리 하드 KDF(비밀번호용 scrypt) 대신 SHA-256 단일 해시로 충분하다 — 검증 <1ms 라
+// 토큰 엔드포인트 지연에 얹히지 않는다. salt 없는 결정적 해시라 timingSafeEqual 비교가
+// 가능하다.
 export async function hashClientSecret(clientSecret: string): Promise<string> {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clientSecret));
     return `sha256$${b64uEncode(digest)}`;
@@ -78,7 +78,7 @@ export async function hashClientSecret(clientSecret: string): Promise<string> {
 
 export interface ClientSecretVerification {
     valid: boolean;
-    /** 레거시 형식(argon2/pbkdf2) 검증 성공 시 sha256 형식으로 재저장할 값 */
+    /** 레거시 형식(scrypt/argon2/pbkdf2) 검증 성공 시 sha256 형식으로 재저장할 값 */
     rehash?: string;
 }
 
@@ -100,7 +100,7 @@ export async function isValidClientSecret(client: OidcClientRecord, clientSecret
         return { valid: timingSafeEqual(expected, stored) };
     }
 
-    // argon2/pbkdf2 레거시 — 검증 성공 시 sha256 으로 업그레이드
+    // scrypt/argon2/pbkdf2 레거시 — 검증 성공 시 sha256 으로 업그레이드
     const result = await verifyPassword(clientSecret, client.clientSecretHash);
     if (!result.valid) return { valid: false };
     return { valid: true, rehash: await hashClientSecret(clientSecret) };

@@ -3,6 +3,7 @@ import { desc, eq, and } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
+import { SAML_ATTRIBUTE_KEYS } from "$lib/server/admin/schemas";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { samlSps } from "$lib/server/db/schema";
 import { validateSamlUrl } from "$lib/server/validation";
@@ -36,7 +37,9 @@ export const load: PageServerLoad = async ({ locals }) => {
     return { sps: rows };
 };
 
-const ATTRIBUTE_KEYS = ["email", "username", "displayName", "givenName", "familyName", "surName", "phoneNumber", "department", "team", "jobTitle", "position", "Role", "RoleLabel"] as const;
+// 화이트리스트 본체는 `$lib/server/admin/schemas` 에 있다 — SSO 발행 경로와의 정합을
+// 테스트로 고정하기 위해서다(그 파일 주석 참조).
+const ATTRIBUTE_KEYS = SAML_ATTRIBUTE_KEYS;
 
 const ALLOWED_NAMEID_FORMATS = [
     "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",

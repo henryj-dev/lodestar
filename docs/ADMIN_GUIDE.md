@@ -102,10 +102,15 @@ RP 가 받는 클레임은 성격이 다른 세 갈래이며, **어느 것으로
 | `groups`                | 조직 소속 — `departments` · `teams` · `parts` | `groups`                  | **표시용.** 인가 금지 |
 | `organization` 계열     | 조직 세부(부서/직위/직책 등)                  | `organization`            | **표시용**            |
 | `roles` · `roles_label` | 서비스 역할 — 사용자별 서비스 배정            | 불필요(배정 존재 시 발행) | **인가용**            |
+| `entitlements`          | 서비스 세부 권한 — 배정에 부여된 권한 키 목록 | 불필요(배정 존재 시 발행) | **인가용**            |
 
 **`groups` 로 인가하면 안 되는 이유**: 조직도는 인사가 바꾸고 권한은 보안 담당이 줍니다. `groups` 로 인가하면 팀 이동이 보안 경계를 움직이고, 부서 개편이 권한을 재배정하며, 두 역할을 분리할 수 없게 됩니다. 이름이 인가용처럼 읽히고 값이 여러 개라 권한 집합처럼 보이지만 **인사 구조**입니다.
 
-**`roles` 는 사용자당 서비스당 하나**입니다. 배열로 오지만 원소는 항상 1개이며, 이는 스키마 제약(`user_service_assignments` 의 유니크 인덱스)입니다. 역할 정의는 **4장(서비스 role/scope 설정)**, 사용자별 배정은 **10장(사용자 운영 흐름)** 을 참고하세요.
+**`roles` 는 사용자당 서비스당 하나**입니다. 배열로 오지만 원소는 항상 1개이며, 이는 스키마 제약(`user_service_assignments` 의 유니크 인덱스)입니다. **`entitlements` 는 개수 제한이 없습니다** — 같은 배정에 여러 권한 키를 붙일 수 있어 `roles` 와 직교하는 축입니다. `roles`/`entitlements` 모두 값이 없으면 **키 자체가 페이로드에서 생략**되므로, 권한 모델을 쓰지 않는 기존 RP 의 응답은 변하지 않습니다.
+
+역할·권한 정의는 **4장(서비스 role/entitlement 설정)**, 사용자별 배정은 **10장(사용자 운영 흐름)** 을 참고하세요.
+
+SAML SP 에도 같은 값이 Assertion 의 **`Entitlements` 속성**으로 나갑니다. 다만 `Role`·`RoleLabel` 과 동일하게 **SP 의 허용 속성 목록에 `Entitlements` 를 넣어야** 전달됩니다(6장 참조) — 목록에 없으면 정의·배정을 해도 Assertion 에 나가지 않습니다.
 
 ### 관리
 
@@ -116,9 +121,11 @@ RP 가 받는 클레임은 성격이 다른 세 갈래이며, **어느 것으로
 
 ---
 
-## 4. 서비스 role/scope 설정 (`/admin/oidc-clients/[id]`)
+## 4. 서비스 role / entitlement 설정 (`/admin/oidc-clients/[id]`)
 
-클라이언트 상세 화면에서 **서비스 role** 을 정의합니다(SAML SP 도 `/admin/saml-sps/[id]` 에서 동일 구조).
+클라이언트 상세 화면에서 **서비스 role** 과 **entitlement(세부 권한)** 를 정의합니다(SAML SP 도 `/admin/saml-sps/[id]` 에서 동일 구조).
+
+### role 정의
 
 - role 필드:
     - **key**(필수): `^[A-Za-z0-9_.-]{1,64}$` 형식. 같은 서비스 내 중복 불가(중복 시 409).
@@ -127,7 +134,23 @@ RP 가 받는 클레임은 성격이 다른 세 갈래이며, **어느 것으로
     - **isDefault**: 기본 부여 role 표시.
     - **displayOrder**: 정렬 순서(정수).
 - role 추가/삭제는 감사 로그(`service_role_created` / `service_role_deleted`)에 기록됩니다.
-- 정의한 role 은 `/admin/users/[id]` 에서 사용자에게 **서비스 권한(assignment)** 으로 부여합니다(만료/취소 관리 포함).
+- 정의한 role 은 `/admin/users/[id]` 에서 사용자에게 **서비스 권한(assignment)** 으로 부여합니다(만료/취소 관리 포함). **사용자당 서비스당 role 은 하나**입니다.
+
+### entitlement 정의
+
+role 과 직교하는 권한 축입니다. role 이 "이 사람이 이 서비스에서 무엇인가"라면, entitlement 는 "구체적으로 무엇을 할 수 있는가"입니다. 하나의 배정에 **여러 개**를 붙일 수 있습니다.
+
+- 필드는 role 과 같습니다(key / label / description / displayOrder). `site.read`, `plan.approve_own` 같은 네임스페이스 키를 권장합니다.
+- **key 는 저장 시 소문자로 정규화**됩니다. 유니크 인덱스에 collation 을 지정하지 않아 방언마다 대소문자 취급이 달라지는데(MySQL 은 `Site.Read`↔`site.read` 를 충돌로 보고, PostgreSQL·SQLite 는 별개 행으로 받아 **둘 다 클레임에 실림**), 인가에 쓰이는 값이 배포 DB 에 따라 달라지면 안 되므로 입력 시점에 하나로 모읍니다.
+- 추가/수정/삭제는 감사 로그(`service_entitlement_created` / `_updated` / `_deleted`)에 기록됩니다.
+- **정의를 삭제하면 그 권한을 부여받은 사용자에게서도 회수**되며, 회수 건마다 `user_entitlement_revoked`(`cause: definition_deleted`)가 남습니다. 삭제 전 영향 사용자 수를 확인하세요.
+
+### 변경 통지 (SET)
+
+클라이언트에 `role_change_uri` 가 등록돼 있으면, 사용자의 role/entitlement 가 바뀔 때 **Security Event Token** 이 그 URI 로 POST 됩니다. RP 는 세션을 끊지 않고 권한만 갱신하므로 사용자가 재로그인할 필요가 없습니다.
+
+- 이 통지는 **fire-and-forget 이고 재시도가 없습니다.** 전송 실패 시 RP 는 다음 변경 때까지 옛 권한을 들고 있게 되므로, 권한 회수를 즉시 강제해야 하는 상황이라면 통지에만 의존하지 말고 세션 철회(10장)를 함께 쓰세요.
+- 짧은 간격의 두 변경은 도착 순서가 뒤집힐 수 있어, RP 는 payload 의 `txn`(발행 시각 ms) 을 기억하고 그보다 작거나 같은 SET 을 버려야 합니다.
 
 ---
 
@@ -178,12 +201,15 @@ RP 가 받는 클레임은 성격이 다른 세 갈래이며, **어느 것으로
     - **`signResponse` 는 항상 `true` 로 강제**됩니다(관리 UI 가 false 를 보내도 무시). XSW 계열 공격 방지를 위해 IdP 가 Response 자체를 항상 서명.
     - `signAssertion`, `wantAuthnRequestsSigned` 는 토글.
     - **`encryptAssertion` 을 켜려면 SP 공개키(cert)가 반드시 있어야** 합니다(없으면 400).
-- **allowedAttributes**: 콤마 구분. 허용 키 화이트리스트(`email`, `username`, `displayName`, `givenName`, `familyName`, `surName`, `phoneNumber`, `department`, `team`, `jobTitle`, `position`, `Role`, `RoleLabel`)에 없는 값은 무시됩니다.
+- **allowedAttributes**: 콤마 구분. 허용 키 화이트리스트(`email`, `username`, `displayName`, `givenName`, `familyName`, `surName`, `phoneNumber`, `department`, `team`, `jobTitle`, `position`, `Role`, `RoleLabel`, `Entitlements`)에 없는 값은 무시됩니다.
+    - **미설정 시 기본값은 `email`, `username`, `displayName` 뿐입니다.** 조직 정보와 서비스 권한(`Role` / `RoleLabel` / `Entitlements`)은 여기에 **명시적으로 넣어야** 나갑니다. 권한을 정의·배정했는데 SP 가 못 받는다면 이 목록부터 확인하세요.
+    - `Role` / `RoleLabel` / `Entitlements` 는 인가 판정에 쓰이는 값이라, 사용자별 추가 속성(`attributesJson`)으로 **덮어쓸 수 없습니다**(위조 방지).
 - 보안 설정 변경(특히 **cert / acsUrl / wantAuthnRequestsSigned**)은 ACS 하이재킹 포렌식을 위해 before/after diff 가 감사 로그(`saml_sp_updated`)에 상세 기록됩니다.
 
 ### 상세 (`/admin/saml-sps/[id]`)
 
-- OIDC 클라이언트와 동일하게 **서비스 role** 을 정의(key/label/description/isDefault/displayOrder). 4장 참조.
+- OIDC 클라이언트와 동일하게 **서비스 role · entitlement** 를 정의(key/label/description/isDefault/displayOrder). 4장 참조.
+- 정의한 entitlement 가 Assertion 에 실리려면 SP 의 **allowedAttributes 에 `Entitlements` 가 있어야** 합니다(위 "생성 / 수정" 참조).
 
 ### 메타데이터
 
@@ -276,7 +302,7 @@ service-to-service 호출(`/api/totp/*`, `/api/users/lookup`)에 쓰는 Bearer �
 - 페이징: 최신순 **50건**씩, 커서(마지막 행의 생성시각 기준) 기반 "더 보기".
 - 감사 이벤트 행에는 무결성 MAC(`hash`)이 포함됩니다(위변조 탐지용, `IDP_SIGNING_KEY_SECRET` 기반).
 
-주요 kind 예: `login`, `user_created` / `user_invited` / `user_deleted`, `user_status_changed` / `user_role_changed`, `password_reset`, `oidc_client_*`, `saml_sp_*`, `service_role_*`, `signing_key_rotated`, `ldap_provider_*`, `user_deletion_requested` / `user_deletion_cancelled`.
+주요 kind 예: `login`, `user_created` / `user_invited` / `user_deleted`, `user_status_changed` / `user_role_changed`, `password_reset`, `oidc_client_*`, `saml_sp_*`, `service_role_*`, `service_entitlement_*`, `user_entitlement_revoked`, `service_api_token_created` / `_revoked`, `service_token_rejected`, `signing_key_rotated`, `ldap_provider_*`, `user_deletion_requested` / `user_deletion_cancelled`.
 
 ---
 

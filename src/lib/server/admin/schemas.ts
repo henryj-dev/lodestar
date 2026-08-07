@@ -35,6 +35,38 @@ export function normalizeEntitlementKey(raw: string): string {
     return raw.trim().toLowerCase();
 }
 
+/**
+ * SAML SP 의 `allowedAttributes` 에 넣을 수 있는 속성 키 화이트리스트.
+ *
+ * **SSO 라우트가 실제로 발행할 수 있는 속성의 상위집합이어야 한다.** `saml/sso` 는 모든 속성을
+ * `allowedSet.has(key)` 로 게이트하는데, 그 allowedSet 은 이 목록을 통과한 값만 담긴다. 여기에
+ * 키가 빠지면 관리자가 저장해도 조용히 버려지고 → SP 는 그 속성을 영원히 받지 못한다.
+ * 실제로 `Entitlements` 가 이 목록에서 누락돼, 발행 로직·정의 UI·안내 문구가 모두 있는데도
+ * 속성이 나갈 수 없는 상태였다(무동작). 발행 경로에 속성을 추가하면 여기도 같이 늘려야 한다.
+ *
+ * 라우트 파일이 아니라 이 모듈에 두는 이유: `+page.server.ts` 는 SvelteKit 이 허용하는 export
+ * 만 내보낼 수 있어 테스트가 직접 import 할 수 없다. 위 불변식을 테스트로 고정하려면 공유
+ * 모듈이어야 한다(`SERVICE_KEY_RE` 를 여기로 올린 것과 같은 이유).
+ */
+export const SAML_ATTRIBUTE_KEYS = [
+    "email",
+    "username",
+    "displayName",
+    "givenName",
+    "familyName",
+    "surName",
+    "phoneNumber",
+    "department",
+    "team",
+    "jobTitle",
+    "position",
+    "Role",
+    "RoleLabel",
+    "Entitlements",
+] as const;
+
+export type SamlAttributeKey = (typeof SAML_ATTRIBUTE_KEYS)[number];
+
 /** 필수 텍스트: trim 후 최소 1자. 값 미존재(undefined)/빈값 모두 같은 메시지. */
 export const requiredText = (message: string) => z.string(message).trim().min(1, message);
 
