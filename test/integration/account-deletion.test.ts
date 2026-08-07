@@ -88,7 +88,7 @@ describe("Phase 8 — 계정 삭제 신청/복구/GC", () => {
         expect(await statusOf(elapsed.id)).toBe("deletion_pending"); // 여전히 존재
 
         // GC 실행 → 유예 경과 deletion_pending 만 하드 삭제
-        const result = await runExpiredDataGc(mem.db);
+        const result = await runExpiredDataGc(mem.db, { isWorkers: true });
         const usersGc = result.tables.find((t) => t.table === "users");
         expect(usersGc?.ok).toBe(true);
         expect(await statusOf(elapsed.id)).toBeUndefined(); // 하드 삭제됨
@@ -104,7 +104,7 @@ describe("Phase 8 — 계정 삭제 신청/복구/GC", () => {
             deletionScheduledAt: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
         });
 
-        await runExpiredDataGc(mem.db);
+        await runExpiredDataGc(mem.db, { isWorkers: true });
 
         expect(await statusOf(active.id)).toBe("active");
         expect(await statusOf(pendingFuture.id)).toBe("deletion_pending");

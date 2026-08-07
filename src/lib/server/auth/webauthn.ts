@@ -10,7 +10,7 @@ import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthen
 import type { AuthenticatorTransportFuture, AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { type DB, DB_DIALECT } from "$lib/server/db";
 import { credentials, users, webauthnChallenges } from "$lib/server/db/schema";
-import { eq, and, isNull, gt, sql } from "drizzle-orm";
+import { eq, and, isNull, gt, lt } from "drizzle-orm";
 import { b64uEncode, b64uDecode } from "$lib/server/crypto/keys";
 
 export const WEBAUTHN_CHALLENGE_COOKIE = "idp_webauthn_challenge";
@@ -154,9 +154,16 @@ export async function consumeChallenge(db: DB, tenantId: string, challenge: stri
     return rows.length > 0;
 }
 
-/** 만료된 챌린지 정리 (필요 시 주기적 호출). */
+/**
+ * 만료된 챌린지 정리 (필요 시 주기적 호출).
+ *
+ * **`Date` 를 drizzle 연산자에 넘긴다 — raw SQL 에 `Date.now()` 숫자를 박으면 안 된다.**
+ * sqlite/d1 은 timestamp 를 정수(ms)로 저장해 `expires_at <= 1786…` 비교가 통하지만,
+ * postgres 는 `timestamptz`, mysql 은 `datetime` 이라 정수와 비교되지 않아 쿼리가 던진다.
+ * `lt(col, new Date())` 는 컬럼의 방언별 매퍼를 타므로 4방언 모두에서 성립한다.
+ */
 export async function purgeExpiredChallenges(db: DB): Promise<void> {
-    await db.delete(webauthnChallenges).where(sql`${webauthnChallenges.expiresAt} <= ${Date.now()}`);
+    await db.delete(webauthnChallenges).where(lt(webauthnChallenges.expiresAt, new Date()));
 }
 
 export interface PasskeyVerifyResult {
