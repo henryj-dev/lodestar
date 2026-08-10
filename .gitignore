@@ -33,6 +33,7 @@ vite.config.ts.timestamp-*
 # Local AI agent state
 .claude/
 .omc/
+.codex/
 
 # Cloudflare Workers
 wrangler.jsonc
