@@ -50,7 +50,8 @@ import { hashPassword } from "$lib/server/auth/password";
 import { hashClientSecret } from "$lib/server/oidc/client";
 import { createSessionRecord } from "$lib/server/auth/session";
 import { CSRF_COOKIE_NAME } from "$lib/server/auth/csrf";
-import { b64uEncode, getActiveSigningKey } from "$lib/server/crypto/keys";
+import { b64uEncode, encryptSecret, getActiveSigningKey } from "$lib/server/crypto/keys";
+import { OAUTH_SECRET_CONTEXT } from "$lib/server/oauth/provider-store";
 import { DbRateLimitStore } from "$lib/server/ratelimit";
 import { ensureXmlEngine, xmldsigjs, XMLSerializer } from "$lib/server/saml/xml-setup";
 
@@ -163,6 +164,8 @@ export interface MakeEventOptions {
         env: Record<string, string>;
     };
     cookies?: ReturnType<typeof makeCookies>;
+    /** 동적 라우트 파라미터(예: /auth/oauth/[slug]/callback 의 slug). */
+    params?: Record<string, string>;
 }
 
 /**
@@ -222,7 +225,7 @@ export function makeEvent(opts: MakeEventOptions): RequestEvent<never, never> {
         locals,
         platform,
         cookies,
-        params: {},
+        params: opts.params ?? {},
         route: { id: null },
         getClientAddress: () => "127.0.0.1",
         setHeaders: () => {},
@@ -632,19 +635,30 @@ export interface SeedIdentityProviderOptions {
     tenantId: string;
     kind?: "ldap" | "oidc" | "saml" | "oauth2";
     name?: string;
-    /** config_json 에 직렬화될 provider 설정(LDAP 는 LdapProviderConfig). */
+    /** config_json 에 직렬화될 provider 설정(LDAP 는 LdapProviderConfig, 소셜은 OAuthProviderConfig). */
     config?: Record<string, unknown>;
     enabled?: boolean;
+    /** 소셜 프로바이더의 콜백 URL 식별자. LDAP 는 null 로 둔다. */
+    slug?: string;
+    clientId?: string;
+    /** 평문 client secret. 지정하면 실제 암호화 경로를 거쳐 저장한다. */
+    clientSecret?: string;
 }
 
 /** identity_providers 레코드(기본 LDAP)를 삽입한다. */
 export async function seedIdentityProvider(db: DB, opts: SeedIdentityProviderOptions): Promise<IdentityProvider> {
     const id = crypto.randomUUID();
+    // 프로덕션과 동일한 암호화 경로를 태워, 복호화까지 왕복 검증되게 한다.
+    const clientSecretEnc = opts.clientSecret ? await encryptSecret(opts.clientSecret, TEST_SIGNING_SECRET, OAUTH_SECRET_CONTEXT) : null;
+
     await db.insert(identityProviders).values({
         id,
         tenantId: opts.tenantId,
         kind: opts.kind ?? "ldap",
         name: opts.name ?? "Test LDAP",
+        slug: opts.slug ?? null,
+        clientId: opts.clientId ?? null,
+        clientSecretEnc,
         configJson: opts.config ? JSON.stringify(opts.config) : null,
         enabled: opts.enabled ?? true,
     });

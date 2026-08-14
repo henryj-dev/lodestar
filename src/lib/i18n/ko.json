@@ -184,8 +184,15 @@
             "ldap_metadata_host_forbidden": "클라우드 메타데이터 호스트는 사용할 수 없습니다.",
             "ldap_linklocal_forbidden": "link-local(169.254/16) 주소는 사용할 수 없습니다.",
             "ldap_port_invalid": "포트 번호가 올바르지 않습니다.",
-            "ldap_port_not_allowed": "허용되지 않는 LDAP 포트입니다 (허용: {{allowed}})."
-        }
+            "ldap_port_not_allowed": "허용되지 않는 LDAP 포트입니다 (허용: {{allowed}}).",
+            "social_slug_invalid": "식별자는 영문 소문자·숫자·하이픈 3~32자여야 하며 하이픈으로 시작하거나 끝날 수 없습니다.",
+            "social_slug_taken": "이미 사용 중인 식별자입니다.",
+            "social_provider_type_invalid": "알 수 없는 제공자 종류입니다.",
+            "social_client_id_required": "Client ID를 입력해 주세요.",
+            "social_client_secret_required": "Client Secret을 입력해 주세요.",
+            "social_signing_key_secret_required": "IDP_SIGNING_KEY_SECRET이 설정되지 않아 Client Secret을 암호화할 수 없습니다."
+        },
+        "social_providers": "소셜 로그인"
     },
     "admin_login": {
         "subtitle": "관리자 로그인",
@@ -760,7 +767,24 @@
         "err_password_breached": "이 비밀번호는 알려진 유출 목록에 포함되어 있어 사용할 수 없습니다. 다른 비밀번호를 선택해 주세요.",
         "submit": "가입하기",
         "have_account": "이미 계정이 있으신가요?",
-        "not_available": "현재 이 서비스는 관리자를 통해서만 계정을 생성할 수 있습니다."
+        "not_available": "현재 이 서비스는 관리자를 통해서만 계정을 생성할 수 있습니다.",
+        "err_missing_fields": "필수 항목을 모두 입력해 주세요.",
+        "err_invalid_username": "아이디는 영문 소문자, 숫자, _ 조합 3~32자여야 합니다.",
+        "err_invalid_email": "올바른 이메일 주소를 입력해 주세요.",
+        "err_password_short": "비밀번호는 8자 이상이어야 합니다.",
+        "err_password_mismatch": "비밀번호가 일치하지 않습니다.",
+        "err_username_taken": "이미 사용 중인 아이디입니다.",
+        "err_email_taken": "이미 사용 중인 이메일입니다.",
+        "err_rate_limit": "가입 시도가 너무 많습니다. {{minutes}}분 후 다시 시도해 주세요.",
+        "federated_subtitle": "{{provider}} 계정으로 KeyStone 가입을 완료해 주세요.",
+        "federated_notice": "{{provider}} 인증이 확인되었습니다. 아직 연결된 계정이 없어 가입을 먼저 진행합니다.",
+        "federated_email_locked": "{{provider}}에서 확인된 이메일이라 변경할 수 없습니다.",
+        "federated_email_verify_notice": "가입 후 이 주소로 인증 메일이 발송됩니다.",
+        "federated_password_optional": "(선택)",
+        "federated_password_hint": "비워 두면 {{provider}} 계정으로만 로그인합니다. 나중에 계정 설정에서 추가할 수 있습니다.",
+        "federated_submit": "가입하고 시작하기",
+        "err_federated_email_taken": "이미 같은 이메일의 계정이 있습니다. 기존 방법으로 로그인한 뒤 계정 설정에서 연결해 주세요.",
+        "err_federated_conflict": "가입 처리 중 충돌이 발생했습니다. 다시 로그인해 주세요."
     },
     "find_id": {
         "title": "아이디 찾기",
@@ -933,6 +957,11 @@
             "subject": "[보안 알림] 다른 모든 세션이 로그아웃되었습니다",
             "heading": "다른 모든 세션이 로그아웃되었습니다",
             "body": "현재 세션을 제외한 계정의 모든 활성 세션이 방금 로그아웃(철회)되었습니다."
+        },
+        "social_identity_unlinked": {
+            "subject": "[KeyStone] 소셜 계정 연결이 해제되었습니다",
+            "heading": "소셜 계정 연결 해제",
+            "body": "계정에서 소셜 로그인 연결이 해제되었습니다. 본인이 한 작업이 아니라면 즉시 비밀번호를 변경하고 관리자에게 문의해 주세요."
         }
     },
     "skins": {
@@ -1033,5 +1062,72 @@
         },
         "default_authenticator_label": "TOTP 인증기 (dispatcher)",
         "default_backup_code_label": "백업 코드 (dispatcher)"
+    },
+    "social": {
+        "divider": "또는",
+        "continue_with": "{{provider}}(으)로 계속하기",
+        "err_generic": "소셜 로그인에 실패했습니다. 다시 시도해 주세요.",
+        "err_state_expired": "로그인 요청이 만료되었습니다. 다시 시도해 주세요.",
+        "err_state_mismatch": "로그인 요청을 확인할 수 없습니다. 처음부터 다시 시도해 주세요.",
+        "err_provider_denied": "제공자에서 로그인이 취소되었습니다.",
+        "err_missing_code": "제공자 응답이 올바르지 않습니다. 다시 시도해 주세요.",
+        "err_provider_unavailable": "현재 이 로그인 방식을 사용할 수 없습니다. 관리자에게 문의해 주세요.",
+        "err_exchange_failed": "제공자와 통신하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        "err_link_required": "이미 같은 이메일의 계정이 있습니다. 기존 방법으로 로그인한 뒤 계정 설정에서 연결해 주세요.",
+        "err_link_expired": "가입 정보가 만료되었습니다. 다시 로그인해 주세요.",
+        "err_signup_disabled": "이 방식으로는 새 계정을 만들 수 없습니다. 관리자에게 문의해 주세요.",
+        "err_account_disabled": "사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.",
+        "err_account_deleting": "탈퇴 예정 계정입니다. 비밀번호 로그인으로 복구해 주세요.",
+        "err_no_email": "제공자에서 이메일을 받지 못해 가입할 수 없습니다."
+    },
+    "social_admin": {
+        "title": "소셜 로그인 제공자",
+        "subtitle": "네이버·카카오·GitHub·Microsoft 등 외부 계정으로 로그인할 수 있게 설정합니다.",
+        "add": "제공자 추가",
+        "empty": "등록된 소셜 로그인 제공자가 없습니다.",
+        "provider_type": "제공자 종류",
+        "name": "표시 이름",
+        "slug": "식별자(slug)",
+        "slug_hint": "콜백 URL에 그대로 들어갑니다. 등록 후 바꾸면 제공자 콘솔의 Redirect URI도 함께 수정해야 합니다.",
+        "scopes": "스코프",
+        "scopes_hint": "공백 또는 쉼표로 구분합니다. 비워 두면 기본값을 사용합니다.",
+        "scopes_none": "(기본값 없음)",
+        "kakao_email_hint": "카카오 이메일(account_email)은 비즈 앱 검수를 통과해야 사용할 수 있습니다. 미승인 상태에서 추가하면 로그인이 실패합니다.",
+        "directory_tenant": "디렉터리 테넌트",
+        "directory_tenant_hint": "common / organizations / consumers 또는 디렉터리 GUID. 비워 두면 common 입니다.",
+        "provisioning_mode": "계정이 없을 때",
+        "provisioning_mode_hint": "매칭되는 KeyStone 계정이 없는 사용자를 어떻게 처리할지 정합니다.",
+        "mode_signup_form": "가입 폼으로 보내기 (권장)",
+        "mode_jit": "자동으로 계정 생성",
+        "mode_deny": "가입 차단",
+        "auto_link": "검증된 이메일이면 기존 계정에 자동 연결",
+        "auto_link_warning": "제공자의 이메일 주장만으로 기존 계정에 접근이 열립니다. 이메일 검증을 신뢰할 수 있는 제공자에만 사용하세요.",
+        "enable": "활성화",
+        "enabled": "활성",
+        "disabled": "비활성",
+        "secret_keep": "변경하지 않으려면 비워 두세요",
+        "secret_unset": "설정되지 않음",
+        "redirect_uri_notice": "제공자 콘솔에 아래 Redirect URI를 정확히 등록하세요.",
+        "signing_key_warning": "IDP_SIGNING_KEY_SECRET이 설정되지 않아 client secret을 암호화할 수 없습니다. 먼저 환경 변수를 설정해 주세요."
+    },
+    "connections": {
+        "title": "연결된 계정",
+        "subtitle": "외부 계정으로도 로그인할 수 있도록 연결하거나 해제합니다.",
+        "linked_heading": "연결됨",
+        "available_heading": "연결 가능",
+        "none_linked": "연결된 외부 계정이 없습니다.",
+        "no_email": "이메일 없음",
+        "linked_at": "{{date}} 연결",
+        "link": "연결하기",
+        "unlink": "연결 해제",
+        "unlinked": "연결이 해제되었습니다.",
+        "linked_success": "계정이 연결되었습니다.",
+        "managed_by_admin": "관리자 관리 항목",
+        "err_csrf": "요청을 확인하지 못했습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.",
+        "err_invalid_request": "잘못된 요청입니다.",
+        "err_not_found": "해당 연결을 찾을 수 없습니다.",
+        "err_not_unlinkable": "이 연결은 관리자만 해제할 수 있습니다.",
+        "err_last_method": "마지막 로그인 수단은 해제할 수 없습니다. 먼저 비밀번호나 패스키를 등록해 주세요.",
+        "err_already_linked_elsewhere": "이 외부 계정은 이미 다른 KeyStone 계정에 연결되어 있습니다."
     }
 }

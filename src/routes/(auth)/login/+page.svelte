@@ -7,6 +7,7 @@ import type { SubmitFunction } from "@sveltejs/kit";
 import { t } from "$lib/i18n.svelte";
 import FormError from "$lib/components/FormError.svelte";
 import LocaleToggle from "$lib/components/LocaleToggle.svelte";
+import SocialLoginButtons from "$lib/components/SocialLoginButtons.svelte";
 import type { ActionData, PageData } from "./$types";
 
 const { data, form } = $props<{ data: PageData; form?: ActionData }>();
@@ -49,6 +50,27 @@ function buildAuthSuffix(redirectTo: string | null, skinHint: string | null): st
 }
 
 const authLinkSuffix = $derived(buildAuthSuffix(data.redirectTo, data.skinHint));
+
+/**
+ * 소셜 콜백 실패 사유. 알 수 없는 값이 쿼리로 들어와도 임의 문자열이 화면에 뜨지
+ * 않도록, 아는 키만 번역하고 나머지는 일반 메시지로 떨어뜨린다.
+ */
+const SOCIAL_ERROR_KEYS = new Set([
+    "state_expired",
+    "state_mismatch",
+    "provider_denied",
+    "missing_code",
+    "provider_unavailable",
+    "exchange_failed",
+    "link_required",
+    "link_expired",
+    "signup_disabled",
+    "account_disabled",
+    "account_deleting",
+    "no_email",
+]);
+
+const socialErrorMessage = $derived(data.socialError ? t(`social.err_${SOCIAL_ERROR_KEYS.has(data.socialError) ? data.socialError : "generic"}`) : "");
 
 async function loginWithPasskey() {
     passkeyError = "";
@@ -143,6 +165,8 @@ async function loginWithPasskey() {
             <FormError message={form?.error} class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" />
 
             <FormError message={passkeyError} class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" />
+
+            <FormError message={socialErrorMessage} class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" />
 
             {#if form?.recovery}
                 <!-- 탈퇴 예정 계정 복구 확인. 본인 확인을 위해 비밀번호를 다시 입력한다. -->
@@ -263,6 +287,8 @@ async function loginWithPasskey() {
                         {t("login.passkey_login")}
                     {/if}
                 </button>
+
+                <SocialLoginButtons providers={data.socialProviders ?? []} redirectTo={data.redirectTo} skinHint={data.skinHint} />
 
                 <div class="mt-5 flex justify-center gap-4 text-sm text-gray-500">
                     <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->

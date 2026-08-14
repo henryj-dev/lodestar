@@ -37,7 +37,18 @@ const CSRF_SKIP = [
 ];
 
 // 인증/계정/관리자 등 캐시 금지 + COOP/CORP 적용 대상
-const SENSITIVE = [/^\/admin/, /^\/account/, /^\/(login|signup|find-id|find-password|reset-password|mfa|logout)/, /^\/oidc\/(authorize|token|userinfo|end-session)/, /^\/api\/webauthn/];
+//
+// `/auth/oauth/*` 는 소셜 로그인 왕복이다. 콜백 응답은 세션 쿠키를 심으므로 절대
+// 캐시되면 안 된다. CSRF_PROTECTED 에는 **넣지 않는다** — 콜백은 외부 프로바이더에서
+// 오는 GET 이라 Origin/Referer 가 교차 출처이고, 위조 방어는 state 쿠키가 담당한다.
+const SENSITIVE = [
+    /^\/admin/,
+    /^\/account/,
+    /^\/(login|signup|find-id|find-password|reset-password|mfa|logout)/,
+    /^\/auth\/oauth\//,
+    /^\/oidc\/(authorize|token|userinfo|end-session)/,
+    /^\/api\/webauthn/,
+];
 
 // cross-origin 으로 노출되어야 하는 공개 메타데이터 (CORP 면제)
 const PUBLIC_META = [/^\/\.well-known\//, /^\/oidc\/jwks/, /^\/saml\/metadata/];
