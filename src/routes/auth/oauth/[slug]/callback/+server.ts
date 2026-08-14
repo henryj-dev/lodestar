@@ -89,8 +89,14 @@ export const GET: RequestHandler = async (event) => {
     }
 
     let profile;
+    // 단계를 나눠 잡는다. 사용자에게 주는 메시지는 일반화하되, 어느 단계에서 실패했는지는
+    // 감사 로그와 서버 로그에서 구분되어야 한다 — 세 단계를 한 사유로 뭉치면 운영자가
+    // `wrangler tail` 없이는 설정 오류인지 프로바이더 장애인지 알 수 없다.
+    let stage: "discovery_failed" | "exchange_failed" | "profile_failed" = "discovery_failed";
     try {
         const endpoints = await resolveEndpoints(provider.preset, provider.config);
+
+        stage = "exchange_failed";
         const tokens = await exchangeCode({
             preset: provider.preset,
             endpoints,
@@ -102,6 +108,7 @@ export const GET: RequestHandler = async (event) => {
             state: stateClaims.state,
         });
 
+        stage = "profile_failed";
         profile = await provider.preset.fetchProfile(tokens, {
             config: provider.config,
             clientId: provider.clientId,
@@ -109,18 +116,18 @@ export const GET: RequestHandler = async (event) => {
             resolved: endpoints,
         });
     } catch (e) {
-        // 토큰 교환/프로필 조회 실패는 설정 오류이거나 프로바이더 장애다.
-        // 사용자에게는 일반화된 메시지만 주고 상세는 서버 로그에 남긴다.
-        console.warn(`[oauth] ${slug} 인증 처리 실패:`, (e as Error).message);
+        // 설정 오류이거나 프로바이더 장애다. 상세는 서버 로그에만 남긴다 —
+        // 프로바이더 응답 본문에는 진단 정보가 들어 있어 사용자에게 노출하지 않는다.
+        console.warn(`[oauth] ${slug} ${stage}:`, (e as Error).message);
         await recordAuditEvent(db, {
             tenantId: tenant.id,
             kind: "login",
             outcome: "failure",
             ip: meta.ip,
             userAgent: meta.userAgent,
-            detail: { via: "oauth", provider: slug, reason: "exchange_failed" },
+            detail: { via: "oauth", provider: slug, reason: stage },
         });
-        backToLogin("exchange_failed", redirectTo, skinHint);
+        backToLogin(stage, redirectTo, skinHint);
     }
 
     const providerKey = `oauth:${slug}`;
