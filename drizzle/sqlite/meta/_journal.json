@@ -141,6 +141,13 @@
       "when": 1785994141676,
       "tag": "0019_huge_tyger_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1786678700196,
+      "tag": "0020_tearful_shadowcat",
+      "breakpoints": true
     }
   ]
 }

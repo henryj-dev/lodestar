@@ -141,6 +141,13 @@
       "when": 1785994140904,
       "tag": "0019_perfect_leader",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786678699487,
+      "tag": "0020_fair_edwin_jarvis",
+      "breakpoints": true
     }
   ]
 }
