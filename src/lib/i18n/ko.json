@@ -1078,7 +1078,9 @@
         "err_signup_disabled": "이 방식으로는 새 계정을 만들 수 없습니다. 관리자에게 문의해 주세요.",
         "err_account_disabled": "사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.",
         "err_account_deleting": "탈퇴 예정 계정입니다. 비밀번호 로그인으로 복구해 주세요.",
-        "err_no_email": "제공자에서 이메일을 받지 못해 가입할 수 없습니다."
+        "err_no_email": "제공자에서 이메일을 받지 못해 가입할 수 없습니다.",
+        "err_discovery_failed": "로그인 제공자 설정을 확인할 수 없습니다. 관리자에게 문의해 주세요.",
+        "err_profile_failed": "제공자에서 계정 정보를 받지 못했습니다. 잠시 후 다시 시도해 주세요."
     },
     "social_admin": {
         "title": "소셜 로그인 제공자",

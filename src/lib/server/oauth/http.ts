@@ -40,16 +40,32 @@ async function guardedFetch(url: string, init: RequestInit): Promise<Response> {
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), OUTBOUND_TIMEOUT_MS);
+    let res: Response;
     try {
-        return await fetch(url, {
+        res = await fetch(url, {
             ...init,
             signal: controller.signal,
-            redirect: "error",
+            // redirect: "manual" — 리다이렉트를 따라가지 않는다. 검증을 통과한 호스트가
+            // 3xx 로 내부 주소를 가리키는 SSRF 우회를 막고, client_secret 이 실린 요청이
+            // 다른 호스트로 재전송되는 것도 막는다.
+            //
+            // "error" 를 쓰면 안 된다 — Cloudflare Workers 는 "follow"/"manual" 만 지원하고
+            // "error" 는 fetch 호출 시점에 TypeError 를 던진다(edge 에서는 구현되지 않는다).
+            // Node/undici 는 "error" 를 받아주기 때문에 로컬·테스트만으로는 드러나지 않는다.
+            // `skin/resolver.ts` 도 같은 이유로 "manual" + 3xx 거부를 쓴다.
+            redirect: "manual",
             headers: { "user-agent": USER_AGENT, ...(init.headers ?? {}) },
         });
     } finally {
         clearTimeout(timer);
     }
+
+    // "manual" 은 3xx 를 그대로 돌려주므로 여기서 명시적으로 끊는다.
+    if (res.status >= 300 && res.status < 400) {
+        throw new Error(`${parsed.host} 가 리다이렉트(${res.status})로 응답했습니다 — 엔드포인트 설정을 확인하세요.`);
+    }
+
+    return res;
 }
 
 /** 상한을 넘지 않게 본문을 읽는다. */

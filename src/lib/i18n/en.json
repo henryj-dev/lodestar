@@ -1078,7 +1078,9 @@
         "err_signup_disabled": "New accounts cannot be created with this method. Please contact an administrator.",
         "err_account_disabled": "This account is unavailable. Please contact an administrator.",
         "err_account_deleting": "This account is scheduled for deletion. Recover it by signing in with your password.",
-        "err_no_email": "The provider did not supply an email, so sign-up cannot continue."
+        "err_no_email": "The provider did not supply an email, so sign-up cannot continue.",
+        "err_discovery_failed": "Could not resolve the provider configuration. Please contact an administrator.",
+        "err_profile_failed": "Could not retrieve your account details from the provider. Please try again shortly."
     },
     "social_admin": {
         "title": "Social login providers",
