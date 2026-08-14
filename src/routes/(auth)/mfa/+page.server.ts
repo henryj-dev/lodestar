@@ -239,13 +239,17 @@ export const actions: Actions = {
         // MFA 통과 — 세션 생성
         event.cookies.delete(MFA_PENDING_COOKIE, { path: "/" });
 
+        // 1차 인증 수단은 pending 토큰이 실어온 값을 쓴다. 로컬 로그인은 pwd, 소셜
+        // 연합 로그인은 fed — 하드코딩하면 비밀번호를 쓴 적 없는 사용자에게 pwd 가 붙는다.
+        const amr = [claims.firstFactor ?? AMR_PASSWORD, amrMethod];
+
         const { sessionToken, expiresAt } = await createSessionRecord(db, {
             tenantId: claims.tenantId,
             userId: user.id,
             ip: requestMetadata.ip,
             userAgent: requestMetadata.userAgent,
-            amr: [AMR_PASSWORD, amrMethod],
-            acr: amrToAcr([AMR_PASSWORD, amrMethod]),
+            amr,
+            acr: amrToAcr(amr),
         });
 
         setSessionCookie(event.cookies, event.url, sessionToken, expiresAt);
@@ -271,7 +275,7 @@ export const actions: Actions = {
             outcome: "success",
             ip: requestMetadata.ip,
             userAgent: requestMetadata.userAgent,
-            detail: { amr: [AMR_PASSWORD, amrMethod], method: useBackup ? "backup_code" : "totp", trustedDevice: rememberDevice },
+            detail: { amr, method: useBackup ? "backup_code" : "totp", trustedDevice: rememberDevice },
         });
 
         const dest = claims.redirectTo;

@@ -15,6 +15,7 @@ const menuItems = [
     { route: "/admin/signing-keys" as const, key: "admin.signing_keys" },
     { route: "/admin/service-tokens" as const, key: "admin.service_tokens" },
     { route: "/admin/ldap-providers" as const, key: "admin.ldap_providers" },
+    { route: "/admin/social-providers" as const, key: "admin.social_providers" },
     { route: "/admin/skins" as const, key: "admin.skins" },
     { route: "/admin/audit" as const, key: "admin.audit" },
 ];

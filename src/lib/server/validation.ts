@@ -136,6 +136,37 @@ export function validateSamlUrl(value: string, label: string): ValidationResult 
 }
 
 /**
+ * upstream OAuth2/OIDC 엔드포인트 URL 검증. admin 이 입력한 값을 서버가 fetch 하므로
+ * SSRF 표면이 된다. https 강제 + 금지 호스트 차단이 기본이고, 자체 호스팅 OIDC 를
+ * 로컬에서 붙여보는 개발 시나리오를 위해 loopback 에 한해 http 를 허용한다
+ * (`validateSamlUrl` 과 동일한 정책).
+ *
+ * 이 검사는 저장 시점 방어선이다. fetch 직전에는 `assertResolvedHostAllowed` 로
+ * DNS 리바인딩까지 한 번 더 막는다.
+ */
+export function validateOAuthUrl(value: string, label: string): ValidationResult {
+    if (!value) return { ok: true };
+    let parsed: URL;
+    try {
+        parsed = new URL(value);
+    } catch {
+        return { ok: false, reason: { key: "saml_url_invalid_format", params: { label } } };
+    }
+    const scheme = parsed.protocol.replace(/:$/, "").toLowerCase();
+    if (scheme === "http") {
+        if (isLoopbackHost(parsed.hostname)) return { ok: true };
+        return { ok: false, reason: { key: "saml_url_http_loopback_only", params: { label } } };
+    }
+    if (scheme !== "https") {
+        return { ok: false, reason: { key: "webhook_url_https_only", params: { label } } };
+    }
+    if (isForbiddenWebhookHost(parsed.hostname)) {
+        return { ok: false, reason: { key: "webhook_url_ssrf_host_forbidden", params: { label } } };
+    }
+    return { ok: true };
+}
+
+/**
  * LDAP 호스트가 메타데이터 / link-local 등 명백한 SSRF 표적인지 검사.
  * RFC1918 사설망은 사내 LDAP 정상 사용처가 많아 차단하지 않는다.
  */

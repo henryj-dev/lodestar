@@ -8,6 +8,8 @@
  * payload JSON: { uid, tid, redir, exp }
  */
 
+import { AMR_PASSWORD } from "./constants";
+
 export const MFA_PENDING_COOKIE = "idp_mfa_pending";
 const MFA_PENDING_TTL_MS = 5 * 60 * 1000; // 5분
 
@@ -21,6 +23,13 @@ export interface MfaPendingClaims {
      * admin 로그인 / SAML ForceAuthn / OIDC prompt=login·max_age 초과 / ACR step-up 이 해당한다.
      */
     forced: boolean;
+    /**
+     * MFA 단계 **이전에** 실제로 통과한 1차 인증 수단의 AMR 값.
+     * 로컬 로그인은 `pwd`, 소셜 연합 로그인은 `fed` 다. MFA 완료 후 세션 amr 을
+     * 조립할 때 쓰이며, 하드코딩하면 비밀번호를 제시한 적 없는 사용자에게 `pwd` 가
+     * 붙어 downstream RP 에 거짓 정보가 나간다.
+     */
+    firstFactor?: string;
 }
 
 interface MfaPendingPayload {
@@ -29,6 +38,8 @@ interface MfaPendingPayload {
     redir: string | null;
     ip: string | null;
     frc: boolean;
+    /** 1차 인증 수단. 구버전 토큰에는 없으며 그 경우 `pwd` 로 간주한다. */
+    ff?: string;
     exp: number;
 }
 
@@ -63,6 +74,7 @@ export async function createMfaPendingToken(claims: MfaPendingClaims, signingKey
         redir: claims.redirectTo,
         ip: claims.ip,
         frc: claims.forced,
+        ff: claims.firstFactor,
         exp: Date.now() + MFA_PENDING_TTL_MS,
     };
     const data = b64uEncode(enc.encode(JSON.stringify(payload)));
@@ -96,6 +108,8 @@ export async function verifyMfaPendingToken(token: string, signingKeySecret: str
             // 기본값을 false 로 두면 구토큰이 신뢰 기기 등록/적용을 허용해 forceAuthn 을
             // 우회할 수 있으므로, 불확실할 때는 보수적으로 재인증을 요구하는 쪽을 택한다.
             forced: payload.frc ?? true,
+            // ff 가 없는 구버전 토큰은 로컬 로그인에서만 발급됐으므로 pwd 가 맞다.
+            firstFactor: payload.ff ?? AMR_PASSWORD,
         };
     } catch {
         return null;

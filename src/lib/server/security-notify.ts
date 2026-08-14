@@ -15,6 +15,9 @@ export type SecurityEventKind =
     | "backup_codes_depleted"
     | "passkey_added"
     | "passkey_removed"
+    // 소셜 계정 연결 해제 — 패스키 제거와 마찬가지로 로그인 수단이 하나 사라지는 변경이라
+    // 계정 탈취 정황일 수 있어 본인에게 알린다.
+    | "social_identity_unlinked"
     | "account_deletion_requested"
     | "email_change_requested"
     | "session_revoked"

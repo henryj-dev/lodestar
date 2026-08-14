@@ -18,6 +18,7 @@ import type { LdapProviderConfig } from "$lib/server/ldap/types";
 import { decryptSecret, encryptSecret, tryWithSecrets } from "$lib/server/crypto/keys";
 import { resolveSkinHtml, replacePlaceholders, escapeHtml } from "$lib/server/skin/resolver";
 import { sanitizeRedirectTarget } from "$lib/server/auth/redirect";
+import { listEnabledProviderButtons, renderSocialButtonsHtml } from "$lib/server/oauth/provider-store";
 import { translate } from "$lib/i18n/server";
 
 // S2(계정 단위 잠금): IP 무관하게 동일 계정에 대한 연속 실패를 제한한다. 임계값은 보수적으로
@@ -37,6 +38,7 @@ async function resolveSkinForAction(event: Parameters<Actions["default"]>[0], fl
     if ((clientType !== "oidc" && clientType !== "saml") || !clientRefId) return null;
     const raw = await resolveSkinHtml(event.locals.db, event.platform, event.locals.tenant.id, clientType, clientRefId, "login");
     if (!raw) return null;
+    const socialButtons = renderSocialButtonsHtml(await listEnabledProviderButtons(event.locals.db, event.locals.tenant.id), { redirectTo, skinHint });
     return replacePlaceholders(raw, {
         IDP_FORM_ACTION: "",
         IDP_REDIRECT_TO: escapeHtml(redirectTo ?? ""),
@@ -44,6 +46,7 @@ async function resolveSkinForAction(event: Parameters<Actions["default"]>[0], fl
         IDP_REGISTERED: "",
         IDP_PASSWORD_RESET: "",
         IDP_FLASH_MSG: escapeHtml(flashMsg),
+        IDP_SOCIAL_BUTTONS: socialButtons,
     });
 }
 
@@ -68,6 +71,7 @@ export const load: PageServerLoad = async ({ locals, url, platform }) => {
                 if (raw) {
                     const registered = url.searchParams.get("registered") === "1";
                     const passwordReset = url.searchParams.get("passwordReset") === "1";
+                    const socialButtons = renderSocialButtonsHtml(await listEnabledProviderButtons(locals.db, locals.tenant.id), { redirectTo, skinHint });
                     skinHtml = replacePlaceholders(raw, {
                         IDP_FORM_ACTION: "",
                         IDP_REDIRECT_TO: escapeHtml(redirectTo ?? ""),
@@ -75,11 +79,16 @@ export const load: PageServerLoad = async ({ locals, url, platform }) => {
                         IDP_REGISTERED: registered ? "1" : "",
                         IDP_PASSWORD_RESET: passwordReset ? "1" : "",
                         IDP_FLASH_MSG: "",
+                        IDP_SOCIAL_BUTTONS: socialButtons,
                     });
                 }
             }
         }
     }
+
+    // 활성화된 소셜 로그인 버튼. 설정이 깨진 행은 조용히 제외되므로 로그인 페이지 자체는
+    // 항상 렌더된다.
+    const socialProviders = locals.db && locals.tenant ? await listEnabledProviderButtons(locals.db, locals.tenant.id) : [];
 
     return {
         redirectTo,
@@ -92,6 +101,9 @@ export const load: PageServerLoad = async ({ locals, url, platform }) => {
         deletionRequested: url.searchParams.get("deletionRequested") === "1",
         // OIDC login_hint 전달 시 아이디 입력란 프리필용.
         loginHint: url.searchParams.get("loginHint")?.trim() || null,
+        socialProviders,
+        // 소셜 콜백이 실패를 알리며 되돌려보낸 사유(i18n 키 suffix).
+        socialError: url.searchParams.get("socialError"),
     };
 };
 

@@ -160,7 +160,8 @@ export const identities = mysqlTable(
 );
 
 /**
- * MVP 에선 빈 테이블. federation 활성 시 테넌트별 IdP 설정을 행으로 추가.
+ * 테넌트별 upstream IdP 설정. `kind='ldap'` 은 로그인 액션에서 인라인 bind 로 쓰이고,
+ * `kind='oauth2'|'oidc'` 는 소셜 로그인(네이버/카카오/깃허브/Microsoft 등) 리다이렉트 플로우에 쓰인다.
  */
 export const identityProviders = mysqlTable(
     "identity_providers",
@@ -173,6 +174,10 @@ export const identityProviders = mysqlTable(
             .references(() => tenants.id, { onDelete: "cascade" }),
         kind: varchar("kind", { length: 64, enum: ["oidc", "saml", "oauth2", "ldap"] }).notNull(),
         name: varchar("name", { length: 255 }).notNull(),
+        // 소셜 로그인 콜백 URL(/auth/oauth/{slug}/callback)에 쓰이는 안정적 식별자.
+        // UUID(id)를 URL 에 쓰면 환경마다 Redirect URI 가 달라져 프로바이더 콘솔 등록이 깨진다.
+        // LDAP 행은 콜백이 없으므로 NULL (NULL 다중 허용 → unique 검사에서 제외).
+        slug: varchar("slug", { length: 64 }),
         clientId: text("client_id"),
         clientSecretEnc: text("client_secret_enc"),
         discoveryUrl: text("discovery_url"),
@@ -187,7 +192,7 @@ export const identityProviders = mysqlTable(
             .notNull()
             .default(sql`(CURRENT_TIMESTAMP(3))`),
     },
-    (t) => [index("idp_tenant_idx").on(t.tenantId), uniqueIndex("idp_tenant_name_uidx").on(t.tenantId, t.name)],
+    (t) => [index("idp_tenant_idx").on(t.tenantId), uniqueIndex("idp_tenant_name_uidx").on(t.tenantId, t.name), uniqueIndex("idp_tenant_slug_uidx").on(t.tenantId, t.slug)],
 );
 
 // ---------- Session ----------

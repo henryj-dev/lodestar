@@ -72,6 +72,16 @@ const initials = $derived((data.viewer.displayName ?? data.viewer.username ?? da
                 </div>
             </a>
 
+            <a href={resolve("/account/connections")} class="group rounded-2xl border border-gray-200 bg-white p-6 transition hover:border-blue-400 hover:shadow-sm">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h2 class="text-base font-semibold text-gray-900">연결된 계정</h2>
+                        <p class="mt-1 text-sm text-gray-500">네이버·카카오·GitHub 등 외부 계정 연결 관리</p>
+                    </div>
+                    <span class="text-gray-300 group-hover:text-blue-500">→</span>
+                </div>
+            </a>
+
             {#if data.viewer.role === "admin"}
                 <a href={resolve("/admin")} class="group rounded-2xl border border-gray-900 bg-gray-900 p-6 text-white transition hover:bg-gray-800">
                     <div class="flex items-start justify-between">

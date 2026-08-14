@@ -14,6 +14,12 @@ export const AMR_PASSWORD = "pwd";
 export const AMR_TOTP = "totp";
 export const AMR_BACKUP_CODE = "swk"; // software key (RFC 8176 유사)
 export const AMR_WEBAUTHN = "hwk"; // hardware key (RFC 8176)
+/**
+ * 외부 IdP 연합(소셜 로그인)으로 1차 인증했음을 뜻한다. RFC 8176 에 등재된 값은
+ * 아니지만 "federated" 의 관용 표기로 널리 쓰인다. 사용자가 KeyStone 에 비밀번호를
+ * 제시한 적이 없으므로 `pwd` 로 표기하면 downstream RP 에 거짓 정보가 나간다.
+ */
+export const AMR_FEDERATED = "fed";
 
 // WebAuthn credential 타입
 export const WEBAUTHN_CREDENTIAL_TYPE = "webauthn";
@@ -22,9 +28,19 @@ export const WEBAUTHN_CREDENTIAL_TYPE = "webauthn";
 export const ACR_PASSWORD_TRANSPORT = "urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport";
 export const ACR_MFA = "https://refeds.org/profile/mfa";
 
+/**
+ * 지식/연합 기반 1차 인증 수단. 이 중 하나 + 2차 수단이면 MFA 로 인정한다.
+ * 연합(`fed`)이 여기 포함되는 이유: 소셜 로그인 후 TOTP 를 추가로 통과했다면
+ * 실제로 서로 다른 두 요소를 거친 것이므로 `pwd + totp` 와 동등하게 봐야 한다.
+ */
+const FIRST_FACTORS = [AMR_PASSWORD, AMR_FEDERATED];
+const SECOND_FACTORS = [AMR_TOTP, AMR_BACKUP_CODE];
+
 /** AMR 배열로부터 ACR 을 결정한다. */
 export function amrToAcr(amr: string[]): string {
-    if (amr.includes(AMR_WEBAUTHN) || (amr.includes(AMR_PASSWORD) && (amr.includes(AMR_TOTP) || amr.includes(AMR_BACKUP_CODE)))) {
+    // 패스키(WebAuthn)는 단독으로 다요소를 만족한다(소유 + 사용자 인증).
+    if (amr.includes(AMR_WEBAUTHN)) return ACR_MFA;
+    if (amr.some((m) => FIRST_FACTORS.includes(m)) && amr.some((m) => SECOND_FACTORS.includes(m))) {
         return ACR_MFA;
     }
     return ACR_PASSWORD_TRANSPORT;

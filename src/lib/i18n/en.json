@@ -184,8 +184,15 @@
             "ldap_metadata_host_forbidden": "Cloud metadata hosts are not allowed.",
             "ldap_linklocal_forbidden": "link-local (169.254/16) addresses are not allowed.",
             "ldap_port_invalid": "The port number is invalid.",
-            "ldap_port_not_allowed": "This LDAP port is not allowed (allowed: {{allowed}})."
-        }
+            "ldap_port_not_allowed": "This LDAP port is not allowed (allowed: {{allowed}}).",
+            "social_slug_invalid": "The identifier must be 3-32 lowercase letters, digits, or hyphens, and cannot start or end with a hyphen.",
+            "social_slug_taken": "That identifier is already in use.",
+            "social_provider_type_invalid": "Unknown provider type.",
+            "social_client_id_required": "Please enter a Client ID.",
+            "social_client_secret_required": "Please enter a Client Secret.",
+            "social_signing_key_secret_required": "IDP_SIGNING_KEY_SECRET is not configured, so the Client Secret cannot be encrypted."
+        },
+        "social_providers": "Social Login"
     },
     "admin_login": {
         "subtitle": "Admin sign-in",
@@ -760,7 +767,24 @@
         "err_password_breached": "This password appears in a known data breach and cannot be used. Please choose a different one.",
         "submit": "Sign up",
         "have_account": "Already have an account?",
-        "not_available": "Currently, accounts can only be created by an administrator."
+        "not_available": "Currently, accounts can only be created by an administrator.",
+        "err_missing_fields": "Please fill in all required fields.",
+        "err_invalid_username": "Username must be 3-32 characters of lowercase letters, digits, or _.",
+        "err_invalid_email": "Please enter a valid email address.",
+        "err_password_short": "Password must be at least 8 characters.",
+        "err_password_mismatch": "Passwords do not match.",
+        "err_username_taken": "That username is already taken.",
+        "err_email_taken": "That email is already in use.",
+        "err_rate_limit": "Too many sign-up attempts. Please try again in {{minutes}} minutes.",
+        "federated_subtitle": "Finish creating your KeyStone account with {{provider}}.",
+        "federated_notice": "{{provider}} sign-in verified. No linked account exists yet, so let's finish signing up first.",
+        "federated_email_locked": "This email was verified by {{provider}} and cannot be changed.",
+        "federated_email_verify_notice": "A verification email will be sent to this address after sign-up.",
+        "federated_password_optional": "(optional)",
+        "federated_password_hint": "Leave blank to sign in with {{provider}} only. You can add one later in account settings.",
+        "federated_submit": "Sign up and continue",
+        "err_federated_email_taken": "An account with this email already exists. Sign in with your existing method, then link it in account settings.",
+        "err_federated_conflict": "A conflict occurred while signing up. Please sign in again."
     },
     "find_id": {
         "title": "Find Username",
@@ -933,6 +957,11 @@
             "subject": "[Security Alert] All other sessions were signed out",
             "heading": "All other sessions were signed out",
             "body": "All active sessions on your account except the current one were just signed out (revoked)."
+        },
+        "social_identity_unlinked": {
+            "subject": "[KeyStone] A social account was disconnected",
+            "heading": "Social account disconnected",
+            "body": "A social sign-in connection was removed from your account. If this wasn't you, change your password immediately and contact an administrator."
         }
     },
     "skins": {
@@ -1033,5 +1062,72 @@
         },
         "default_authenticator_label": "TOTP authenticator (dispatcher)",
         "default_backup_code_label": "Backup code (dispatcher)"
+    },
+    "social": {
+        "divider": "or",
+        "continue_with": "Continue with {{provider}}",
+        "err_generic": "Social sign-in failed. Please try again.",
+        "err_state_expired": "The sign-in request expired. Please try again.",
+        "err_state_mismatch": "The sign-in request could not be verified. Please start over.",
+        "err_provider_denied": "Sign-in was cancelled at the provider.",
+        "err_missing_code": "The provider response was invalid. Please try again.",
+        "err_provider_unavailable": "This sign-in method is currently unavailable. Please contact an administrator.",
+        "err_exchange_failed": "Could not reach the provider. Please try again shortly.",
+        "err_link_required": "An account with this email already exists. Sign in with your existing method, then link it in account settings.",
+        "err_link_expired": "Your sign-up details expired. Please sign in again.",
+        "err_signup_disabled": "New accounts cannot be created with this method. Please contact an administrator.",
+        "err_account_disabled": "This account is unavailable. Please contact an administrator.",
+        "err_account_deleting": "This account is scheduled for deletion. Recover it by signing in with your password.",
+        "err_no_email": "The provider did not supply an email, so sign-up cannot continue."
+    },
+    "social_admin": {
+        "title": "Social login providers",
+        "subtitle": "Let users sign in with external accounts such as Naver, Kakao, GitHub, or Microsoft.",
+        "add": "Add provider",
+        "empty": "No social login providers configured yet.",
+        "provider_type": "Provider type",
+        "name": "Display name",
+        "slug": "Identifier (slug)",
+        "slug_hint": "Used verbatim in the callback URL. Changing it later means updating the Redirect URI in the provider console too.",
+        "scopes": "Scopes",
+        "scopes_hint": "Separate with spaces or commas. Leave blank to use the defaults.",
+        "scopes_none": "(no defaults)",
+        "kakao_email_hint": "Kakao's account_email scope requires business app review. Adding it before approval makes sign-in fail.",
+        "directory_tenant": "Directory tenant",
+        "directory_tenant_hint": "common / organizations / consumers, or a directory GUID. Defaults to common.",
+        "provisioning_mode": "When no account exists",
+        "provisioning_mode_hint": "Decides what happens to users with no matching KeyStone account.",
+        "mode_signup_form": "Send to sign-up form (recommended)",
+        "mode_jit": "Create the account automatically",
+        "mode_deny": "Block sign-up",
+        "auto_link": "Auto-link to an existing account when the email is verified",
+        "auto_link_warning": "This grants access to an existing account based on the provider's email claim alone. Only enable it for providers whose email verification you trust.",
+        "enable": "Enabled",
+        "enabled": "Active",
+        "disabled": "Inactive",
+        "secret_keep": "Leave blank to keep the current secret",
+        "secret_unset": "Not set",
+        "redirect_uri_notice": "Register this exact Redirect URI in the provider console.",
+        "signing_key_warning": "IDP_SIGNING_KEY_SECRET is not configured, so client secrets cannot be encrypted. Set the environment variable first."
+    },
+    "connections": {
+        "title": "Connected accounts",
+        "subtitle": "Link or unlink external accounts you can sign in with.",
+        "linked_heading": "Connected",
+        "available_heading": "Available to connect",
+        "none_linked": "No external accounts connected.",
+        "no_email": "No email",
+        "linked_at": "Linked {{date}}",
+        "link": "Connect",
+        "unlink": "Disconnect",
+        "unlinked": "The connection was removed.",
+        "linked_success": "Account connected.",
+        "managed_by_admin": "Managed by an administrator",
+        "err_csrf": "Could not verify the request. Refresh the page and try again.",
+        "err_invalid_request": "Invalid request.",
+        "err_not_found": "That connection was not found.",
+        "err_not_unlinkable": "Only an administrator can remove this connection.",
+        "err_last_method": "You cannot remove your last sign-in method. Add a password or passkey first.",
+        "err_already_linked_elsewhere": "That external account is already connected to a different KeyStone account."
     }
 }
