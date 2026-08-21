@@ -11,7 +11,7 @@ concurrency:
 jobs:
     check-changes:
         name: Check Changed Files
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, runner-01]
         outputs:
             build-affected: ${{ steps.filter.outputs.build-affected }}
         steps:
@@ -43,7 +43,7 @@ jobs:
 
     ci:
         name: Lint, Type Check & Build
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, runner-01]
         needs: check-changes
         if: needs.check-changes.outputs.build-affected == 'true'
 
@@ -95,7 +95,7 @@ jobs:
 
     required:
         name: CI Required
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, runner-01]
         needs: [check-changes, ci]
         if: always()
         steps:

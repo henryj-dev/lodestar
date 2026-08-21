@@ -13,7 +13,7 @@ concurrency:
 jobs:
     gitleaks:
         name: Gitleaks
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, runner-01]
         permissions:
             contents: read
         steps:

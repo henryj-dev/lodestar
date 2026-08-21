@@ -17,7 +17,7 @@ env:
 jobs:
     check-changes:
         name: Check Changed Files
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, runner-01]
         outputs:
             build-affected: ${{ steps.filter.outputs.build-affected }}
         steps:
@@ -47,7 +47,7 @@ jobs:
 
     deploy:
         name: Deploy to Cloudflare
-        runs-on: ubuntu-latest
+        runs-on: [self-hosted, runner-01]
         needs: check-changes
         if: needs.check-changes.outputs.build-affected == 'true' || github.event_name == 'workflow_dispatch'
         steps:
