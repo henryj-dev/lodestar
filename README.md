@@ -201,8 +201,8 @@ SAML 도 같은 값을 내보냅니다 — Assertion 의 **`Entitlements` 속성
 ### 설치 및 셋업
 
 ```bash
-git clone https://github.com/mack-erel/KeyStone.git
-cd KeyStone
+git clone https://github.com/henryj-dev/lodestar.git
+cd lodestar
 bun install
 bun run setup
 ```
