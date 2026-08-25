@@ -16,28 +16,7 @@ import { and, eq, gt, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
 import { oidcClientSessions, oidcClients, oidcGrants, oidcRefreshTokens, userServiceAssignments } from "$lib/server/db/schema";
 import { signJwt } from "$lib/server/crypto/keys";
-import { isForbiddenWebhookHost, assertResolvedHostAllowed } from "$lib/server/validation";
-
-/**
- * ctrls M-1(SSRF): IdP 가 서버측에서 직접 fetch 하는 아웃바운드 웹훅(backchannel logout,
- * role-change) URL 이 https 이고 내부/loopback/메타데이터 호스트가 아닌지 fetch 직전에
- * 재검증한다. 등록 시 검증을 우회했거나 이전에 저장된 행을 방어하는 최종 게이트.
- * 위반 시 throw — 호출자는 개별 콜백 오류를 swallow 하므로 해당 타깃만 스킵된다.
- */
-export function assertPublicWebhookUrl(raw: string): void {
-    let parsed: URL;
-    try {
-        parsed = new URL(raw);
-    } catch {
-        throw new Error(`webhook URL invalid: ${raw}`);
-    }
-    if (parsed.protocol !== "https:") {
-        throw new Error(`webhook URL must be https: ${raw}`);
-    }
-    if (isForbiddenWebhookHost(parsed.hostname)) {
-        throw new Error(`webhook URL host is forbidden (SSRF guard): ${parsed.hostname}`);
-    }
-}
+import { postOidcWebhook, type OidcWebhookQueue } from "$lib/server/oidc/webhook-fetch";
 
 export interface BackchannelTarget {
     clientId: string;
@@ -223,7 +202,15 @@ export async function getOidcFrontchannelTargets(db: DB, tenantId: string, sessi
  * 네트워크 오류는 호출자에서 swallow 하도록 래핑하고, 여기서는 정상 경로에 대한
  * 검증만 수행한다 (비정상 상태 코드도 RP 측 문제이므로 IdP 는 재시도하지 않는다).
  */
-export async function sendOneBackchannelLogout(target: BackchannelTarget, userId: string, idpSessionId: string, issuerUrl: string, privateKey: CryptoKey, kid: string): Promise<void> {
+export async function sendOneBackchannelLogout(
+    target: BackchannelTarget,
+    userId: string,
+    idpSessionId: string,
+    issuerUrl: string,
+    privateKey: CryptoKey,
+    kid: string,
+    queue?: OidcWebhookQueue,
+): Promise<{ status: number; durationMs: number }> {
     const payload: Record<string, unknown> = {
         iss: issuerUrl,
         sub: userId,
@@ -240,14 +227,5 @@ export async function sendOneBackchannelLogout(target: BackchannelTarget, userId
     const jwt = await signJwt(payload, privateKey, kid, { typ: "logout+jwt" });
     const body = new URLSearchParams({ logout_token: jwt });
 
-    // ctrls M-1(SSRF): fetch 직전 재검증(fail-closed).
-    assertPublicWebhookUrl(target.backchannelLogoutUri);
-    // ctrls R7: DNS 리바인딩 완화 — 실호스트 해석 후 내부 IP 면 차단(발행 실패는 상위에서 삼킴).
-    await assertResolvedHostAllowed(new URL(target.backchannelLogoutUri).hostname);
-
-    await fetch(target.backchannelLogoutUri, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-    });
+    return postOidcWebhook(target.backchannelLogoutUri, body.toString(), { queue });
 }

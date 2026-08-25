@@ -65,20 +65,54 @@ export async function forceLogout(event: UserActionEvent) {
     // back-channel logout 발행 — 전송 실패는 삼킨다(로그아웃 자체는 이미 커밋됐다).
     const signingKeySecrets = locals.runtimeConfig.signingKeySecrets;
     if (bcTargets.length > 0 && signingKeySecrets.length > 0) {
-        const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+        const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, tenant.slug);
         const signingKey = await getActiveSigningKey(db, tenant.id, signingKeySecrets);
         if (signingKey) {
-            const promises: Promise<unknown>[] = [];
+            const meta = getRequestMetadata(event);
+            const deliver = async (target: (typeof bcTargets)[number], sessionId: string) => {
+                const detail = {
+                    clientId: target.clientId,
+                    backchannelLogoutUri: target.backchannelLogoutUri,
+                    sessionRequired: target.backchannelLogoutSessionRequired,
+                };
+                try {
+                    const result = await sendOneBackchannelLogout(target, userId, sessionId, issuerUrl, signingKey.privateKey, signingKey.kid, platform?.env?.OIDC_WEBHOOK_QUEUE);
+                    await recordAuditEvent(db, {
+                        tenantId: tenant.id,
+                        userId,
+                        actorId: locals.user!.id,
+                        spOrClientId: target.clientId,
+                        kind: "backchannel_logout_sent",
+                        outcome: "success",
+                        ip: meta.ip,
+                        userAgent: meta.userAgent,
+                        detail: { ...detail, ...result },
+                    });
+                } catch {
+                    await recordAuditEvent(db, {
+                        tenantId: tenant.id,
+                        userId,
+                        actorId: locals.user!.id,
+                        spOrClientId: target.clientId,
+                        kind: "backchannel_logout_sent",
+                        outcome: "failure",
+                        ip: meta.ip,
+                        userAgent: meta.userAgent,
+                        detail,
+                    }).catch(() => undefined);
+                }
+            };
+            const promises: Promise<void>[] = [];
             for (const target of bcTargets) {
                 if (target.backchannelLogoutSessionRequired) {
                     // sid 를 요구하는 클라이언트: 끊은 세션마다 한 건씩. 세션이 없었다면 보낼 sid 가
                     // 없으므로 건너뛴다(주체 단위 토큰을 보내면 그 RP 는 sid 부재로 거부한다).
                     for (const s of liveSessions) {
-                        promises.push(sendOneBackchannelLogout(target, userId, s.idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid).catch(() => undefined));
+                        promises.push(deliver(target, s.idpSessionId));
                     }
                 } else {
                     // 주체 단위 클라이언트: sub 만 실린다 = "이 사용자의 세션 전부".
-                    promises.push(sendOneBackchannelLogout(target, userId, "", issuerUrl, signingKey.privateKey, signingKey.kid).catch(() => undefined));
+                    promises.push(deliver(target, ""));
                 }
             }
             const wait = platform?.ctx?.waitUntil?.bind(platform.ctx);

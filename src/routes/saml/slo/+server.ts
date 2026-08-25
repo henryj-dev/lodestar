@@ -61,8 +61,10 @@ async function fireOidcBackchannelLogout(event: RequestEvent, idpSession: typeof
     const signingKey = await getActiveSigningKey(db, tenant.id, signingKeySecrets);
     if (!signingKey) return;
 
-    const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
-    const bcPromises = bcTargets.map((t) => sendOneBackchannelLogout(t, idpSession.userId, idpSession.idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid).catch(() => undefined));
+    const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
+    const bcPromises = bcTargets.map((t) =>
+        sendOneBackchannelLogout(t, idpSession.userId, idpSession.idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid, event.platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
+    );
     const wait = platform?.ctx?.waitUntil?.bind(platform.ctx);
     if (wait) {
         wait(Promise.all(bcPromises));
@@ -109,7 +111,7 @@ async function redirectToNextSp(event: RequestEvent, stateId: string, remaining:
         throw error(500, translate(locals.locale, "saml.errors.slo_active_signing_key_missing"));
     }
 
-    const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+    const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
     const lrXml = buildSamlLogoutRequest({
         id: requestId,
         issuerUrl,
@@ -243,7 +245,7 @@ export const GET: RequestHandler = async (event) => {
             if (signingKeySecrets.length > 0) {
                 const signingKey = await getActiveSigningKey(db, tenant.id, signingKeySecrets);
                 if (signingKey) {
-                    const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+                    const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
                     const responseXml = buildSamlLogoutResponse({
                         id: `_lr${crypto.randomUUID().replace(/-/g, "")}`,
                         inResponseTo: state.inResponseTo,
@@ -300,7 +302,7 @@ export const GET: RequestHandler = async (event) => {
         }
 
         // Destination 검증: SP 가 명시했으면 IdP 의 SLO endpoint 와 정확히 일치해야 한다.
-        const cfgIssuer = locals.runtimeConfig.issuerUrl ?? resolveIssuerUrl(locals.runtimeConfig, url.origin);
+        const cfgIssuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
         if (parsed.destination) {
             const expectedDestination = `${cfgIssuer.replace(/\/+$/, "")}/saml/slo`;
             if (parsed.destination !== expectedDestination) {
@@ -431,7 +433,7 @@ export const GET: RequestHandler = async (event) => {
             if (!signingKey) {
                 throw redirect(302, "/");
             }
-            const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+            const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
             const responseXml = buildSamlLogoutResponse({
                 id: `_lr${crypto.randomUUID().replace(/-/g, "")}`,
                 inResponseTo: parsed.id,

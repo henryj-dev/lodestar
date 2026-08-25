@@ -116,7 +116,7 @@ export const GET: RequestHandler = async (event) => {
         return new Response(null, { status: 204 });
     }
 
-    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
     // RP-Initiated Logout: id_token_hint 는 만료돼도 유효한 힌트다(OIDC RP-Initiated Logout §2).
     // 만료 외 검증(서명/issuer/sub/aud)은 유지 — 세션 식별 목적이라 만료만 무시.
     const claims = await verifyIdToken(locals.db, locals.tenant.id, idTokenHint, { expectedIssuer: issuer, ignoreExpiry: true });
@@ -179,7 +179,7 @@ async function executeLogout(event: Parameters<RequestHandler>[0], postLogoutRed
         const idpSessionId = locals.session.idpSessionId;
         const userId = locals.user.id;
 
-        const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+        const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
         const signingKeySecrets = locals.runtimeConfig.signingKeySecrets;
 
         const bcTargets = await getOidcBackchannelTargets(db, tenantId, sessionId);
@@ -188,7 +188,9 @@ async function executeLogout(event: Parameters<RequestHandler>[0], postLogoutRed
         if (bcTargets.length > 0 && signingKeySecrets.length > 0) {
             const signingKey = await getActiveSigningKey(db, tenantId, signingKeySecrets);
             if (signingKey) {
-                const bcPromises = bcTargets.map((t) => sendOneBackchannelLogout(t, userId, idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid).catch(() => undefined));
+                const bcPromises = bcTargets.map((t) =>
+                    sendOneBackchannelLogout(t, userId, idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid, platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
+                );
                 const wait = platform?.ctx?.waitUntil?.bind(platform.ctx);
                 if (wait) {
                     wait(Promise.all(bcPromises));
@@ -262,7 +264,7 @@ export const POST: RequestHandler = async (event) => {
         });
     }
 
-    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
     // RP-Initiated Logout: id_token_hint 는 만료돼도 유효한 힌트다(OIDC RP-Initiated Logout §2).
     // 만료 외 검증(서명/issuer/sub/aud)은 유지 — 세션 식별 목적이라 만료만 무시.
     const claims = await verifyIdToken(locals.db, locals.tenant.id, idTokenHint, { expectedIssuer: issuer, ignoreExpiry: true });

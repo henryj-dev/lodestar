@@ -34,8 +34,7 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
 import { oidcClients } from "$lib/server/db/schema";
-import { assertPublicWebhookUrl } from "$lib/server/oidc/logout";
-import { assertResolvedHostAllowed } from "$lib/server/validation";
+import { postOidcWebhook, type OidcWebhookQueue } from "$lib/server/oidc/webhook-fetch";
 import { signJwt } from "$lib/server/crypto/keys";
 
 /**
@@ -84,7 +83,16 @@ export async function getRoleChangeTarget(db: DB, tenantId: string, oidcClientDb
  *              통지의 목적이 "변경 후 최종 상태"를 알리는 것이라, 빈 배열이 곧 "전부 회수됨"이라는
  *              정보다. 키를 빼면 RP 가 "변경 없음"과 구분할 수 없다.
  */
-export async function sendRoleChangeSet(target: RoleChangeTarget, userId: string, roles: string[], entitlements: string[], issuerUrl: string, privateKey: CryptoKey, kid: string): Promise<void> {
+export async function sendRoleChangeSet(
+    target: RoleChangeTarget,
+    userId: string,
+    roles: string[],
+    entitlements: string[],
+    issuerUrl: string,
+    privateKey: CryptoKey,
+    kid: string,
+    queue?: OidcWebhookQueue,
+): Promise<{ status: number; durationMs: number }> {
     const nowMs = Date.now();
     const payload: Record<string, unknown> = {
         iss: issuerUrl,
@@ -102,15 +110,5 @@ export async function sendRoleChangeSet(target: RoleChangeTarget, userId: string
     const jwt = await signJwt(payload, privateKey, kid, { typ: "secevent+jwt" });
     const body = new URLSearchParams({ role_change_token: jwt });
 
-    // ctrls M-1(SSRF): 등록 시 검증을 하더라도, 이전에 저장된 행이나 검증 우회 경로가
-    // 내부 호스트로 서명된 SET 을 흘리지 않도록 fetch 직전 재검증(fail-closed).
-    assertPublicWebhookUrl(target.roleChangeUri);
-    // ctrls R7: DNS 리바인딩 완화 — 실호스트 해석 후 내부 IP 면 차단.
-    await assertResolvedHostAllowed(new URL(target.roleChangeUri).hostname);
-
-    await fetch(target.roleChangeUri, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-    });
+    return postOidcWebhook(target.roleChangeUri, body.toString(), { queue });
 }
