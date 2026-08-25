@@ -22,6 +22,9 @@ export interface RuntimeConfig {
      * 미설정이면 /api/totp/* 라우트 503 반환 (개발 안전).
      */
     dispatcherServiceToken?: string;
+    /** Tenant issuer strategy: shared (legacy), host, or path. */
+    tenantIssuerMode: "shared" | "host" | "path";
+    tenantBaseDomain?: string;
 }
 
 type EnvLookup = Record<string, unknown>;
@@ -50,6 +53,10 @@ export function getRuntimeConfig(platform: App.Platform | undefined): RuntimeCon
         signingKeySecret: signingKeyCurrent,
         signingKeySecrets,
         dispatcherServiceToken: getString("DISPATCHER_SERVICE_TOKEN"),
+        tenantIssuerMode: getString("IDP_TENANT_ISSUER_MODE") === "host" || getString("IDP_TENANT_ISSUER_MODE") === "path" ? (getString("IDP_TENANT_ISSUER_MODE") as "host" | "path") : "shared",
+        tenantBaseDomain: getString("IDP_TENANT_BASE_DOMAIN")
+            ?.toLowerCase()
+            .replace(/^\.+|\.+$/g, ""),
     };
 }
 
@@ -75,8 +82,18 @@ export function getRuntimeConfig(platform: App.Platform | undefined): RuntimeCon
  *   SP 의 strict 검증으로 거부 → self-DoS.
  */
 let warnedMissingIssuer = false;
-export function resolveIssuerUrl(runtimeConfig: RuntimeConfig | undefined, fallbackOrigin: string): string {
-    if (runtimeConfig?.issuerUrl) return runtimeConfig.issuerUrl;
+export function resolveIssuerUrl(runtimeConfig: RuntimeConfig | undefined, fallbackOrigin: string, tenantSlug?: string): string {
+    const baseIssuer = runtimeConfig?.issuerUrl;
+    if (tenantSlug && runtimeConfig?.tenantIssuerMode === "path") {
+        return `${(baseIssuer ?? fallbackOrigin).replace(/\/+$/, "")}/t/${encodeURIComponent(tenantSlug)}`;
+    }
+    if (tenantSlug && runtimeConfig?.tenantIssuerMode === "host") {
+        const base = new URL(baseIssuer ?? fallbackOrigin);
+        const domain = runtimeConfig.tenantBaseDomain ?? base.hostname;
+        if (tenantSlug !== "default") base.hostname = `${tenantSlug}.${domain}`;
+        return base.toString().replace(/\/$/, "");
+    }
+    if (baseIssuer) return baseIssuer;
     if (!dev) {
         // production fail-closed: Host 주입을 신뢰하지 않는다.
         throw error(503, "IDP_ISSUER_URL 이 설정되지 않았습니다. 프로덕션에서는 필수 설정입니다.");

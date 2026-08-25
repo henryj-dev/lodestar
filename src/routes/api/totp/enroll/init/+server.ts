@@ -30,12 +30,16 @@ export const POST: RequestHandler = async (event) => {
 
     // ctrls M-SVC-2: init 응답(200/404/409)이 사용자 존재·enrollment 상태 oracle 이 되지
     // 않도록, 그리고 무한 secret 생성을 막도록 confirm 과 동일하게 사용자당 rate-limit 한다.
-    const rl = await checkRateLimit(rateLimitStore, `totp-enroll-init:${userId}`, { windowMs: 5 * 60 * 1000, limit: 10 });
+    const rl = await checkRateLimit(rateLimitStore, `totp-enroll-init:${tenant.id}:${userId}`, { windowMs: 5 * 60 * 1000, limit: 10 });
     if (!rl.allowed) {
         throw error(429, translate(locals.locale, "totp.errors.enroll_rate_limited"));
     }
 
-    const [u] = await db.select({ id: users.id, username: users.username }).from(users).where(eq(users.id, userId)).limit(1);
+    const [u] = await db
+        .select({ id: users.id, username: users.username })
+        .from(users)
+        .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)))
+        .limit(1);
     if (!u) throw error(404, `user ${userId} not found`);
 
     const [already] = await db
@@ -46,7 +50,7 @@ export const POST: RequestHandler = async (event) => {
     if (already) throw error(409, "TOTP already enrolled for this user");
 
     const secret = generateTotpSecret();
-    const issuer = resolveIssuerUrl(locals.runtimeConfig, new URL(request.url).origin);
+    const issuer = resolveIssuerUrl(locals.runtimeConfig, new URL(request.url).origin, tenant.slug);
     const issuerHost = new URL(issuer).host;
     const username = u.username ?? u.id;
     const otpAuthUri = buildOtpAuthUri(secret, username, issuerHost);

@@ -8,6 +8,9 @@
  */
 
 import { hashPassword, verifyPassword } from "$lib/server/auth/password";
+import { and, eq, isNull, lt } from "drizzle-orm";
+import { credentials } from "$lib/server/db/schema";
+import { DB_DIALECT, type DB } from "$lib/server/db";
 
 // ── Base32 (RFC 4648) ─────────────────────────────────────────────────────────
 
@@ -95,6 +98,46 @@ export async function verifyTotp(code: string, base32Secret: string, lastUsedSte
         if (String(expected).padStart(6, "0") === code) return step;
     }
     return null;
+}
+
+/**
+ * Atomically consumes a successfully verified TOTP step. The counter predicate
+ * makes the verification single-use even when two requests pass verification
+ * concurrently. MySQL has no UPDATE ... RETURNING, so its affectedRows result
+ * is normalized here for all supported dialects.
+ */
+export async function consumeTotpCredential(db: DB, credentialId: string, step: number, now: Date, secret?: string): Promise<boolean> {
+    const values = secret === undefined ? { lastUsedAt: now, usedAt: now, counter: step } : { lastUsedAt: now, usedAt: now, counter: step, secret };
+    const builder = db
+        .update(credentials)
+        .set(values)
+        .where(and(eq(credentials.id, credentialId), lt(credentials.counter, step)));
+
+    if (DB_DIALECT === "mysql") {
+        const result = (await builder) as unknown as [{ affectedRows?: number }];
+        return (result?.[0]?.affectedRows ?? 0) === 1;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = (await (builder as any).returning({ id: credentials.id })) as Array<{ id: string }>;
+    return rows.length === 1;
+}
+
+/** Atomically consumes one backup code, returning false when another request won. */
+export async function consumeBackupCode(db: DB, credentialId: string, now: Date): Promise<boolean> {
+    const builder = db
+        .update(credentials)
+        .set({ usedAt: now })
+        .where(and(eq(credentials.id, credentialId), isNull(credentials.usedAt)));
+
+    if (DB_DIALECT === "mysql") {
+        const result = (await builder) as unknown as [{ affectedRows?: number }];
+        return (result?.[0]?.affectedRows ?? 0) === 1;
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = (await (builder as any).returning({ id: credentials.id })) as Array<{ id: string }>;
+    return rows.length === 1;
 }
 
 // ── TOTP 시크릿 암호화/복호화 ──────────────────────────────────────────────────

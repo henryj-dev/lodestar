@@ -19,6 +19,7 @@ declare global {
                 VPC?: import("$lib/server/db/vpc-socket").VpcNetwork;
                 DB?: D1Database;
                 EMAIL?: SendEmail;
+                OIDC_WEBHOOK_QUEUE?: { send(message: { url: string; body: string }): Promise<unknown> };
             };
             ctx: ExecutionContext;
             caches: CacheStorage;

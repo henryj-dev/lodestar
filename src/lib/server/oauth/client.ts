@@ -57,12 +57,22 @@ export async function resolveEndpoints(preset: ProviderPreset, config: OAuthProv
     if (!authorizationUrl) throw new Error(`${preset.label}: authorization 엔드포인트를 확인할 수 없습니다.`);
     if (!tokenUrl) throw new Error(`${preset.label}: token 엔드포인트를 확인할 수 없습니다.`);
 
+    const jwksUri = doc.jwks_uri;
+    if (jwksUri !== undefined) {
+        try {
+            const parsedJwksUri = new URL(jwksUri);
+            if (parsedJwksUri.protocol !== "https:" && parsedJwksUri.protocol !== "http:") throw new Error("unsupported scheme");
+        } catch {
+            throw new Error("OIDC discovery의 jwks_uri가 절대 URL이 아닙니다.");
+        }
+    }
+
     return {
         issuer: config.issuer ?? doc.issuer,
         authorizationUrl,
         tokenUrl,
         userinfoUrl: config.userinfoUrl ?? doc.userinfo_endpoint ?? preset.userinfoUrl,
-        jwksUri: doc.jwks_uri,
+        jwksUri,
     };
 }
 

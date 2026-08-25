@@ -179,7 +179,7 @@ export const actions: Actions = {
         const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
         // ctrls M-5: step-up 브루트포스 방어 (5분/10회, 사용자 단위)
-        const rl = await checkRateLimit(rateLimitStore, `mfa-stepup:${locals.user.id}`, { windowMs: MFA_STEPUP_WINDOW_MS, limit: MFA_STEPUP_LIMIT });
+        const rl = await checkRateLimit(rateLimitStore, `mfa-stepup:${tenant.id}:${locals.user.id}`, { windowMs: MFA_STEPUP_WINDOW_MS, limit: MFA_STEPUP_LIMIT });
         if (!rl.allowed) {
             return fail(429, { confirm: true, error: `시도가 너무 많습니다. ${Math.ceil(rl.retryAfterMs / 60000)}분 후 다시 시도해 주세요.` });
         }
@@ -267,7 +267,7 @@ export const actions: Actions = {
         const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
         // ctrls M-5: step-up 브루트포스 방어 (5분/10회, 사용자 단위)
-        const rl = await checkRateLimit(rateLimitStore, `mfa-stepup:${locals.user.id}`, { windowMs: MFA_STEPUP_WINDOW_MS, limit: MFA_STEPUP_LIMIT });
+        const rl = await checkRateLimit(rateLimitStore, `mfa-stepup:${tenant.id}:${locals.user.id}`, { windowMs: MFA_STEPUP_WINDOW_MS, limit: MFA_STEPUP_LIMIT });
         if (!rl.allowed) {
             return fail(429, { delete: true, error: `시도가 너무 많습니다. ${Math.ceil(rl.retryAfterMs / 60000)}분 후 다시 시도해 주세요.` });
         }
@@ -336,7 +336,7 @@ export const actions: Actions = {
         const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
         // ctrls M-5: step-up 브루트포스 방어 (5분/10회, 사용자 단위)
-        const rl = await checkRateLimit(rateLimitStore, `mfa-stepup:${locals.user.id}`, { windowMs: MFA_STEPUP_WINDOW_MS, limit: MFA_STEPUP_LIMIT });
+        const rl = await checkRateLimit(rateLimitStore, `mfa-stepup:${tenant.id}:${locals.user.id}`, { windowMs: MFA_STEPUP_WINDOW_MS, limit: MFA_STEPUP_LIMIT });
         if (!rl.allowed) {
             return fail(429, { regenerate: true, error: `시도가 너무 많습니다. ${Math.ceil(rl.retryAfterMs / 60000)}분 후 다시 시도해 주세요.` });
         }

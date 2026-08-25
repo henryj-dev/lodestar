@@ -122,24 +122,65 @@ interface BaselineCache {
     expiresAt: number;
 }
 
-// Workers isolate 레벨 캐시 — 같은 isolate 내 요청들이 공유하여 D1 쿼리를 절감한다.
-const g = globalThis as typeof globalThis & { __idpBaselineCache?: BaselineCache };
+// Workers isolate 레벨 tenant별 캐시 — 멀티테넌트 요청이 서로의 baseline을 재사용하지 않는다.
+const g = globalThis as typeof globalThis & { __idpBaselineCache?: Map<string, BaselineCache> };
 
-export async function ensureAuthBaseline(db: DB, platform: App.Platform | undefined) {
+function runtimeString(platform: App.Platform | undefined, key: string): string | undefined {
+    const platformValue = (platform?.env as Record<string, unknown> | undefined)?.[key];
+    if (typeof platformValue === "string" && platformValue.length > 0) return platformValue;
+    const nodeValue = typeof process !== "undefined" ? process.env[key] : undefined;
+    return nodeValue && nodeValue.length > 0 ? nodeValue : undefined;
+}
+
+/**
+ * Tenant 식별 규칙:
+ * - 명시적 경로: `/t/<slug>/...`
+ * - 서브도메인: `IDP_TENANT_BASE_DOMAIN=example.com`이면 `<slug>.example.com`
+ * 둘이 동시에 주어지면 반드시 같은 slug여야 하며, 불일치 시 fail-closed 한다.
+ */
+export function resolveTenantSlug(url: URL, platform?: App.Platform): string {
+    const pathMatch = /^\/t\/([a-z0-9](?:[a-z0-9-]*[a-z0-9])?)(?:\/|$)/i.exec(url.pathname);
+    const pathSlug = pathMatch?.[1]?.toLowerCase();
+
+    const baseDomain = runtimeString(platform, "IDP_TENANT_BASE_DOMAIN")
+        ?.toLowerCase()
+        .replace(/^\.+|\.+$/g, "");
+    let hostSlug: string | undefined;
+    if (baseDomain && url.hostname.toLowerCase().endsWith(`.${baseDomain}`)) {
+        const prefix = url.hostname.slice(0, -(baseDomain.length + 1));
+        if (prefix && !prefix.includes(".")) hostSlug = prefix.toLowerCase();
+    }
+
+    if (pathSlug && hostSlug && pathSlug !== hostSlug) {
+        throw new Error(`tenant 경로와 호스트의 tenant가 일치하지 않습니다: ${pathSlug} != ${hostSlug}`);
+    }
+    return pathSlug ?? hostSlug ?? DEFAULT_TENANT_SLUG;
+}
+
+export async function ensureAuthBaseline(db: DB, platform: App.Platform | undefined, requestUrl?: URL) {
     const now = Date.now();
+    const tenantSlug = requestUrl ? resolveTenantSlug(requestUrl, platform) : DEFAULT_TENANT_SLUG;
+    const cache = g.__idpBaselineCache ?? (g.__idpBaselineCache = new Map<string, BaselineCache>());
+    const cached = cache.get(tenantSlug);
 
-    if (g.__idpBaselineCache && g.__idpBaselineCache.expiresAt > now) {
-        return g.__idpBaselineCache.tenant;
+    if (cached && cached.expiresAt > now) {
+        return cached.tenant;
     }
 
     const config = getRuntimeConfig(platform);
     // 프로덕션 필수값 검증 — DB 작업 전에 요청 초기에 fail-fast.
     assertRequiredConfig(config);
-    const tenant = await ensureDefaultTenant(db, platform);
+    let [tenant] = await db.select().from(tenants).where(eq(tenants.slug, tenantSlug)).limit(1);
+    if (!tenant && tenantSlug === DEFAULT_TENANT_SLUG) {
+        tenant = await ensureDefaultTenant(db, platform);
+    }
+    if (!tenant || tenant.status !== "active") {
+        throw new Error(`요청한 tenant를 찾을 수 없거나 비활성 상태입니다: ${tenantSlug}`);
+    }
     if (config.signingKeySecrets.length > 0) {
         await ensureSigningKey(db, tenant, config.signingKeySecrets, config.issuerUrl);
     }
 
-    g.__idpBaselineCache = { tenant, expiresAt: now + BASELINE_TTL_MS };
+    cache.set(tenantSlug, { tenant, expiresAt: now + BASELINE_TTL_MS });
     return tenant;
 }

@@ -2,8 +2,7 @@ import { error, json, type RequestHandler } from "@sveltejs/kit";
 import { eq, and } from "drizzle-orm";
 import { requireServiceToken } from "$lib/server/auth/service-token";
 import { requireDbContext } from "$lib/server/auth/guards";
-import { users, tenants } from "$lib/server/db/schema";
-import { DEFAULT_TENANT_SLUG } from "$lib/server/auth/constants";
+import { users } from "$lib/server/db/schema";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 
@@ -19,13 +18,13 @@ const LOOKUP_LIMIT = 120; // IP당 분당 120회
  * 신뢰된 다른 서비스 (예: stardust dispatcher) 가 username/email → users.id (uuid)
  * 매핑이 필요할 때 호출. Bearer service-token 으로 보호.
  *
- * 모든 조회는 tenant 스코프로 강제된다. `tenant` 슬러그 미지정 시 default 테넌트로
- * 폴백하며(username/email 경로와 동일), id 경로도 예외 없이 해당 tenant 소속만 조회한다.
- * 전역 dispatcher service-token 이 임의 테넌트 사용자 레코드를 조회하는 것을 막는다.
+ * 모든 조회는 현재 HTTP 요청 컨텍스트의 tenant 스코프로 강제된다. `tenant` 파라미터는
+ * 하위호환을 위해 받을 수 있지만 현재 tenant slug와 다르면 거부한다. 환경변수 기반
+ * 전역 dispatcher service-token도 이 라우트의 tenant 경계를 우회할 수 없다.
  *
  * Query 파라미터 (셋 중 하나 + 선택적 tenant):
- *   - `?id=<uuid>&tenant=<slug>`    : user id (해당 tenant 소속일 때만)
- *   - `?username=<u>&tenant=<slug>` : tenant 슬러그 생략 시 default
+ *   - `?id=<uuid>&tenant=<slug>`    : user id (현재 tenant 소속일 때만)
+ *   - `?username=<u>&tenant=<slug>` : 현재 tenant slug와 일치해야 함
  *   - `?email=<e>&tenant=<slug>`    : email 매칭 (lowercase 비교)
  *
  * 응답: `{ id, tenantId, username, email, displayName, role, status }`
@@ -34,19 +33,23 @@ const LOOKUP_LIMIT = 120; // IP당 분당 120회
 export const GET: RequestHandler = async (event) => {
     const { url, locals } = event;
     await requireServiceToken(event, "users.lookup");
-    const { db, rateLimitStore } = requireDbContext(locals);
+    const { db, tenant, rateLimitStore } = requireDbContext(locals);
 
     const id = url.searchParams.get("id")?.trim();
     const username = url.searchParams.get("username")?.trim();
     const email = url.searchParams.get("email")?.trim()?.toLowerCase();
-    const tenantSlug = url.searchParams.get("tenant")?.trim() ?? DEFAULT_TENANT_SLUG;
+    const requestedTenantSlug = url.searchParams.get("tenant")?.trim();
 
     if (!id && !username && !email) {
         throw error(400, "one of id / username / email required");
     }
 
-    const [tenant] = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, tenantSlug)).limit(1);
-    if (!tenant) throw error(404, `tenant not found: ${tenantSlug}`);
+    // `DISPATCHER_SERVICE_TOKEN` is intentionally global for backward compatibility, but
+    // it must not turn a caller-controlled query parameter into a tenant selector.
+    // Multi-tenant routing must bind locals.tenant before this route is reached.
+    if (requestedTenantSlug && requestedTenantSlug !== tenant.slug) {
+        throw error(403, "tenant scope mismatch");
+    }
 
     // ctrls M-9: IP당 분당 상한 — 유출된 토큰으로 무제한 열거하는 것을 막고 abuse 를 남긴다.
     const meta = getRequestMetadata(event);

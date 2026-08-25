@@ -7,7 +7,7 @@ import { createSessionRecord, setSessionCookie } from "$lib/server/auth/session"
 import { verifyMfaPendingToken, MFA_PENDING_COOKIE } from "$lib/server/auth/mfa";
 import { createTrustedDevice, setTrustedDeviceCookie } from "$lib/server/auth/trusted-device";
 import { tryWithSecrets, tryWithSecretsNullable } from "$lib/server/crypto/keys";
-import { verifyTotp, decryptTotpSecret, encryptTotpSecret, isLegacyTotpCiphertext, verifyBackupCode } from "$lib/server/auth/totp";
+import { consumeBackupCode, consumeTotpCredential, verifyTotp, decryptTotpSecret, encryptTotpSecret, isLegacyTotpCiphertext, verifyBackupCode } from "$lib/server/auth/totp";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { AMR_PASSWORD, AMR_TOTP, AMR_BACKUP_CODE, amrToAcr, TOTP_CREDENTIAL_TYPE, BACKUP_CODE_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { getRuntimeConfig } from "$lib/server/auth/runtime";
@@ -120,7 +120,7 @@ export const actions: Actions = {
             return fail(503, { error: msg, skinHtml: await resolveMfaSkinForAction(event, msg) });
         }
 
-        const rl = await checkRateLimit(event.locals.rateLimitStore, `mfa:${claims.userId}`, {
+        const rl = await checkRateLimit(event.locals.rateLimitStore, `mfa:${claims.tenantId}:${claims.userId}`, {
             windowMs: 5 * 60 * 1000,
             limit: 10,
         });
@@ -168,10 +168,12 @@ export const actions: Actions = {
                 if (!cred.secret) continue;
                 const match = await verifyBackupCode(code, cred.secret);
                 if (match) {
-                    // 소진 처리
-                    await db.update(credentials).set({ usedAt: new Date() }).where(eq(credentials.id, cred.id));
-                    amrMethod = AMR_BACKUP_CODE;
-                    verified = true;
+                    // 검증과 소진 사이의 경쟁을 막기 위해 조건부 UPDATE 로 원자 소비한다.
+                    const consumed = await consumeBackupCode(db, cred.id, new Date());
+                    if (consumed) {
+                        amrMethod = AMR_BACKUP_CODE;
+                        verified = true;
+                    }
                     break;
                 }
             }
@@ -189,7 +191,6 @@ export const actions: Actions = {
                 const lastUsedStep = totpCred.counter ?? undefined;
                 const matchedStep = await verifyTotp(code, plainSecret, lastUsedStep);
                 if (matchedStep !== null) {
-                    verified = true;
                     // v1 형식이면 v2 로 lazy migration.
                     let nextSecret = totpCred.secret;
                     if (isLegacyTotpCiphertext(totpCred.secret)) {
@@ -199,7 +200,7 @@ export const actions: Actions = {
                             nextSecret = totpCred.secret;
                         }
                     }
-                    await db.update(credentials).set({ lastUsedAt: new Date(), counter: matchedStep, secret: nextSecret }).where(eq(credentials.id, totpCred.id));
+                    verified = await consumeTotpCredential(db, totpCred.id, matchedStep, new Date(), nextSecret);
                 }
             }
         }

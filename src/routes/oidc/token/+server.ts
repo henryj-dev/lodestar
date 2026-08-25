@@ -262,7 +262,7 @@ export const POST: RequestHandler = async (event) => {
         return tokenError("server_error", "IDP_SIGNING_KEY_SECRET 가 설정되지 않았습니다.", 503);
     }
 
-    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
     const body = await request.formData();
 
     const recordTokenFailure = async (clientIdForAudit: string | null, errorCode: string, description: string): Promise<void> => {

@@ -1,8 +1,10 @@
 import { fail, redirect } from "@sveltejs/kit";
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, gt, isNull } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireDbContext } from "$lib/server/auth/guards";
-import { users, passwordResetTokens } from "$lib/server/db/schema";
+import { credentials, users, passwordResetTokens } from "$lib/server/db/schema";
+import { DB_DIALECT, type DB } from "$lib/server/db";
+import { runAtomic } from "$lib/server/db/atomic";
 import { hashPassword, MAX_PASSWORD_LENGTH } from "$lib/server/auth/password";
 import { isBreachCheckEnabled, isPasswordBreached } from "$lib/server/auth/breach-check";
 import { hashToken } from "$lib/server/email";
@@ -108,31 +110,50 @@ export const actions: Actions = {
 
         if (!record || record.expiresAt < now) return failWithSkin(translate(locale, "reset_password.err_expired_link"));
 
+        // Consume the presented token first. This conditional write is the
+        // single-winner gate for concurrent submissions.
+        const consumeBuilder = db
+            .update(passwordResetTokens)
+            .set({ usedAt: now })
+            .where(and(eq(passwordResetTokens.id, record.id), eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt), gt(passwordResetTokens.expiresAt, now)));
+        let consumed: boolean;
+        if (DB_DIALECT === "mysql") {
+            const result = (await consumeBuilder) as unknown as [{ affectedRows?: number }];
+            consumed = (result?.[0]?.affectedRows ?? 0) === 1;
+        } else {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const rows = (await (consumeBuilder as any).returning({ id: passwordResetTokens.id })) as Array<{ id: string }>;
+            consumed = rows.length === 1;
+        }
+        if (!consumed) return failWithSkin(translate(locale, "reset_password.err_expired_link"));
+
         const hashedPw = await hashPassword(password);
 
-        await db.update(users).set({ updatedAt: now }).where(eq(users.id, record.userId));
-
-        // 기존 password credential 업데이트 또는 삽입
-        const { credentials } = await import("$lib/server/db/schema");
+        // Determine the credential branch before runAtomic. D1/SQLite batch
+        // builders are collected synchronously and cannot branch on a query.
         const [existing] = await db
             .select({ id: credentials.id })
             .from(credentials)
             .where(and(eq(credentials.userId, record.userId), eq(credentials.type, "password")))
             .limit(1);
 
-        if (existing) {
-            await db.update(credentials).set({ secret: hashedPw }).where(eq(credentials.id, existing.id));
-        } else {
-            await db.insert(credentials).values({ userId: record.userId, type: "password", secret: hashedPw, label: "비밀번호", createdAt: now });
-        }
+        const updateCredential = (h: Pick<DB, "insert" | "update">) =>
+            existing
+                ? h.update(credentials).set({ secret: hashedPw }).where(eq(credentials.id, existing.id))
+                : h.insert(credentials).values({ userId: record.userId, type: "password", secret: hashedPw, label: "비밀번호", createdAt: now });
 
-        await db.update(passwordResetTokens).set({ usedAt: now }).where(eq(passwordResetTokens.id, record.id));
-
-        // 같은 사용자의 다른 미사용 reset 토큰들도 모두 소진 처리해 재사용을 차단한다.
-        await db
-            .update(passwordResetTokens)
-            .set({ usedAt: now })
-            .where(and(eq(passwordResetTokens.userId, record.userId), isNull(passwordResetTokens.usedAt)));
+        // Password/user metadata and the remaining reset-token invalidation are
+        // atomic. The already-consumed token remains consumed if this batch fails,
+        // which is the safe fail-closed outcome for a reset link.
+        await runAtomic(db, [
+            (h) => h.update(users).set({ updatedAt: now }).where(eq(users.id, record.userId)),
+            updateCredential,
+            (h) =>
+                h
+                    .update(passwordResetTokens)
+                    .set({ usedAt: now })
+                    .where(and(eq(passwordResetTokens.userId, record.userId), isNull(passwordResetTokens.usedAt))),
+        ]);
 
         // 비밀번호가 바뀌었으므로 기존 세션과 OIDC refresh token 을 모두 무효화한다.
         await revokeAllUserSessions(db, record.userId, now);

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { forceLogout } from "../../src/lib/server/admin/user-actions/security";
 import { b64uDecode } from "../../src/lib/server/crypto/keys";
-import { oidcClients } from "../../src/lib/server/db/schema";
+import { auditEvents, oidcClients } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedOidcClient, seedServiceAssignment, seedSession, makeEvent, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant, User } from "../../src/lib/server/db/schema";
 
@@ -86,6 +86,23 @@ describe("관리자 강제 로그아웃 → RP 통지", () => {
         const payload = decodePayload(captured[0].body);
         expect(payload.sub).toBe(target.id);
         expect(payload.aud).toBe("assigned-client");
+
+        const [audit] = await mem.db.select().from(auditEvents).where(eq(auditEvents.kind, "backchannel_logout_sent"));
+        expect(audit).toMatchObject({ outcome: "success", spOrClientId: "assigned-client" });
+        expect(JSON.parse(audit.detailJson!)).toMatchObject({ status: 200, clientId: "assigned-client" });
+    });
+
+    it("웹훅 실패도 back-channel logout 감사 이벤트에 남긴다", async () => {
+        const client = await seedBcClient({ clientId: "failed-client" });
+        await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: target.id, serviceType: "oidc", serviceRefId: client.id });
+        await seedSession(mem.db, { tenantId: tenant.id, userId: target.id });
+        globalThis.fetch = (async () => new Response(null, { status: 503 })) as typeof globalThis.fetch;
+
+        await forceLogout(adminEvent());
+
+        const [audit] = await mem.db.select().from(auditEvents).where(eq(auditEvents.kind, "backchannel_logout_sent"));
+        expect(audit).toMatchObject({ outcome: "failure", spOrClientId: "failed-client" });
+        expect(audit.detailJson).not.toContain("503");
     });
 
     it("grant/refresh 행이 하나도 없어도 도달한다 (단명 행 의존 제거)", async () => {

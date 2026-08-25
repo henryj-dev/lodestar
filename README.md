@@ -260,6 +260,11 @@ wrangler secret put IDP_SIGNING_KEY_SECRET
 | `DATABASE_AUTH_TOKEN`               | 선택 | Turso 등 원격 libSQL 인증 토큰 (`sqlite` + 원격일 때만)                                                                                               |
 | `DISPATCHER_SERVICE_TOKEN`          | 선택 | **전 스코프** service API Bearer 토큰(레거시). 호출자별 토큰은 관리 콘솔 → 서비스 토큰에서 발급하세요. 이 값도 없고 발급된 토큰도 없으면 해당 API 503 |
 | `IDP_DEFAULT_TENANT_NAME`           | 선택 | 기본 테넌트 이름 (기본: `My Organization`)                                                                                                            |
+| `IDP_TENANT_BASE_DOMAIN`            | 선택 | `<tenant-slug>.<base-domain>` 서브도메인 라우팅 기준 도메인. 명시 경로 `/t/<tenant-slug>/...`도 지원                                                  |
+| `IDP_TENANT_ISSUER_MODE`            | 선택 | `shared`(기본)                                                                                                                                        | `host`   | `path` — tenant별 OIDC/SAML issuer 전략 |
+| `RATELIMIT_STORE`                   | 선택 | `auto`(기본)                                                                                                                                          | `memory` | `db`                                    | `redis` — Node 다중 인스턴스는 `db`/`redis` 권장 |
+| `RATELIMIT_REDIS_URL/TOKEN`         | 조건 | `RATELIMIT_STORE=redis`일 때 필요한 Upstash 호환 Redis REST 접속 정보                                                                                 |
+| `APP_INSTANCE_COUNT`                | 선택 | Node 인스턴스 수. memory rate-limit 선택 시 다중 인스턴스 경고에 사용                                                                                 |
 | `IDP_ENFORCE_SP_CERT_VALIDITY`      | 선택 | SAML SP 인증서 유효기간 강제 검증. **기본 on** — `"false"` 로만 완화                                                                                  |
 | `PASSWORD_BREACH_CHECK`             | 선택 | 유출 비밀번호(HIBP k-anonymity) 스크리닝. 기본 off(opt-in), API 오류는 fail-open                                                                      |
 | `SMTP_HOSTNAME` 외 `SMTP_*`         | 선택 | 메일 발송(비밀번호 찾기·초대·이메일 인증·보안 알림). 미설정 시 해당 메일은 skip                                                                       |
@@ -268,6 +273,8 @@ wrangler secret put IDP_SIGNING_KEY_SECRET
 | `CLOUDFLARE_D1_DATABASE_ID`         | 선택 | D1 데이터베이스 ID (마이그레이션 스크립트에서 사용)                                                                                                   |
 | `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | 선택 | 프리뷰용 D1 데이터베이스 ID                                                                                                                           |
 | `CLOUDFLARE_D1_TOKEN`               | 선택 | D1 API 토큰 (`db:migrate` 스크립트에서 사용)                                                                                                          |
+
+LDAP identity/user 테넌트 정합성은 배포 전 `bun run db:check-tenant-consistency`로 일회 점검할 수 있으며, 런타임 GC에서도 주기적으로 구조화 경고를 확인합니다.
 
 > **참고**: 초기 관리자 계정은 `bun run setup` 이 생성합니다. 수동/CI 시드가 필요하면 `IDP_BOOTSTRAP_ADMIN_USERNAME` / `IDP_BOOTSTRAP_ADMIN_EMAIL` / `IDP_BOOTSTRAP_ADMIN_PASSWORD` (+선택 `IDP_BOOTSTRAP_ADMIN_NAME`) 를 설정하고 `bun run db:seed`(방언별: `db:seed:pg` 등)를 실행하세요. 비대화 환경에서는 `SEED_RESET=0|1` 로 초기화 여부를 지정합니다.
 

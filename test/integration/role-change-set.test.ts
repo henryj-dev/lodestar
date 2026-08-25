@@ -213,7 +213,7 @@ describe("role-change SET 발행", () => {
         const res = await addAssignment(makeAdminEvent({ service: `oidc:${clientDbId}`, serviceRoleId: roleId! }));
 
         expect(res).toMatchObject({ addedAssignment: true });
-        expect(captured).toHaveLength(1); // 시도는 했으나 던진다
+        expect(captured).toHaveLength(3); // 일시적 실패는 최대 3회 재시도한다
 
         // 전송 실패는 outcome=failure audit 로 남는다
         const audits = await roleChangeAudits();

@@ -3,7 +3,7 @@ import type { RequestHandler } from "./$types";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 
 export const GET: RequestHandler = async ({ locals, url }) => {
-    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+    const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
 
     return json(
         {

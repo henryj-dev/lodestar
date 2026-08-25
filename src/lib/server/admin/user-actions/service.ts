@@ -50,7 +50,7 @@ export async function emitRoleChangeSet(event: RequestEvent, db: DB, tenantId: s
         const roles = assignment?.role ? [assignment.role.key] : [];
         const entitlements = assignment ? await listActiveEntitlements(db, assignment, tenantId) : [];
 
-        const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+        const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
         const signingKey = await getActiveSigningKey(db, tenantId, signingKeySecrets);
         if (!signingKey) return;
 
@@ -59,8 +59,8 @@ export async function emitRoleChangeSet(event: RequestEvent, db: DB, tenantId: s
         const auditDetail = { clientId: target.clientId, roleChangeUri: target.roleChangeUri, roles, entitlements };
         // 전송 + 결과 audit 를 한 묶음으로 처리한다 — 응답 이후 실행(waitUntil)이므로 여기서 완결한다.
         // 성공/실패를 kind="role_change_set_sent" + outcome 으로 남긴다(발행 실패도 추적 가능).
-        const task = sendRoleChangeSet(target, userId, roles, entitlements, issuerUrl, signingKey.privateKey, signingKey.kid)
-            .then(() =>
+        const task = sendRoleChangeSet(target, userId, roles, entitlements, issuerUrl, signingKey.privateKey, signingKey.kid, platform?.env?.OIDC_WEBHOOK_QUEUE)
+            .then((result) =>
                 recordAuditEvent(db, {
                     tenantId,
                     userId,
@@ -70,7 +70,7 @@ export async function emitRoleChangeSet(event: RequestEvent, db: DB, tenantId: s
                     outcome: "success",
                     ip: meta.ip,
                     userAgent: meta.userAgent,
-                    detail: auditDetail,
+                    detail: { ...auditDetail, ...result },
                 }),
             )
             .catch(() =>

@@ -38,12 +38,16 @@ export const POST: RequestHandler = async (event) => {
     }
 
     // ctrls C3: enrollment 코드 브루트포스 방어 (사용자당 5분 창 10회).
-    const rl = await checkRateLimit(rateLimitStore, `totp-enroll-confirm:${userId}`, { windowMs: 5 * 60 * 1000, limit: 10 });
+    const rl = await checkRateLimit(rateLimitStore, `totp-enroll-confirm:${tenant.id}:${userId}`, { windowMs: 5 * 60 * 1000, limit: 10 });
     if (!rl.allowed) {
         throw error(429, translate(locals.locale, "totp.errors.enroll_rate_limited"));
     }
 
-    const [u] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId)).limit(1);
+    const [u] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)))
+        .limit(1);
     if (!u) throw error(404, `user ${userId} not found`);
 
     const [already] = await db
