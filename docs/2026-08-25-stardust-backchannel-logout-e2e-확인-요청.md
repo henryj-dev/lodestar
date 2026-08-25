@@ -15,14 +15,14 @@ stardust에 전용 실제 IdP 계정 `e2e-test`를 만들고 운영 dashboard에
 
 ## 관측 결과
 
-| 단계 | 결과 |
-|---|---|
-| 실제 IdP 계정 | `e2e-test` 활성 계정 확인 |
-| stardust 로그인 | 성공. dashboard 상단에 `e2e-test@` 표시 |
-| 로그인 후 DB | `session_bindings`에 sid·idp_sub 바인딩 생성 |
-| dashboard 로그아웃 | 성공. IdP 로그인 화면으로 리다이렉트 |
-| 로그아웃 후 DB | 해당 sid의 `session_revocations.revoked_at`는 `NULL` |
-| 전체 판정 | 로컬 로그아웃 성공, back-channel 착지는 미확인·실패 가능성 있음 |
+| 단계               | 결과                                                            |
+| ------------------ | --------------------------------------------------------------- |
+| 실제 IdP 계정      | `e2e-test` 활성 계정 확인                                       |
+| stardust 로그인    | 성공. dashboard 상단에 `e2e-test@` 표시                         |
+| 로그인 후 DB       | `session_bindings`에 sid·idp_sub 바인딩 생성                    |
+| dashboard 로그아웃 | 성공. IdP 로그인 화면으로 리다이렉트                            |
+| 로그아웃 후 DB     | 해당 sid의 `session_revocations.revoked_at`는 `NULL`            |
+| 전체 판정          | 로컬 로그아웃 성공, back-channel 착지는 미확인·실패 가능성 있음 |
 
 비밀번호, 토큰, sid 원문과 같은 민감한 값은 기록하지 않았다.
 
