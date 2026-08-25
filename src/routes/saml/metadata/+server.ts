@@ -1,7 +1,7 @@
 import { error } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { requireDbContext } from "$lib/server/auth/guards";
-import { getRuntimeConfig } from "$lib/server/auth/runtime";
+import { getRuntimeConfig, resolveIssuerUrl } from "$lib/server/auth/runtime";
 import { generateIdpMetadataXml } from "$lib/server/saml/metadata";
 import { findSp } from "$lib/server/saml/sp";
 import { translate } from "$lib/i18n/server";
@@ -19,7 +19,8 @@ export const GET: RequestHandler = async ({ locals, platform, url }) => {
     const spEntityId = url.searchParams.get("sp");
     const sp = spEntityId ? await findSp(db, tenant.id, spEntityId) : null;
 
-    const xml = await generateIdpMetadataXml(db, tenant.id, config.issuerUrl, sp?.wantAuthnRequestsSigned ?? false);
+    const issuer = resolveIssuerUrl(config, url.origin, tenant.slug);
+    const xml = await generateIdpMetadataXml(db, tenant.id, issuer, sp?.wantAuthnRequestsSigned ?? false);
 
     return new Response(xml, {
         headers: {

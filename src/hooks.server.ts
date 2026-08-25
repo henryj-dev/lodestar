@@ -101,7 +101,9 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
 
     // baseline 쿼리가 불필요한 경로 (정적 메타데이터, 헬스체크)
-    const skipBaseline = path.startsWith("/.well-known/") || path === "/api/health" || path === "/favicon.ico" || path === "/robots.txt";
+    // well-known metadata must resolve the tenant too: host/path-scoped OIDC discovery
+    // otherwise falls back to the default tenant and can expose the wrong issuer/JWKS.
+    const skipBaseline = path === "/api/health" || path === "/favicon.ico" || path === "/robots.txt";
 
     // postgres/mysql(Workers) 경로에서 요청당 연 DB 연결을 응답 후 닫기 위한 정리 함수.
     // D1/sqlite/Node 전역 재사용 경로에서는 undefined.
@@ -132,12 +134,12 @@ export const handle: Handle = async ({ event, resolve }) => {
                 ensureNodeGcScheduler();
             }
 
-            event.locals.tenant = skipBaseline ? null : await ensureAuthBaseline(db, event.platform);
+            event.locals.tenant = skipBaseline ? null : await ensureAuthBaseline(db, event.platform, event.url);
 
             const sessionToken = event.cookies.get(SESSION_COOKIE_NAME);
 
             if (sessionToken) {
-                const sessionContext = await getSessionContext(db, sessionToken);
+                const sessionContext = event.locals.tenant ? await getSessionContext(db, sessionToken, event.locals.tenant.id) : null;
 
                 if (sessionContext) {
                     event.locals.session = sessionContext.session;

@@ -153,7 +153,7 @@ export const GET: RequestHandler = async (event) => {
             if (Math.floor(Date.now() / 1000) - authTimeSec > maxAge) reauthRequired = true;
         }
         if (!reauthRequired && idTokenHint) {
-            const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin);
+            const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
             // id_token_hint 는 만료돼 있는 것이 정상이므로 exp 검사는 건너뛰되 서명은 검증한다.
             const hintClaims = await verifyIdToken(db, tenant.id, idTokenHint, { expectedIssuer: issuer, ignoreExpiry: true });
             if (!hintClaims || hintClaims.sub !== locals.user!.id) reauthRequired = true;

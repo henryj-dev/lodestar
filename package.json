@@ -32,6 +32,7 @@
         "db:migrate:preview": "CLOUDFLARE_IS_PREVIEW=true drizzle-kit migrate && bun run db:seed:migrate:preview",
         "db:seed": "bun scripts/seed.ts",
         "db:reset-admin": "bun scripts/reset-admin-password.ts",
+        "db:check-tenant-consistency": "bun scripts/check-tenant-consistency.ts",
         "db:reset-admin:pg": "DB_DIALECT=postgres bun scripts/reset-admin-password.ts",
         "db:reset-admin:mysql": "DB_DIALECT=mysql bun scripts/reset-admin-password.ts",
         "db:reset-admin:sqlite": "DB_DIALECT=sqlite bun scripts/reset-admin-password.ts",

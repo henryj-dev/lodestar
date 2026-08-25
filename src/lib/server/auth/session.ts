@@ -134,14 +134,14 @@ export async function revokeSessionById(db: DB, sessionId: string, userId: strin
     return true;
 }
 
-export async function getSessionContext(db: DB, sessionToken: string) {
+export async function getSessionContext(db: DB, sessionToken: string, tenantId?: string) {
     const now = new Date();
     const tokenHash = await hashSessionToken(sessionToken);
     const [row] = await db
         .select({ session: sessions, user: users })
         .from(sessions)
         .innerJoin(users, eq(sessions.userId, users.id))
-        .where(and(eq(sessions.idpSessionId, tokenHash), gt(sessions.expiresAt, now), isNull(sessions.revokedAt), eq(users.status, "active")))
+        .where(and(eq(sessions.idpSessionId, tokenHash), gt(sessions.expiresAt, now), isNull(sessions.revokedAt), eq(users.status, "active"), tenantId ? eq(sessions.tenantId, tenantId) : undefined))
         .limit(1);
 
     return row ?? null;

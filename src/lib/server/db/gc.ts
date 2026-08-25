@@ -28,6 +28,7 @@ import { purgeExpiredChallenges } from "$lib/server/auth/webauthn";
 import { purgeExpiredRefreshTokens, REFRESH_TOKEN_TTL_MS } from "$lib/server/oidc/refresh";
 import { purgeExpiredRateLimits } from "$lib/server/ratelimit";
 import { SESSION_TTL_MS } from "$lib/server/auth/constants";
+import { checkTenantConsistency } from "$lib/server/ldap/consistency";
 
 // ── 유예(grace) 상수 ─────────────────────────────────────────────────────────────
 
@@ -163,6 +164,11 @@ export async function runExpiredDataGc(db: DB, opts: { isWorkers: boolean }): Pr
     const startedAt = Date.now();
     const now = new Date();
     const tables: GcTableResult[] = [];
+
+    // Non-destructive periodic integrity alert. Disable only for a deliberate migration window.
+    if (typeof process === "undefined" || process.env.IDP_TENANT_CONSISTENCY_CHECK !== "false") {
+        await checkTenantConsistency(db).catch((error) => console.error("[gc] tenant 정합성 점검 실패:", error));
+    }
 
     // 각 정리 단계를 개별 격리 실행. purge 함수(void 반환)는 건수 미상(null).
     const runPurge = async (table: string, fn: () => Promise<void>) => {

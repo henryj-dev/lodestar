@@ -8,8 +8,8 @@
  * 런타임 선택(resolveRateLimitStore):
  *   - Cloudflare Workers: isolate 는 요청 간 상태를 공유하지 못하므로 공유 저장소가 필요 →
  *     DB(rate_limits 테이블) 기반 DbRateLimitStore. 4방언 upsert 분기를 여기 캡슐화한다.
- *   - Node(adapter-node): 프로세스가 장수하므로 프로세스 내 Map 으로 충분 →
- *     MemoryRateLimitStore(전역 싱글턴). 핫패스에서 DB write 를 없앤다.
+ *   - Node(adapter-node): 기본은 MemoryRateLimitStore지만 `RATELIMIT_STORE=db|redis`로
+ *     다중 인스턴스용 공유 DB/Upstash 호환 Redis REST 저장소를 선택할 수 있다.
  */
 
 import { eq, sql } from "drizzle-orm";
@@ -93,6 +93,56 @@ export class DbRateLimitStore implements RateLimitStore {
     }
 }
 
+/** Upstash Redis REST API와 호환되는 최소 응답 형태. */
+interface RedisRestResponse {
+    result?: unknown;
+    error?: string;
+}
+
+const REDIS_INCREMENT_SCRIPT = `
+local current = redis.call('INCR', KEYS[1])
+redis.call('PEXPIRE', KEYS[1], ARGV[1])
+local previous = redis.call('GET', KEYS[2])
+return { current, tonumber(previous) or 0 }
+`;
+
+/**
+ * Upstash 호환 Redis REST 저장소.
+ * EVAL로 현재 버킷 증가와 만료 설정을 한 원자 연산으로 실행한다.
+ * `RATELIMIT_REDIS_URL`과 `RATELIMIT_REDIS_TOKEN`이 필요하다.
+ */
+export class RedisRateLimitStore implements RateLimitStore {
+    constructor(
+        private readonly url: string,
+        private readonly token: string,
+        private readonly fetchImpl: typeof fetch = fetch,
+    ) {}
+
+    private async command(command: unknown[]): Promise<unknown> {
+        const response = await this.fetchImpl(this.url, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" },
+            body: JSON.stringify(command),
+        });
+        const body = (await response.json().catch(() => null)) as RedisRestResponse | null;
+        if (!response.ok || body?.error) throw new Error(`Redis rate-limit command failed (${response.status})`);
+        return body?.result;
+    }
+
+    async increment(key: string, windowMs: number, now?: number): Promise<RateLimitCounts> {
+        const { currentKey, prevKey } = bucketKeys(key, windowMs, now);
+        const result = await this.command(["EVAL", REDIS_INCREMENT_SCRIPT, "2", currentKey, prevKey, String(windowMs * 2)]);
+        if (!Array.isArray(result) || result.length < 2) throw new Error("Redis rate-limit response malformed");
+        return { current: Number(result[0]), prev: Number(result[1]) };
+    }
+
+    async peek(key: string, windowMs: number, now?: number): Promise<RateLimitCounts> {
+        const { currentKey, prevKey } = bucketKeys(key, windowMs, now);
+        const [current, previous] = await Promise.all([this.command(["GET", currentKey]), this.command(["GET", prevKey])]);
+        return { current: Number(current ?? 0), prev: Number(previous ?? 0) };
+    }
+}
+
 interface MemoryBucket {
     count: number;
     /** epoch ms — 이 시각 이후 버킷은 만료로 간주(조회 시 0, 스윕 시 삭제). */
@@ -146,6 +196,7 @@ export class MemoryRateLimitStore implements RateLimitStore {
 // Node 전역 재사용: 프로세스 내 단일 MemoryRateLimitStore 를 공유한다(HMR/다중 import 안전).
 declare global {
     var __keystoneRateLimitMemoryStore: MemoryRateLimitStore | undefined;
+    var __keystoneRateLimitWarningShown: boolean | undefined;
 }
 
 function getMemoryRateLimitStore(): MemoryRateLimitStore {
@@ -160,7 +211,35 @@ function getMemoryRateLimitStore(): MemoryRateLimitStore {
  * - Workers(platform.ctx.waitUntil 존재): 요청당 db 로 DbRateLimitStore(공유 상태).
  * - Node: 프로세스 전역 MemoryRateLimitStore 싱글턴(DB write 없음).
  */
+function runtimeEnv(platform: App.Platform | undefined, key: string): string | undefined {
+    const platformValue = (platform?.env as Record<string, unknown> | undefined)?.[key];
+    if (typeof platformValue === "string" && platformValue.length > 0) return platformValue;
+    const nodeValue = typeof process !== "undefined" ? process.env[key] : undefined;
+    return nodeValue && nodeValue.length > 0 ? nodeValue : undefined;
+}
+
+function warnAboutNodeMemoryRateLimit(instanceCount: string | undefined): void {
+    if (globalThis.__keystoneRateLimitWarningShown) return;
+    globalThis.__keystoneRateLimitWarningShown = true;
+    const suffix = instanceCount && Number(instanceCount) > 1 ? ` APP_INSTANCE_COUNT=${instanceCount}` : "";
+    console.warn(`[ratelimit] MemoryRateLimitStore is process-local${suffix}; use RATELIMIT_STORE=db or redis for shared limits.`);
+}
+
 export function resolveRateLimitStore(platform: App.Platform | undefined, db: DB): RateLimitStore {
     const isWorkers = typeof platform?.ctx?.waitUntil === "function";
-    return isWorkers ? new DbRateLimitStore(db) : getMemoryRateLimitStore();
+    const selected = (runtimeEnv(platform, "RATELIMIT_STORE") ?? "auto").toLowerCase();
+    const mode = selected === "auto" ? (isWorkers ? "db" : "memory") : selected;
+
+    if (mode === "db") return new DbRateLimitStore(db);
+    if (mode === "memory") {
+        if (!isWorkers) warnAboutNodeMemoryRateLimit(runtimeEnv(platform, "APP_INSTANCE_COUNT"));
+        return getMemoryRateLimitStore();
+    }
+    if (mode === "redis") {
+        const url = runtimeEnv(platform, "RATELIMIT_REDIS_URL");
+        const token = runtimeEnv(platform, "RATELIMIT_REDIS_TOKEN");
+        if (!url || !token) throw new Error("RATELIMIT_STORE=redis requires RATELIMIT_REDIS_URL and RATELIMIT_REDIS_TOKEN");
+        return new RedisRateLimitStore(url, token);
+    }
+    throw new Error(`지원하지 않는 RATELIMIT_STORE=${selected} (auto|memory|db|redis 중 하나를 사용하세요)`);
 }
