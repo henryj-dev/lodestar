@@ -448,8 +448,8 @@
 - [x] **T6-5** Svelte 파일 변경분은 `svelte-check`로 검증 (Svelte MCP autofixer는 이 환경에 노출되지 않음)
 - [x] **T6-6** 잘못된 주석 정정 확인 — K-011(users/lookup JSDoc), K-005(encryptBindPassword L60-63) 두 곳
 - [x] **T6-7** `CODE_AUDIT_REPORT.md` 에 대응 상태 표와 본 파일 링크 추가
-- [ ] **T6-8** 감사 항목별 커밋 분할 및 리뷰
-- [ ] **T6-9** PR 생성 및 리뷰 요청
+- [x] **T6-8** 감사 항목별 커밋 분할 및 리뷰 — 6개 감사 대응 커밋으로 분리
+- [x] **T6-9** PR 생성 및 리뷰 요청 — [PR #103](https://github.com/henryj-dev/keystone/pull/103)
 
 ---
 
@@ -472,7 +472,7 @@
 | 12   | K-009 | 기능 미완성  | `auth/bootstrap.ts`, `hooks.server.ts` + docs | 4     | [x]  |
 | 13   | K-008 | 낮음         | TOTP rate-limit tenant namespace              | 4     | [x]  |
 | —    | K-010 | —            | 철회 (사실 오류)                              | —     | [-]  |
-| 14   | T6    | —            | 전체 검증 · 커밋 · PR                         | 5     | [~]  |
+| 14   | T6    | —            | 전체 검증 · 커밋 · PR                         | 5     | [x]  |
 
 ## 회귀 테스트 반영 파일 목록
 
