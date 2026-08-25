@@ -9,6 +9,10 @@ concurrency:
     group: deploy-${{ github.ref }}
     cancel-in-progress: false
 
+# 최소 권한 — 배포는 Cloudflare 토큰으로 수행하며 GITHUB_TOKEN 은 체크아웃에만 쓴다.
+permissions:
+    contents: read
+
 env:
     # 2026-06-02부터 Actions 런타임이 Node 24로 강제 전환됨. 선제 opt-in으로
     # actions/checkout 외 dorny/paths-filter 등 미업그레이드 액션도 Node 24에서 실행
@@ -63,7 +67,8 @@ jobs:
               uses: oven-sh/setup-bun@v2
 
             - name: Install dependencies
-              run: bun install
+              # 락파일과 다른 트리가 프로덕션에 나가는 것을 막는다. (ci.yml 과 동일)
+              run: bun install --frozen-lockfile
 
             - name: Setup Wrangler config
               env:
@@ -97,7 +102,7 @@ jobs:
                   CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
               run: |
                   if [ -z "$CLOUDFLARE_ZONE_ID" ]; then
-                    echo "CLOUDFLARE_ZONE_ID 시크릿이 없으므로 캐시 퍼지를 건너뜁니다."
+                    echo "::warning::CLOUDFLARE_ZONE_ID 시크릿이 없어 캐시 퍼지를 건너뜁니다 — 배포 후에도 Cloudflare 엣지가 구 자산을 계속 서빙할 수 있습니다."
                     exit 0
                   fi
                   PURGE_RESP=$(curl -s -X POST \
