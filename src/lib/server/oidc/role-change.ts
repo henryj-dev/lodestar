@@ -1,13 +1,13 @@
 /**
  * OIDC Role-Change Security Event Token (SET) 발행.
  *
- * KeyStone(IdP)에서 관리자가 사용자의 서비스 role 을 변경(부여/회수)하면, back-channel
+ * Lodestar(IdP)에서 관리자가 사용자의 서비스 role 을 변경(부여/회수)하면, back-channel
  * logout 과 **동일한 서명키·JWKS·SET 봉투**로 서명된 토큰을 대상 RP 의 `role_change_uri` 로
  * POST 한다. RP 는 세션을 끊지 않고 members.role 만 갱신하므로 재로그인 없이 다음 요청부터 반영된다.
  *
  * 계약(수신 RP 와 바이트 단위 일치):
  *   - 전송: Content-Type: application/x-www-form-urlencoded, body `role_change_token=<JWT>`
- *   - 서명: 테넌트 서명키 RS256 (RP 가 KeyStone JWKS 로 검증), typ=secevent+jwt
+ *   - 서명: 테넌트 서명키 RS256 (RP 가 Lodestar JWKS 로 검증), typ=secevent+jwt
  *   - 클레임: iss / aud(=clientId) / iat / exp / txn / sub(=userId) / jti / events
  *   - events = { "https://idp.hyochan.site/event/role-change": { roles: string[], entitlements: string[] } }
  *   - nonce 금지 (RP 가 있으면 거부 — id_token 오용 방지)

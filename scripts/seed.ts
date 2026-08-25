@@ -1,5 +1,5 @@
 /**
- * Keystone IdP — DB seed 스크립트 (방언 무관: d1 / sqlite / postgres / mysql)
+ * Lodestar IdP — DB seed 스크립트 (방언 무관: d1 / sqlite / postgres / mysql)
  *
  * 모드:
  * - `ignore` (기본):  기존 데이터 보존, 누락된 기본값만 INSERT (idempotent)

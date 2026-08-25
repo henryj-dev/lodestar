@@ -34,7 +34,7 @@ function resolveExpectedIssuer(templateIssuer: string, idToken: string): string 
     return templateIssuer;
 }
 
-/** OIDC 표준 클레임을 KeyStone 프로필로 매핑한다. */
+/** OIDC 표준 클레임을 Lodestar 프로필로 매핑한다. */
 function mapClaims(claims: Record<string, unknown>): NormalizedProfile {
     const sub = claims.sub;
     if (typeof sub !== "string" || !sub) {

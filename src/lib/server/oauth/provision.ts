@@ -1,5 +1,5 @@
 /**
- * 외부 인증 성공 후 "이 사람을 어떤 KeyStone 계정으로 볼 것인가" 를 결정한다.
+ * 외부 인증 성공 후 "이 사람을 어떤 Lodestar 계정으로 볼 것인가" 를 결정한다.
  * (계획서 §2.4 연결 정책 + §2.8 연합 회원가입)
  *
  * `ldap/provision.ts` 가 세운 원칙을 그대로 계승한다 — **이메일이 같다는 이유만으로
@@ -125,7 +125,7 @@ function statusOutcome(user: User): Extract<ResolveOutcome, { type: "denied" }> 
 }
 
 /**
- * 외부 프로필을 KeyStone 계정으로 해석한다.
+ * 외부 프로필을 Lodestar 계정으로 해석한다.
  *
  * 쓰기가 발생하는 경우는 두 가지뿐이다: 기존 identity 의 lastLoginAt 갱신,
  * 그리고 `jit` 모드 또는 `autoLinkVerifiedEmail` 이 켜진 자동 연결.
@@ -150,7 +150,7 @@ export async function resolveFederatedIdentity(params: ResolveParams): Promise<R
         if (denied) return denied;
 
         // identities 쪽 메타만 갱신한다. **users.email 은 절대 덮어쓰지 않는다** —
-        // 프로바이더가 이메일을 바꿔 보내는 것만으로 KeyStone 계정의 신원이 바뀌면
+        // 프로바이더가 이메일을 바꿔 보내는 것만으로 Lodestar 계정의 신원이 바뀌면
         // 그 자체가 탈취 경로가 된다. (LDAP 은 admin 이 통제하는 소스라 예외적으로 동기화한다.)
         await db
             .update(identities)

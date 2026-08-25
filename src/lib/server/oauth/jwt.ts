@@ -1,7 +1,7 @@
 /**
  * upstream OIDC 프로바이더가 발급한 id_token 검증.
  *
- * `crypto/keys.ts` 의 `verifyIdToken` 은 **KeyStone 이 직접 발급한** 토큰을 DB 의
+ * `crypto/keys.ts` 의 `verifyIdToken` 은 **Lodestar 이 직접 발급한** 토큰을 DB 의
  * signing_keys 로 검증한다. 여기서는 반대 방향 — 외부 프로바이더의 원격 JWKS 로
  * 검증한다.
  *

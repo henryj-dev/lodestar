@@ -173,7 +173,7 @@ ${cyan("옵션:")}
   --no-migrate              마이그레이션 건너뜀
   --migrate-preview         프리뷰 DB 마이그레이션 자동 진행
   --no-migrate-preview      프리뷰 DB 마이그레이션 건너뜀
-  --r2-bucket-name <name>   R2 버킷 이름 (기본값: keystone-skin-cache)
+  --r2-bucket-name <name>   R2 버킷 이름 (기본값: lodestar-skin-cache)
   --no-r2                   R2 버킷 생성 건너뜀
   --signing-key <secret>    IDP_SIGNING_KEY_SECRET 값
   --tenant-name <name>      조직(테넌트) 이름
@@ -528,7 +528,7 @@ function normalizeWranglerPlaceholders() {
     content = content.replace(r2Re, (block) => {
         if (/"bucket_name"\s*:\s*""/.test(block)) {
             changed = true;
-            return block.replace(/"bucket_name"\s*:\s*""/, `"bucket_name": "keystone-skin-cache"`);
+            return block.replace(/"bucket_name"\s*:\s*""/, `"bucket_name": "lodestar-skin-cache"`);
         }
         return block;
     });
@@ -538,14 +538,14 @@ function normalizeWranglerPlaceholders() {
     content = content.replace(dbRe, (block) => {
         if (/"database_name"\s*:\s*""/.test(block)) {
             changed = true;
-            return block.replace(/"database_name"\s*:\s*""/, `"database_name": "keystone-db"`);
+            return block.replace(/"database_name"\s*:\s*""/, `"database_name": "lodestar-db"`);
         }
         return block;
     });
 
     // routes[0].pattern 빈값 → 임시 dev 도메인 (배포 도메인은 IDP_ISSUER_URL 결정 후 갱신)
     if (/"pattern"\s*:\s*""/.test(content)) {
-        content = content.replace(/"pattern"\s*:\s*""/, `"pattern": "keystone.example.com"`);
+        content = content.replace(/"pattern"\s*:\s*""/, `"pattern": "lodestar.example.com"`);
         changed = true;
     }
 
@@ -679,7 +679,7 @@ function detectExistingD1(): { dbId: string | null; previewDbId: string | null; 
             if (previewMatch && isUuid(previewMatch[1])) previewDbId = previewDbId ?? previewMatch[1];
         }
     }
-    if (dbId && !dbName) dbName = "keystone-db";
+    if (dbId && !dbName) dbName = "lodestar-db";
     if (previewDbId && !previewDbName && dbName) previewDbName = `${dbName}-preview`;
 
     return { dbId, previewDbId, dbName, previewDbName };
@@ -705,7 +705,7 @@ async function step3_dbSetup(args: Args): Promise<{
             if (keep) {
                 return {
                     dbId: existing.dbId,
-                    dbName: existing.dbName ?? "keystone-db",
+                    dbName: existing.dbName ?? "lodestar-db",
                     previewDbId: args.noPreview ? null : existing.previewDbId,
                     previewDbName: args.noPreview ? null : existing.previewDbName,
                 };
@@ -713,7 +713,7 @@ async function step3_dbSetup(args: Args): Promise<{
         }
     }
 
-    const db = await setupDb("D1 데이터베이스", args.dbName, args.dbId, "keystone-db");
+    const db = await setupDb("D1 데이터베이스", args.dbName, args.dbId, "lodestar-db");
     if (!db) {
         closeRL();
         throw new Error("DB 설정에 실패했습니다.");
@@ -888,7 +888,7 @@ async function step4b_r2Setup(args: Args) {
         return;
     }
 
-    const bucketName = args.r2BucketName ?? (await ask("R2 버킷 이름", "keystone-skin-cache"));
+    const bucketName = args.r2BucketName ?? (await ask("R2 버킷 이름", "lodestar-skin-cache"));
 
     const result = await runWithSpinner(`R2 버킷 생성 중: ${bucketName}`, "wrangler", ["r2", "bucket", "create", bucketName]);
     if (!result.success) {
@@ -906,7 +906,7 @@ async function step4b_r2Setup(args: Args) {
     // wrangler.jsonc의 bucket_name 업데이트
     if (fs.existsSync(WRANGLER_JSONC)) {
         let content = readFile(WRANGLER_JSONC);
-        content = replaceAll(content, "keystone-skin-cache", bucketName);
+        content = replaceAll(content, "lodestar-skin-cache", bucketName);
         writeFile(WRANGLER_JSONC, content);
         console.log(green(`  ✓ wrangler.jsonc bucket_name 업데이트 완료`));
     }
@@ -1540,7 +1540,7 @@ async function step3_directDbSetup(args: Args, dialect: DirectDialect): Promise<
         if (!keep) databaseUrl = "";
     }
     if (!databaseUrl) {
-        const example = dialect === "sqlite" ? "file:./keystone.db" : dialect === "postgres" ? "postgres://user:pass@host:5432/db" : "mysql://user:pass@host:3306/db";
+        const example = dialect === "sqlite" ? "file:./lodestar.db" : dialect === "postgres" ? "postgres://user:pass@host:5432/db" : "mysql://user:pass@host:3306/db";
         databaseUrl = await ask(`DATABASE_URL 입력 (예: ${example})`);
         if (!databaseUrl) {
             console.error(red("  DATABASE_URL 이 필요합니다. 종료합니다."));
@@ -1663,7 +1663,7 @@ async function main() {
         process.exit(0);
     }
 
-    console.log(`${C.bold}${cyan("=== Keystone 프로젝트 셋업 ===")}${C.reset}`);
+    console.log(`${C.bold}${cyan("=== Lodestar 프로젝트 셋업 ===")}${C.reset}`);
 
     // wrangler.jsonc / .env 생성 (방언 무관)
     await step1_createWranglerJsonc(args);

@@ -1,4 +1,4 @@
-# Keystone IDP
+# Lodestar IDP
 
 Cloudflare Workers 위에서 동작하는 오픈소스 Identity Provider입니다.
 OIDC, SAML 2.0, WebAuthn/Passkey, TOTP 2FA, LDAP 연동을 지원하며 멀티테넌트 조직 관리를 포함합니다.
@@ -223,7 +223,7 @@ bun run setup
 bun run setup -- --dialect postgres --database-url "postgres://user:pass@host:5432/db" --hyperdrive-id <id>
 ```
 
-> R2 버킷(`keystone-skin-cache`)은 커스텀 로그인 스킨 기능을 사용할 때 필요합니다. 사용하지 않는다면 `wrangler.jsonc`의 `r2_buckets` 항목을 주석 처리해도 됩니다.
+> R2 버킷(`lodestar-skin-cache`)은 커스텀 로그인 스킨 기능을 사용할 때 필요합니다. 사용하지 않는다면 `wrangler.jsonc`의 `r2_buckets` 항목을 주석 처리해도 됩니다.
 
 셋업 완료 후 로컬 개발 서버를 시작합니다:
 
@@ -334,7 +334,7 @@ DB_DIALECT=postgres bun run deploy   # 또는 wrangler deploy
 DB_DIALECT=mysql bun run build
 
 # 로컬 SQLite 파일(libSQL) 로 Node 구동
-BUILD_TARGET=node DB_DIALECT=sqlite DATABASE_URL="file:./keystone.db" bun run build && node build
+BUILD_TARGET=node DB_DIALECT=sqlite DATABASE_URL="file:./lodestar.db" bun run build && node build
 ```
 
 동작 방식:
@@ -346,8 +346,8 @@ BUILD_TARGET=node DB_DIALECT=sqlite DATABASE_URL="file:./keystone.db" bun run bu
 
 ```bash
 # (Cloudflare) Hyperdrive 구성 생성 (binding 이름은 반드시 HYPERDRIVE)
-wrangler hyperdrive create keystone-pg    --connection-string="postgres://user:pass@host:5432/db"
-wrangler hyperdrive create keystone-mysql --connection-string="mysql://user:pass@host:3306/db"
+wrangler hyperdrive create lodestar-pg    --connection-string="postgres://user:pass@host:5432/db"
+wrangler hyperdrive create lodestar-mysql --connection-string="mysql://user:pass@host:3306/db"
 # → 출력된 id 를 wrangler.jsonc 의 hyperdrive[].id 에 채우고 주석 해제
 #   (또는 bun run setup -- --dialect postgres --hyperdrive-id <id> 로 자동 설정)
 # (Hyperdrive 없이 직결하려면 DATABASE_URL 을 var/secret 으로 설정)

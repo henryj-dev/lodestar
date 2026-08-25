@@ -1,13 +1,13 @@
 {
     "$schema": "./node_modules/wrangler/config-schema.json",
-    "name": "keystone",
+    "name": "lodestar",
     "compatibility_date": "2026-04-15",
     "compatibility_flags": ["nodejs_als", "nodejs_compat"],
     "main": ".svelte-kit/cloudflare/_worker.js",
     "routes": [
         {
             // 실제 배포 도메인으로 변경하세요 (setup 이 IDP_ISSUER_URL host 로 자동 채움)
-            "pattern": "keystone.example.com",
+            "pattern": "lodestar.example.com",
             "custom_domain": true,
         },
     ],
@@ -72,8 +72,8 @@
         // 온보딩된 sender 도메인만 있으면 임의 외부 수신자에게 발송 가능하다
         // (수신자 사전 검증 불필요 — 이는 구 Email Routing forward 의 제약이었다).
         "EMAIL_FROM": "noreply@yourdomain.com",
-        // 발신자 표시 이름 (선택, 기본값 "KeyStone")
-        "EMAIL_FROM_NAME": "KeyStone",
+        // 발신자 표시 이름 (선택, 기본값 "Lodestar")
+        "EMAIL_FROM_NAME": "Lodestar",
     },
     // ── Cloudflare Email Sending 바인딩 ───────────────────────────────────────
     // 코드가 platform.env.EMAIL 을 참조하므로 binding 이름은 반드시 EMAIL.
@@ -87,14 +87,14 @@
     // 웹훅 3회 즉시 재시도 후 Queue로 넘길 때 사용하는 producer binding.
     // 실제 consumer Worker/Workflow가 deliverQueuedOidcWebhook를 호출해야 한다.
     // "queues": {
-    //     "producers": [{ "binding": "OIDC_WEBHOOK_QUEUE", "queue": "keystone-oidc-webhooks" }]
+    //     "producers": [{ "binding": "OIDC_WEBHOOK_QUEUE", "queue": "lodestar-oidc-webhooks" }]
     // },
     "r2_buckets": [
         {
             // 커스텀 로그인 스킨 R2 캐시 버킷
-            // 생성: wrangler r2 bucket create keystone-skin-cache
+            // 생성: wrangler r2 bucket create lodestar-skin-cache
             "binding": "SKIN_CACHE",
-            "bucket_name": "keystone-skin-cache",
+            "bucket_name": "lodestar-skin-cache",
             "remote": true,
         },
     ],
@@ -102,7 +102,7 @@
     "d1_databases": [
         {
             "binding": "DB",
-            "database_name": "keystone-db",
+            "database_name": "lodestar-db",
             // D1 데이터베이스 ID (setup 이 자동 채움)
             "database_id": "YOUR_D1_DATABASE_ID",
             // 프리뷰 DB가 따로 있다면 주석 해제 (setup 이 자동 활성화)
@@ -116,8 +116,8 @@
     // Cloudflare Hyperdrive 로 외부 Postgres/MySQL 에 연결한다 (연결 풀링·캐싱으로
     // D1 대비 낮은 지연). 아래 주석을 해제하고 id 를 채운 뒤 배포하세요.
     // 생성:
-    //   wrangler hyperdrive create keystone-pg --connection-string="postgres://user:pass@host:5432/db"
-    //   wrangler hyperdrive create keystone-mysql --connection-string="mysql://user:pass@host:3306/db"
+    //   wrangler hyperdrive create lodestar-pg --connection-string="postgres://user:pass@host:5432/db"
+    //   wrangler hyperdrive create lodestar-mysql --connection-string="mysql://user:pass@host:3306/db"
     // (binding 이름은 반드시 HYPERDRIVE — 코드가 platform.env.HYPERDRIVE 를 참조)
     // "hyperdrive": [
     //     {

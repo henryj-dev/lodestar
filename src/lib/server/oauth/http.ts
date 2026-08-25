@@ -18,7 +18,7 @@ const MAX_BODY_BYTES = 512 * 1024;
  * 일부 프로바이더(GitHub)는 User-Agent 가 없으면 403 을 준다.
  * 나머지 프로바이더에도 붙여서 손해가 없다.
  */
-const USER_AGENT = "KeyStone-IdP";
+const USER_AGENT = "Lodestar-IdP";
 
 /** 프로토콜·호스트를 검증한 뒤 fetch 한다. 검증 실패 시 예외. */
 async function guardedFetch(url: string, init: RequestInit): Promise<Response> {
