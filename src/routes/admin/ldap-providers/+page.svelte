@@ -352,8 +352,12 @@ function parseConfig(configJson: string | null): LdapProviderConfig {
                                                             id="e-bindPw-{provider.id}"
                                                             type="password"
                                                             name="bindPassword"
-                                                            value={c.bindPassword ?? ""}
+                                                            value=""
+                                                            placeholder={t("ldap.bind_pw_placeholder")}
                                                             class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none" />
+                                                        {#if provider.hasBindPassword}
+                                                            <p class="mt-1 text-xs text-gray-500">{t("ldap.bind_pw_preserved_hint")}</p>
+                                                        {/if}
                                                     </div>
                                                     <div>
                                                         <label for="e-filter-{provider.id}" class="block text-xs font-medium text-gray-700">{t("ldap.search_filter_label")}</label>

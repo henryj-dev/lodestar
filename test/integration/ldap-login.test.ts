@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { provisionLdapUser } from "../../src/lib/server/ldap/provision";
-import { identities, users } from "../../src/lib/server/db/schema";
+import { auditEvents, identities, users } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedIdentityProvider, makeEvent, makeCookieJar, catchRedirect, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant } from "../../src/lib/server/db/schema";
 
@@ -113,5 +113,35 @@ describe("LDAP 로그인(JIT 프로비저닝)", () => {
                 familyName: "User",
             }),
         ).rejects.toThrow();
+    });
+
+    it("교차 테넌트 userId를 가진 잘못된 identity는 프로필을 갱신하지 않고 거부한다", async () => {
+        const otherTenantId = crypto.randomUUID();
+        await mem.db.insert((await import("../../src/lib/server/db/schema")).tenants).values({ id: otherTenantId, slug: "ldap-other", name: "Other" });
+        const foreignUser = await seedUser(mem.db, { tenantId: otherTenantId, email: "foreign@test.example", username: "foreign", displayName: "Original" });
+        await mem.db.insert(identities).values({
+            tenantId: tenant.id,
+            userId: foreignUser.id,
+            provider: "ldap:provider-1",
+            subject: LDAP_DN,
+            email: "ldapuser@corp.example",
+        });
+
+        await expect(
+            provisionLdapUser(mem.db, tenant.id, "provider-1", {
+                dn: LDAP_DN,
+                username: LDAP_USER,
+                email: "changed@corp.example",
+                displayName: "Changed",
+                givenName: "Changed",
+                familyName: "User",
+            }),
+        ).rejects.toThrow(/테넌트/);
+
+        const [unchanged] = await mem.db.select().from(users).where(eq(users.id, foreignUser.id));
+        expect(unchanged.email).toBe("foreign@test.example");
+        expect(unchanged.displayName).toBe("Original");
+        const [audit] = await mem.db.select().from(auditEvents).where(eq(auditEvents.kind, "ldap_identity_tenant_mismatch"));
+        expect(audit).toMatchObject({ outcome: "failure", tenantId: tenant.id });
     });
 });

@@ -56,22 +56,38 @@ function buildConfig(fd: FormData): LdapProviderConfig {
 // 평문 그대로 저장하던 silent fallback 을 제거. 운영 환경 (signingKeySecret 항상
 // 존재) 에서 정상 동작, dev 환경에서 secret 미설정 시 admin 에게 명시적 에러로
 // 알려 평문 LDAP 자격증명이 DB 에 박히는 사고 차단.
-async function encryptBindPassword(config: LdapProviderConfig, signingKeySecret: string | undefined, locale: Locale): Promise<LdapProviderConfig> {
-    if (!config.bindPassword) {
-        // 새 bindPassword 입력이 없으면 그대로 통과 (기존 enc 만 보존됨)
-        return config;
+async function encryptBindPassword(config: LdapProviderConfig, existing: LdapProviderConfig | undefined, signingKeySecret: string | undefined, locale: Locale): Promise<LdapProviderConfig> {
+    const stripBindSecrets = (value: LdapProviderConfig): LdapProviderConfig => {
+        const safe = { ...value };
+        delete safe.bindPassword;
+        delete safe.bindPasswordEnc;
+        return safe;
+    };
+
+    // DN pattern mode does not use an admin bind credential; remove stale secrets
+    // when switching away from bind/search mode.
+    if (!config.bindDN) {
+        return stripBindSecrets(config);
+    }
+
+    const plaintext = config.bindPassword ?? existing?.bindPassword;
+    const existingEncrypted = existing?.bindPasswordEnc;
+    if (!plaintext && existingEncrypted) {
+        return { ...stripBindSecrets(config), bindPasswordEnc: existingEncrypted };
+    }
+    if (!plaintext) {
+        throw new Error(adminError(locale, "ldap_bind_password_required"));
     }
     if (!signingKeySecret) {
         throw new Error(adminError(locale, "ldap_signing_key_secret_required"));
     }
-    const enc = await encryptSecret(config.bindPassword, signingKeySecret, "idp-ldap-bind-password-v1");
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { bindPassword: _, ...rest } = config;
-    return { ...rest, bindPasswordEnc: enc };
+    const enc = await encryptSecret(plaintext, signingKeySecret, "idp-ldap-bind-password-v1");
+    return { ...stripBindSecrets(config), bindPasswordEnc: enc };
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, platform }) => {
     const { db, tenant } = requireAdminContext(locals);
+    const { signingKeySecret } = getRuntimeConfig(platform);
 
     const rows = await db
         .select()
@@ -79,7 +95,38 @@ export const load: PageServerLoad = async ({ locals }) => {
         .where(and(eq(identityProviders.tenantId, tenant.id), eq(identityProviders.kind, "ldap")))
         .orderBy(desc(identityProviders.createdAt));
 
-    return { providers: rows };
+    const providers = await Promise.all(
+        rows.map(async (row) => {
+            let config: LdapProviderConfig = { host: "", port: 389, baseDN: "", tlsMode: "none" };
+            try {
+                config = JSON.parse(row.configJson ?? "{}") as LdapProviderConfig;
+            } catch {
+                // Keep the admin page renderable; malformed configuration is still shown as empty.
+            }
+
+            if (config.bindPassword && signingKeySecret) {
+                const encrypted = await encryptSecret(config.bindPassword, signingKeySecret, "idp-ldap-bind-password-v1");
+                const withoutPlaintext = { ...config };
+                delete withoutPlaintext.bindPassword;
+                config = { ...withoutPlaintext, bindPasswordEnc: encrypted };
+                await db
+                    .update(identityProviders)
+                    .set({ configJson: JSON.stringify(config), updatedAt: new Date() })
+                    .where(and(eq(identityProviders.id, row.id), eq(identityProviders.tenantId, tenant.id)));
+            }
+
+            const safeConfig = { ...config };
+            delete safeConfig.bindPassword;
+            delete safeConfig.bindPasswordEnc;
+            return {
+                ...row,
+                configJson: JSON.stringify(safeConfig),
+                hasBindPassword: Boolean(config.bindPassword || config.bindPasswordEnc),
+            };
+        }),
+    );
+
+    return { providers };
 };
 
 export const actions: Actions = {
@@ -111,7 +158,7 @@ export const actions: Actions = {
         const { signingKeySecret } = getRuntimeConfig(event.platform);
         let config: LdapProviderConfig;
         try {
-            config = await encryptBindPassword(buildConfig(fd), signingKeySecret, locale);
+            config = await encryptBindPassword(buildConfig(fd), undefined, signingKeySecret, locale);
         } catch (e) {
             return fail(503, { create: true, error: (e as Error).message });
         }
@@ -149,6 +196,20 @@ export const actions: Actions = {
 
         if (!id || !name) return fail(400, { error: adminError(locale, "invalid_request") });
 
+        const [existingRow] = await db
+            .select()
+            .from(identityProviders)
+            .where(and(eq(identityProviders.id, id), eq(identityProviders.tenantId, tenant.id), eq(identityProviders.kind, "ldap")))
+            .limit(1);
+        if (!existingRow) return fail(404, { error: adminError(locale, "ldap_provider_not_found") });
+
+        let existingConfig: LdapProviderConfig = { host: "", port: 389, baseDN: "", tlsMode: "none" };
+        try {
+            existingConfig = JSON.parse(existingRow.configJson ?? "{}") as LdapProviderConfig;
+        } catch {
+            // Treat malformed legacy config as having no reusable secret.
+        }
+
         const host = String(fd.get("host") ?? "").trim();
         if (host) {
             const hostV = validateLdapHost(host);
@@ -161,7 +222,7 @@ export const actions: Actions = {
         const { signingKeySecret } = getRuntimeConfig(event.platform);
         let config: LdapProviderConfig;
         try {
-            config = await encryptBindPassword(buildConfig(fd), signingKeySecret, locale);
+            config = await encryptBindPassword(buildConfig(fd), existingConfig, signingKeySecret, locale);
         } catch (e) {
             return fail(503, { error: (e as Error).message });
         }
@@ -170,6 +231,32 @@ export const actions: Actions = {
             .update(identityProviders)
             .set({ name, configJson: JSON.stringify(config), enabled, updatedAt: new Date() })
             .where(and(eq(identityProviders.id, id), eq(identityProviders.tenantId, tenant.id)));
+
+        const oldKeys = Object.keys(existingConfig).filter((key) => key !== "bindPassword" && key !== "bindPasswordEnc");
+        const newKeys = Object.keys(config).filter((key) => key !== "bindPassword" && key !== "bindPasswordEnc");
+        const changedFields = Array.from(new Set([...oldKeys, ...newKeys])).filter(
+            (key) => JSON.stringify(existingConfig[key as keyof LdapProviderConfig]) !== JSON.stringify(config[key as keyof LdapProviderConfig]),
+        );
+        if (existingRow.name !== name) changedFields.push("name");
+        if (existingRow.enabled !== enabled) changedFields.push("enabled");
+
+        const meta = getRequestMetadata(event);
+        await recordAuditEvent(db, {
+            tenantId: tenant.id,
+            actorId: event.locals.user!.id,
+            kind: "ldap_provider_updated",
+            outcome: "success",
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            detail: {
+                id,
+                name,
+                changedFields: Array.from(new Set(changedFields)),
+                bindPasswordChanged: Boolean(buildConfig(fd).bindPassword),
+                enabledBefore: existingRow.enabled,
+                enabledAfter: enabled,
+            },
+        });
 
         return { update: true };
     },

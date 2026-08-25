@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
 import { identities, users, type User } from "$lib/server/db/schema";
+import { recordAuditEvent } from "$lib/server/audit/index";
 import type { LdapUserAttrs } from "./types";
 
 /**
@@ -30,6 +31,23 @@ export async function provisionLdapUser(db: DB, tenantId: string, providerId: st
         .limit(1);
 
     if (existingIdentity) {
+        const [tenantUser] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.id, existingIdentity.userId), eq(users.tenantId, tenantId), eq(users.status, "active")))
+            .limit(1);
+
+        if (!tenantUser) {
+            await recordAuditEvent(db, {
+                tenantId,
+                userId: null,
+                kind: "ldap_identity_tenant_mismatch",
+                outcome: "failure",
+                detail: { provider, reason: "tenant_mismatch_or_inactive" },
+            }).catch(() => undefined);
+            throw new Error("LDAP identity와 사용자 테넌트가 일치하지 않거나 계정이 비활성 상태입니다.");
+        }
+
         await db
             .update(users)
             .set({
@@ -39,7 +57,7 @@ export async function provisionLdapUser(db: DB, tenantId: string, providerId: st
                 familyName: attrs.familyName,
                 updatedAt: new Date(),
             })
-            .where(eq(users.id, existingIdentity.userId));
+            .where(and(eq(users.id, existingIdentity.userId), eq(users.tenantId, tenantId)));
 
         await db
             .update(identities)
@@ -49,10 +67,10 @@ export async function provisionLdapUser(db: DB, tenantId: string, providerId: st
         const [user] = await db
             .select()
             .from(users)
-            .where(and(eq(users.id, existingIdentity.userId), eq(users.status, "active")))
+            .where(and(eq(users.id, existingIdentity.userId), eq(users.tenantId, tenantId), eq(users.status, "active")))
             .limit(1);
 
-        if (!user) throw new Error("LDAP 유저 계정이 비활성 상태입니다.");
+        if (!user) throw new Error("LDAP identity와 사용자 테넌트가 일치하지 않거나 계정이 비활성 상태입니다.");
         return user;
     }
 
@@ -106,6 +124,10 @@ export async function provisionLdapUser(db: DB, tenantId: string, providerId: st
         lastLoginAt: new Date(),
     });
 
-    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    const [user] = await db
+        .select()
+        .from(users)
+        .where(and(eq(users.id, userId), eq(users.tenantId, tenantId)))
+        .limit(1);
     return user;
 }

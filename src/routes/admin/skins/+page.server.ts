@@ -6,6 +6,7 @@ import { adminError } from "$lib/server/admin/errors";
 import { clientSkins, oidcClients, samlSps } from "$lib/server/db/schema";
 import { invalidateSkinCache } from "$lib/server/skin/resolver";
 import { isLinkLocalHost, isLoopbackHost } from "$lib/server/validation";
+import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 
 const MAX_SKIN_CACHE_TTL_SECONDS = 86400; // 1일
 
@@ -146,7 +147,8 @@ export const actions: Actions = {
         return { invalidated: true };
     },
 
-    update: async ({ request, locals, platform }) => {
+    update: async (event) => {
+        const { request, locals, platform } = event;
         const { db, tenant } = requireAdminContext(locals);
         const locale = locals.locale;
         const fd = await request.formData();
@@ -180,6 +182,17 @@ export const actions: Actions = {
             .where(eq(clientSkins.id, id));
 
         await invalidateSkinCache(platform, tenant.id, skin.clientType, skin.clientRefId, skin.skinType);
+
+        const meta = getRequestMetadata(event);
+        await recordAuditEvent(db, {
+            tenantId: tenant.id,
+            actorId: locals.user!.id,
+            kind: "client_skin_updated",
+            outcome: "success",
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            detail: { id, fetchUrlChanged: skin.fetchUrl !== fetchUrl, secretRotated: Boolean(fetchSecret), cacheTtlChanged: skin.cacheTtlSeconds !== ttl },
+        });
 
         return { updated: true };
     },
