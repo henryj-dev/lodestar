@@ -1,13 +1,13 @@
 /**
  * upstream OAuth2 / OIDC 연합의 공용 타입.
  *
- * KeyStone 은 downstream 으로 OIDC/SAML 을 제공하는 IdP 이면서, upstream 으로는
+ * Lodestar 은 downstream 으로 OIDC/SAML 을 제공하는 IdP 이면서, upstream 으로는
  * 외부 소셜 프로바이더(네이버/카카오/깃허브/Microsoft 등)에 연합할 수 있다.
  * 이 파일은 그 upstream 방향의 계약만 정의한다.
  */
 
 /**
- * 매칭되는 KeyStone 계정이 없을 때의 처리 방식. `identity_providers.configJson` 에 저장한다.
+ * 매칭되는 Lodestar 계정이 없을 때의 처리 방식. `identity_providers.configJson` 에 저장한다.
  *
  * - `signup_form`: 외부 프로필을 프리필한 가입 폼(`/signup?federated=1`)으로 보낸다. 소셜 기본값.
  * - `jit`:         무음으로 계정을 생성한다. LDAP 기본값(기존 동작 유지).
@@ -49,7 +49,7 @@ export interface OAuthProviderConfig {
     displayOrder?: number;
 }
 
-/** 프로바이더 응답을 KeyStone 계정 모델로 정규화한 결과. */
+/** 프로바이더 응답을 Lodestar 계정 모델로 정규화한 결과. */
 export interface NormalizedProfile {
     /** 프로바이더 내 불변 사용자 식별자. `identities.subject` 가 된다. */
     subject: string;

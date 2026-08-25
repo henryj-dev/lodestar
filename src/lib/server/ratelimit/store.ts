@@ -195,15 +195,15 @@ export class MemoryRateLimitStore implements RateLimitStore {
 
 // Node 전역 재사용: 프로세스 내 단일 MemoryRateLimitStore 를 공유한다(HMR/다중 import 안전).
 declare global {
-    var __keystoneRateLimitMemoryStore: MemoryRateLimitStore | undefined;
-    var __keystoneRateLimitWarningShown: boolean | undefined;
+    var __lodestarRateLimitMemoryStore: MemoryRateLimitStore | undefined;
+    var __lodestarRateLimitWarningShown: boolean | undefined;
 }
 
 function getMemoryRateLimitStore(): MemoryRateLimitStore {
-    if (!globalThis.__keystoneRateLimitMemoryStore) {
-        globalThis.__keystoneRateLimitMemoryStore = new MemoryRateLimitStore();
+    if (!globalThis.__lodestarRateLimitMemoryStore) {
+        globalThis.__lodestarRateLimitMemoryStore = new MemoryRateLimitStore();
     }
-    return globalThis.__keystoneRateLimitMemoryStore;
+    return globalThis.__lodestarRateLimitMemoryStore;
 }
 
 /**
@@ -219,8 +219,8 @@ function runtimeEnv(platform: App.Platform | undefined, key: string): string | u
 }
 
 function warnAboutNodeMemoryRateLimit(instanceCount: string | undefined): void {
-    if (globalThis.__keystoneRateLimitWarningShown) return;
-    globalThis.__keystoneRateLimitWarningShown = true;
+    if (globalThis.__lodestarRateLimitWarningShown) return;
+    globalThis.__lodestarRateLimitWarningShown = true;
     const suffix = instanceCount && Number(instanceCount) > 1 ? ` APP_INSTANCE_COUNT=${instanceCount}` : "";
     console.warn(`[ratelimit] MemoryRateLimitStore is process-local${suffix}; use RATELIMIT_STORE=db or redis for shared limits.`);
 }

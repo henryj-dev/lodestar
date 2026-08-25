@@ -309,7 +309,7 @@ export function maybeRunWorkersGc(platform: App.Platform | undefined): void {
 // ── 실행 경로: Node(setInterval) ──────────────────────────────────────────────────
 
 declare global {
-    var __keystoneGcTimer: ReturnType<typeof setInterval> | undefined;
+    var __lodestarGcTimer: ReturnType<typeof setInterval> | undefined;
 }
 
 /**
@@ -320,7 +320,7 @@ declare global {
  * - 매 tick 마다 getDb(undefined)(Node 전역 재사용 연결)로 GC 를 돌린다.
  */
 export function ensureNodeGcScheduler(): void {
-    if (globalThis.__keystoneGcTimer) return;
+    if (globalThis.__lodestarGcTimer) return;
     if (DB_DIALECT === "d1") return; // d1 은 Workers 전용 — Node 스케줄 불가
 
     const timer = setInterval(() => {
@@ -336,5 +336,5 @@ export function ensureNodeGcScheduler(): void {
 
     // 프로세스 종료를 막지 않도록 unref (테스트/CLI 환경 안전).
     timer.unref?.();
-    globalThis.__keystoneGcTimer = timer;
+    globalThis.__lodestarGcTimer = timer;
 }

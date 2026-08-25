@@ -39,7 +39,7 @@ function readEnv(platform: App.Platform | undefined, key: string): string | unde
 function getCloudflareFrom(platform: App.Platform | undefined): { email: string; name: string } | null {
     const email = readEnv(platform, "EMAIL_FROM");
     if (!email) return null;
-    const name = readEnv(platform, "EMAIL_FROM_NAME") ?? "KeyStone";
+    const name = readEnv(platform, "EMAIL_FROM_NAME") ?? "Lodestar";
     return { email, name };
 }
 

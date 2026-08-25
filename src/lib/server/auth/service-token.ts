@@ -24,7 +24,13 @@ const SVC_TOKEN_FAIL_LIMIT = 20;
 /** lastUsedAt 갱신 간격. 승인 경로에 매 호출 DB 쓰기를 얹지 않기 위한 것(PLAN §2-3). */
 const LAST_USED_THROTTLE_MS = 5 * 60 * 1000;
 
-/** 발급 토큰 접두사 — 로그·목록에서 이 값이 KeyStone 서비스 토큰임을 알아보게 한다. */
+/**
+ * 발급 토큰 접두사 — 로그·목록에서 이 값이 Lodestar 서비스 토큰임을 알아보게 한다.
+ *
+ * `kst_` 는 구 명칭(KeyStone)에서 온 값이지만 **바꾸지 않는다**. 이미 발급된 토큰의
+ * 문자열에 그대로 박혀 있어서, 접두사를 바꾸면 기존 토큰이 전부 검증에 실패한다.
+ * 굳이 바꾸려면 신·구 접두사를 동시에 받아들이는 이행 기간이 먼저 필요하다.
+ */
 export const SERVICE_TOKEN_PREFIX = "kst_";
 
 /**

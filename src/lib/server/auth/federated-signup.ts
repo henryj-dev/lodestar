@@ -141,7 +141,7 @@ export async function createFederatedAccount(db: DB, claims: PendingLinkClaims, 
         throw e;
     }
 
-    // 프로바이더가 검증하지 않은 이메일은 KeyStone 이 직접 확인한다.
+    // 프로바이더가 검증하지 않은 이메일은 Lodestar 이 직접 확인한다.
     if (!emailVerified) {
         await issueEmailVerification(db, userId, email, locale, platform);
     }

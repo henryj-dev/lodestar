@@ -1,8 +1,8 @@
-# OIDC RP-Initiated Logout — KeyStone 구현 노트
+# OIDC RP-Initiated Logout — Lodestar 구현 노트
 
 OpenID Connect 의 [RP-Initiated Logout 1.0](https://openid.net/specs/openid-connect-rpinitiated-1_0.html)
 를 따른다. RP (Relying Party) 가 사용자를 자기 측에서 로그아웃 시킨 뒤,
-KeyStone 의 `/oidc/end-session` 으로 redirect 해 IdP 측 세션도 정리하고
+Lodestar 의 `/oidc/end-session` 으로 redirect 해 IdP 측 세션도 정리하고
 원래 RP 로 돌아올 수 있게 한다.
 
 ## 엔드포인트
@@ -31,7 +31,7 @@ KeyStone 의 `/oidc/end-session` 으로 redirect 해 IdP 측 세션도 정리하
 ## 확인 페이지 미사용
 
 OIDC Core §5 의 confirmation 은 **SHOULD** (MUST 가 아님). 검증된 `id_token_hint`
-가 이미 소유 증명을 제공하므로 KeyStone 은 별도 confirm 페이지를 렌더하지
+가 이미 소유 증명을 제공하므로 Lodestar 은 별도 confirm 페이지를 렌더하지
 않고 바로 logout 처리한다 (PR #54, PR #55). drive-by logout CSRF 표면은
 단기 TTL 의 id_token 유출 + 동일 브라우저 세션 보유 상황으로 한정되며,
 영향은 logout 강제뿐 (데이터 손실 없음).

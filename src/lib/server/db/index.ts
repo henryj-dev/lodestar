@@ -42,7 +42,7 @@ export interface DbHandle {
 /**
  * libSQL(sqlite) 연결 정보를 해석한다.
  * url: DATABASE_URL 또는 SQLITE_URL. `file:`/`libsql:`/`http(s):` 스킴이 없으면
- *      로컬 파일 경로로 보고 `file:` 을 붙인다. (예: "./data/keystone.db")
+ *      로컬 파일 경로로 보고 `file:` 을 붙인다. (예: "./data/lodestar.db")
  * authToken: Turso 등 원격 libSQL 용 (선택).
  */
 function resolveLibsqlConfig(platform: App.Platform | undefined): { url: string; authToken?: string } {
@@ -56,7 +56,7 @@ function resolveLibsqlConfig(platform: App.Platform | undefined): { url: string;
     };
     const raw = read("DATABASE_URL") ?? read("SQLITE_URL");
     if (!raw) {
-        throw new Error("DB_DIALECT=sqlite 연결 정보를 찾을 수 없습니다. DATABASE_URL(또는 SQLITE_URL)을 설정하세요. 로컬 파일은 `file:./keystone.db` 또는 경로만(`./keystone.db`) 가능합니다.");
+        throw new Error("DB_DIALECT=sqlite 연결 정보를 찾을 수 없습니다. DATABASE_URL(또는 SQLITE_URL)을 설정하세요. 로컬 파일은 `file:./lodestar.db` 또는 경로만(`./lodestar.db`) 가능합니다.");
     }
     const url = /^(file:|libsql:|https?:|wss?:)/.test(raw) ? raw : `file:${raw}`;
     return { url, authToken: read("DATABASE_AUTH_TOKEN") ?? read("SQLITE_AUTH_TOKEN") };

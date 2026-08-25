@@ -780,7 +780,7 @@
         "err_username_taken": "That username is already taken.",
         "err_email_taken": "That email is already in use.",
         "err_rate_limit": "Too many sign-up attempts. Please try again in {{minutes}} minutes.",
-        "federated_subtitle": "Finish creating your KeyStone account with {{provider}}.",
+        "federated_subtitle": "Finish creating your Lodestar account with {{provider}}.",
         "federated_notice": "{{provider}} sign-in verified. No linked account exists yet, so let's finish signing up first.",
         "federated_email_locked": "This email was verified by {{provider}} and cannot be changed.",
         "federated_email_verify_notice": "A verification email will be sent to this address after sign-up.",
@@ -963,7 +963,7 @@
             "body": "All active sessions on your account except the current one were just signed out (revoked)."
         },
         "social_identity_unlinked": {
-            "subject": "[KeyStone] A social account was disconnected",
+            "subject": "[Lodestar] A social account was disconnected",
             "heading": "Social account disconnected",
             "body": "A social sign-in connection was removed from your account. If this wasn't you, change your password immediately and contact an administrator."
         }
@@ -1102,7 +1102,7 @@
         "directory_tenant": "Directory tenant",
         "directory_tenant_hint": "common / organizations / consumers, or a directory GUID. Defaults to common.",
         "provisioning_mode": "When no account exists",
-        "provisioning_mode_hint": "Decides what happens to users with no matching KeyStone account.",
+        "provisioning_mode_hint": "Decides what happens to users with no matching Lodestar account.",
         "mode_signup_form": "Send to sign-up form (recommended)",
         "mode_jit": "Create the account automatically",
         "mode_deny": "Block sign-up",
@@ -1134,6 +1134,6 @@
         "err_not_found": "That connection was not found.",
         "err_not_unlinkable": "Only an administrator can remove this connection.",
         "err_last_method": "You cannot remove your last sign-in method. Add a password or passkey first.",
-        "err_already_linked_elsewhere": "That external account is already connected to a different KeyStone account."
+        "err_already_linked_elsewhere": "That external account is already connected to a different Lodestar account."
     }
 }

@@ -16,7 +16,7 @@ export const AMR_BACKUP_CODE = "swk"; // software key (RFC 8176 유사)
 export const AMR_WEBAUTHN = "hwk"; // hardware key (RFC 8176)
 /**
  * 외부 IdP 연합(소셜 로그인)으로 1차 인증했음을 뜻한다. RFC 8176 에 등재된 값은
- * 아니지만 "federated" 의 관용 표기로 널리 쓰인다. 사용자가 KeyStone 에 비밀번호를
+ * 아니지만 "federated" 의 관용 표기로 널리 쓰인다. 사용자가 Lodestar 에 비밀번호를
  * 제시한 적이 없으므로 `pwd` 로 표기하면 downstream RP 에 거짓 정보가 나간다.
  */
 export const AMR_FEDERATED = "fed";

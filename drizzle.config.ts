@@ -37,7 +37,7 @@ function sqliteConfig() {
         schema: "./src/lib/server/db/schema.sqlite.ts",
         out: "./drizzle/sqlite",
         dialect: "sqlite",
-        dbCredentials: { url: process.env.DATABASE_URL ?? "file:./keystone.db" },
+        dbCredentials: { url: process.env.DATABASE_URL ?? "file:./lodestar.db" },
         verbose: true,
         strict: true,
     });

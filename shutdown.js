@@ -38,7 +38,7 @@ export function resolveShutdownTimeoutMs(raw, warn = console.warn) {
     // parseInt 대신 Number 를 쓴다 — "10s" 를 10 으로 받아들이지 않고 NaN 으로 거절한다.
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-        warn(`[keystone] SHUTDOWN_TIMEOUT_MS='${raw}' 를 해석할 수 없음 — 기본값 ${DEFAULT_SHUTDOWN_TIMEOUT_MS}ms 사용 (양의 정수 ms 여야 한다)`);
+        warn(`[lodestar] SHUTDOWN_TIMEOUT_MS='${raw}' 를 해석할 수 없음 — 기본값 ${DEFAULT_SHUTDOWN_TIMEOUT_MS}ms 사용 (양의 정수 ms 여야 한다)`);
         return DEFAULT_SHUTDOWN_TIMEOUT_MS;
     }
     return Math.floor(parsed);
@@ -73,13 +73,13 @@ export function createShutdownHandler(server, opts = {}) {
         if (shuttingDown) return;
         shuttingDown = true;
 
-        log(`[keystone] ${signal} 수신 — 드레이닝 시작 (최대 ${timeoutMs}ms)`);
+        log(`[lodestar] ${signal} 수신 — 드레이닝 시작 (최대 ${timeoutMs}ms)`);
 
         // 안전망. keep-alive 커넥션이 남아 close 콜백이 영영 오지 않을 수 있다.
         // unref 로 이 타이머 자체가 프로세스를 붙잡지 않게 한다(드레이닝이 먼저 끝나면
         // 이벤트 루프가 타이머를 기다리지 않고 나간다).
         const forced = setTimeout(() => {
-            error(`[keystone] ${timeoutMs}ms 내 드레이닝 미완료 — 강제 종료`);
+            error(`[lodestar] ${timeoutMs}ms 내 드레이닝 미완료 — 강제 종료`);
             exit(1);
         }, timeoutMs);
         forced.unref?.();
@@ -87,11 +87,11 @@ export function createShutdownHandler(server, opts = {}) {
         server.close((err) => {
             clearTimeout(forced);
             if (err) {
-                error("[keystone] server.close 실패:", err);
+                error("[lodestar] server.close 실패:", err);
                 exit(1);
                 return;
             }
-            log("[keystone] 드레이닝 완료 — 정상 종료");
+            log("[lodestar] 드레이닝 완료 — 정상 종료");
             exit(0);
         });
 

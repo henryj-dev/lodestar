@@ -42,7 +42,7 @@ function loadTls(dir) {
 const server = TLS_DIR ? createHttpsServer(loadTls(TLS_DIR), handler) : createHttpServer(handler);
 
 server.listen(PORT, HOST, () => {
-    console.log(`[keystone] listening on ${HOST}:${PORT} (${TLS_DIR ? "TLS" : "plaintext"})`);
+    console.log(`[lodestar] listening on ${HOST}:${PORT} (${TLS_DIR ? "TLS" : "plaintext"})`);
 });
 
 // SIGTERM(k8s 롤아웃)·SIGINT(로컬 Ctrl-C) 에 진행 중 요청을 마저 처리하고 나간다.
