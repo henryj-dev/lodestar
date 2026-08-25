@@ -56,6 +56,12 @@
 
         // OIDC/SAML 토큰 발급 issuer URL (배포 도메인과 일치시킬 것)
         "IDP_ISSUER_URL": "",
+        // 레이트 리밋 저장소: auto(기본) | db | redis. Redis 자격은 secret으로 설정.
+        "RATELIMIT_STORE": "auto",
+        // 멀티테넌트 서브도메인 라우팅: <tenant-slug>.<base-domain>
+        "IDP_TENANT_BASE_DOMAIN": "example.com",
+        // shared(기본) | host | path — tenant별 OIDC/SAML issuer 전략
+        "IDP_TENANT_ISSUER_MODE": "shared",
 
         // ── 이메일 발송 (비밀번호 재설정 / 아이디 찾기) ─────────────────────────
         // Workers 배포에서는 nodemailer(raw SMTP)가 동작하지 않으므로 아래
@@ -78,6 +84,11 @@
             "name": "EMAIL",
         },
     ],
+    // 웹훅 3회 즉시 재시도 후 Queue로 넘길 때 사용하는 producer binding.
+    // 실제 consumer Worker/Workflow가 deliverQueuedOidcWebhook를 호출해야 한다.
+    // "queues": {
+    //     "producers": [{ "binding": "OIDC_WEBHOOK_QUEUE", "queue": "keystone-oidc-webhooks" }]
+    // },
     "r2_buckets": [
         {
             // 커스텀 로그인 스킨 R2 캐시 버킷
