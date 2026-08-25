@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import { POST as enrollInitPOST } from "../../src/routes/api/totp/enroll/init/+server";
 import { POST as enrollConfirmPOST } from "../../src/routes/api/totp/enroll/confirm/+server";
 import { POST as verifyPOST } from "../../src/routes/api/totp/verify/+server";
+import { GET as lookupGET } from "../../src/routes/api/users/lookup/+server";
+import { GET as statusGET } from "../../src/routes/api/totp/status/+server";
 import { encryptTotpSecret, generateTotpCode, generateTotpSecret } from "../../src/lib/server/auth/totp";
 import { generateServiceToken, hashServiceToken } from "../../src/lib/server/auth/service-token";
 import { actions as tokenPageActions } from "../../src/routes/admin/service-tokens/+page.server";
@@ -37,6 +39,24 @@ function svcEvent(path: string, json: unknown, token: string = SERVICE_TOKEN) {
         url: `${TEST_ISSUER_URL}${path}`,
         headers: { authorization: `Bearer ${token}` },
         json,
+        locals: { db: mem.db, tenant, env: mem.env },
+    });
+}
+
+function lookupEvent(path: string, token: string = SERVICE_TOKEN) {
+    return makeEvent({
+        method: "GET",
+        url: `${TEST_ISSUER_URL}${path}`,
+        headers: { authorization: `Bearer ${token}` },
+        locals: { db: mem.db, tenant, env: mem.env },
+    });
+}
+
+function statusEvent(path: string, token: string = SERVICE_TOKEN) {
+    return makeEvent({
+        method: "GET",
+        url: `${TEST_ISSUER_URL}${path}`,
+        headers: { authorization: `Bearer ${token}` },
         locals: { db: mem.db, tenant, env: mem.env },
     });
 }
@@ -129,6 +149,49 @@ describe("service TOTP API 감사", () => {
         expect(await audits("service_totp_verified")).toHaveLength(0);
         const rejected = await audits("service_token_rejected");
         expect(rejected).toHaveLength(1);
+    });
+});
+
+describe("users lookup tenant isolation", () => {
+    it("env service token cannot select another tenant through query parameter", async () => {
+        const otherTenantId = crypto.randomUUID();
+        const otherSlug = `other-${otherTenantId.slice(0, 8)}`;
+        await mem.db.insert(tenants).values({ id: otherTenantId, slug: otherSlug, name: "Other" });
+        const otherUser = await seedUser(mem.db, { tenantId: otherTenantId, email: "other@test.example", username: "other" });
+
+        const { status } = await catchError(() => lookupGET(lookupEvent(`/api/users/lookup?tenant=${otherSlug}&email=${encodeURIComponent(otherUser.email)}`)));
+        expect(status).toBe(403);
+    });
+
+    it("default tenant lookup still works when tenant is omitted", async () => {
+        const response = (await lookupGET(lookupEvent(`/api/users/lookup?email=${encodeURIComponent(user.email)}`))) as Response;
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ id: user.id, tenantId: tenant.id, email: user.email });
+    });
+
+    it("keeps the lookup rate limit and throttling audit event", { timeout: 30_000 }, async () => {
+        for (let i = 0; i < 120; i++) {
+            const response = (await lookupGET(lookupEvent(`/api/users/lookup?email=${encodeURIComponent(user.email)}`))) as Response;
+            expect(response.status).toBe(200);
+        }
+        const { status } = await catchError(() => lookupGET(lookupEvent(`/api/users/lookup?email=${encodeURIComponent(user.email)}`)));
+        expect(status).toBe(429);
+        expect(await audits("service_lookup_throttled")).toHaveLength(1);
+    });
+});
+
+describe("service TOTP tenant isolation", () => {
+    it("rejects a user ID belonging to another tenant on all four endpoints", async () => {
+        const otherTenantId = crypto.randomUUID();
+        await mem.db.insert(tenants).values({ id: otherTenantId, slug: `totp-other-${otherTenantId.slice(0, 8)}`, name: "Other" });
+        const otherUser = await seedUser(mem.db, { tenantId: otherTenantId, email: "totp-other@test.example", username: "totpother" });
+        const secret = generateTotpSecret();
+        const code = await generateTotpCode(secret);
+
+        await expect(catchError(() => enrollInitPOST(svcEvent("/api/totp/enroll/init", { userId: otherUser.id })))).resolves.toMatchObject({ status: 404 });
+        await expect(catchError(() => enrollConfirmPOST(svcEvent("/api/totp/enroll/confirm", { userId: otherUser.id, secret, code })))).resolves.toMatchObject({ status: 404 });
+        await expect(catchError(() => verifyPOST(svcEvent("/api/totp/verify", { userId: otherUser.id, code })))).resolves.toMatchObject({ status: 404 });
+        await expect(catchError(() => statusGET(statusEvent(`/api/totp/status?userId=${otherUser.id}`)))).resolves.toMatchObject({ status: 404 });
     });
 });
 

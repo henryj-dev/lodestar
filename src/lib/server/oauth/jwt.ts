@@ -13,12 +13,14 @@
 
 import { b64uDecode } from "$lib/server/crypto/keys";
 import { timingSafeEqual } from "$lib/server/auth/signed-token";
+import { getJson } from "$lib/server/oauth/http";
 
 /** 시계 오차 허용치. exp/iat 검사에 양방향으로 적용한다. */
 const CLOCK_SKEW_MS = 60 * 1000;
 
 /** JWKS 캐시 TTL. 키 회전 반영과 요청당 fetch 회피 사이의 절충. */
 const JWKS_CACHE_TTL_MS = 10 * 60 * 1000;
+const JWKS_CACHE_MAX_ENTRIES = 32;
 
 interface JwksCacheEntry {
     keys: JsonWebKey[];
@@ -33,16 +35,23 @@ export function invalidateJwksCache(jwksUri?: string): void {
     else jwksCache.clear();
 }
 
+/** Exposed for bounded-cache regression tests and operational diagnostics. */
+export function getJwksCacheSize(): number {
+    return jwksCache.size;
+}
+
 async function fetchJwks(jwksUri: string): Promise<JsonWebKey[]> {
     const cached = jwksCache.get(jwksUri);
     if (cached && Date.now() - cached.fetchedAt < JWKS_CACHE_TTL_MS) return cached.keys;
 
-    const res = await fetch(jwksUri, { headers: { accept: "application/json" } });
-    if (!res.ok) throw new Error(`JWKS 조회 실패 (${res.status})`);
-
-    const body = (await res.json()) as { keys?: JsonWebKey[] };
+    const body = await getJson<{ keys?: JsonWebKey[] }>(jwksUri);
     if (!Array.isArray(body.keys)) throw new Error("JWKS 응답에 keys 배열이 없습니다.");
 
+    // Keep attacker-controlled discovery/JWKS URLs from growing the isolate cache without bound.
+    if (jwksCache.size >= JWKS_CACHE_MAX_ENTRIES) {
+        const oldest = jwksCache.keys().next().value as string | undefined;
+        if (oldest) jwksCache.delete(oldest);
+    }
     jwksCache.set(jwksUri, { keys: body.keys, fetchedAt: Date.now() });
     return body.keys;
 }

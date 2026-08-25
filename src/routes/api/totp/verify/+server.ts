@@ -3,10 +3,10 @@ import { eq, and } from "drizzle-orm";
 import { requireServiceToken } from "$lib/server/auth/service-token";
 import { TOTP_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { requireDbContext } from "$lib/server/auth/guards";
-import { decryptTotpSecret, verifyTotp } from "$lib/server/auth/totp";
+import { consumeTotpCredential, decryptTotpSecret, verifyTotp } from "$lib/server/auth/totp";
 import { tryWithSecrets } from "$lib/server/crypto/keys";
 import { checkRateLimit } from "$lib/server/ratelimit";
-import { credentials } from "$lib/server/db/schema";
+import { credentials, users } from "$lib/server/db/schema";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { translate } from "$lib/i18n/server";
 
@@ -46,10 +46,20 @@ export const POST: RequestHandler = async (event) => {
     const code = body?.code?.replace(/\s/g, "");
     if (!userId || !code) throw error(400, "userId, code required");
 
+    const [user] = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)))
+        .limit(1);
+    if (!user) {
+        await audit("failure", userId, { reason: "user_not_found" });
+        throw error(404, "user not found");
+    }
+
     // ctrls C3: TOTP 브루트포스 방어. service-token 경계 안이지만 dispatcher 침해 시
     // 6자리 코드를 무제한 시도해 MFA 를 우회할 수 있으므로 사용자당 시도를 제한한다.
     // (5분 창에 10회 — webauthn-verify 와 동일 강도.)
-    const rl = await checkRateLimit(rateLimitStore, `totp-verify:${userId}`, { windowMs: 5 * 60 * 1000, limit: 10 });
+    const rl = await checkRateLimit(rateLimitStore, `totp-verify:${tenant.id}:${userId}`, { windowMs: 5 * 60 * 1000, limit: 10 });
     if (!rl.allowed) {
         throw error(429, translate(locals.locale, "totp.errors.verify_rate_limited"));
     }
@@ -75,7 +85,11 @@ export const POST: RequestHandler = async (event) => {
     }
 
     const now = new Date();
-    await db.update(credentials).set({ lastUsedAt: now, usedAt: now, counter: step }).where(eq(credentials.id, cred.id));
+    const consumed = await consumeTotpCredential(db, cred.id, step, now);
+    if (!consumed) {
+        await audit("failure", userId, { reason: "replay_detected" });
+        return json({ ok: false }, { status: 401 });
+    }
     await audit("success", userId);
 
     return json({ ok: true, verifiedAt: now.toISOString() });

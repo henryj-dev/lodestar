@@ -105,7 +105,7 @@ describe("로그인 → MFA 체이닝", () => {
         expect((await mem.db.select().from(sessions).where(eq(sessions.userId, user.id))).length).toBe(0);
     });
 
-    it("백업 코드로도 MFA 를 통과해 세션이 발급된다", async () => {
+    it("백업 코드로도 MFA 를 통과해 세션이 발급된다", { timeout: 15_000 }, async () => {
         // 미사용 백업코드 credential 하나 등록.
         const backupCode = "ABCD2345";
         await mem.db.insert(credentials).values({
@@ -135,6 +135,39 @@ describe("로그인 → MFA 체이닝", () => {
         const rows = await mem.db.select().from(sessions).where(eq(sessions.userId, user.id));
         expect(rows.length).toBe(1);
         expect(rows[0].amr).toContain("swk");
+    });
+
+    it("같은 TOTP 코드를 동시에 제출해도 한 요청만 성공한다", { timeout: 15_000 }, async () => {
+        const firstJar = makeCookieJar();
+        await catchRedirect(() => loginActions.default(loginEvent(firstJar.cookies, { username: "mfauser", password: PASSWORD })));
+        const pendingCookies = firstJar.snapshot();
+        const code = await generateTotpCode(totpSecret);
+
+        const results = await Promise.all([0, 1].map((i) => catchRedirect(() => mfaActions.default(mfaEvent(makeCookieJar(pendingCookies).cookies, { code }))).catch((error) => ({ error, i }))));
+
+        expect(results.filter((result) => "status" in result && result.status === 303)).toHaveLength(1);
+        expect(results.filter((result) => !("status" in result && result.status === 303))).toHaveLength(1);
+    });
+
+    it("같은 백업 코드를 동시에 제출해도 한 요청만 성공한다", { timeout: 15_000 }, async () => {
+        const backupCode = "EFGH2345";
+        await mem.db.insert(credentials).values({
+            id: crypto.randomUUID(),
+            userId: user.id,
+            type: BACKUP_CODE_CREDENTIAL_TYPE,
+            secret: await hashBackupCode(backupCode),
+            label: "backup",
+        });
+
+        const firstJar = makeCookieJar();
+        await catchRedirect(() => loginActions.default(loginEvent(firstJar.cookies, { username: "mfauser", password: PASSWORD })));
+        const pendingCookies = firstJar.snapshot();
+        const results = await Promise.all(
+            [0, 1].map(() => catchRedirect(() => mfaActions.default(mfaEvent(makeCookieJar(pendingCookies).cookies, { code: backupCode, use_backup: "1" }))).catch((error) => ({ error }))),
+        );
+
+        expect(results.filter((result) => "status" in result && result.status === 303)).toHaveLength(1);
+        expect(results.filter((result) => !("status" in result && result.status === 303))).toHaveLength(1);
     });
 
     // 11회 순차 로그인은 시도마다 scrypt 검증 + 실패 타이밍 균등화 지연이 누적되므로 기본 5s 로는 부족하다.
