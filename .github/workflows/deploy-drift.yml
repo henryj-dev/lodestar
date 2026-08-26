@@ -1,0 +1,52 @@
+# 배포 드리프트 — **자동 배포를 그만두면서 잃은 것을 되사는 자리**
+#
+# main push 자동 배포의 유일한 장점은 "main = 프로덕션" 이라는 불변식이었다. 수동
+# 트리거로 바꾸면 그게 깨지고, 깨진 것은 **아무도 안 본다** — 몇 주 뒤 프로덕션에
+# 무엇이 떠 있는지 모르는 상태가 된다.
+#
+# 여기서 그 간격을 잰다. 막는 것은 없다. 다만 벌어진 것이 숫자로 보이게 한다.
+
+name: Deploy drift
+
+on:
+    schedule:
+        - cron: "0 0 * * 1" # 매주 월요일 09:00 (KST)
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    deployments: read
+
+jobs:
+    drift:
+        name: drift
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: 마지막 배포 이후 main 이 얼마나 갔나
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  last="$(gh api "repos/${GITHUB_REPOSITORY}/deployments?environment=production&per_page=1" \
+                            --jq '.[0].sha // empty')"
+                  if [ -z "$last" ]; then
+                    echo "::warning::production 환경에 배포 기록이 아직 없다 — 잴 기준점이 없다."
+                    exit 0
+                  fi
+                  head="$(gh api "repos/${GITHUB_REPOSITORY}/commits/main" --jq '.sha')"
+                  if [ "$last" = "$head" ]; then
+                    echo "main 과 프로덕션이 같다 ($head)"
+                    exit 0
+                  fi
+                  n="$(gh api "repos/${GITHUB_REPOSITORY}/compare/${last}...${head}" --jq '.ahead_by')"
+                  echo "미배포 커밋 ${n}개"
+                  echo "  프로덕션: $last"
+                  echo "  main:     $head"
+                  gh api "repos/${GITHUB_REPOSITORY}/compare/${last}...${head}" \
+                    --jq '.commits[] | "  \(.sha[0:8]) \(.commit.message | split("\n")[0])"'
+                  # 임계는 "읽히지 않기 시작하는 지점" 에 둔다. 스무 커밋이 쌓이면
+                  # 무엇이 안 나갔는지 사람이 더는 머리로 못 센다.
+                  if [ "$n" -ge 20 ]; then
+                    echo "::warning::main 이 프로덕션보다 ${n} 커밋 앞서 있다"
+                  fi
