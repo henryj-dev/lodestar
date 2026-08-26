@@ -1,0 +1,17 @@
+# gitleaks 설정 — **예외는 좁게, 근거와 함께**
+#
+# 기본 규칙 묶음을 그대로 쓰고(`useDefault`), 여기서 빼는 것만 적는다. 규칙을 끄는
+# 대신 **파일과 값을 둘 다 지정해서** 빼는 이유는, 넓게 뚫어 둔 예외가 나중에 진짜를
+# 삼키기 때문이다.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "스키마를 설명하는 주석 한 줄. `secret = pbkdf2/argon2id hash` 는 그 컬럼에 무엇이 들어가는지를 적은 문장이지 값이 아니다."
+condition = "AND"
+paths = ['''^src/lib/server/db/schema\.(pg|mysql|sqlite)\.ts$''']
+# 기본값은 규칙이 뽑아낸 "값" 에 맞춰 보는 것인데, 여기서 빼려는 것은 값이 아니라
+# 문장이다. 줄 전체를 대상으로 삼아야 걸린다.
+regexTarget = "line"
+regexes = ['''type='password': secret = pbkdf2/argon2id hash''']

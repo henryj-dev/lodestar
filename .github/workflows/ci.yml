@@ -3,10 +3,11 @@ name: CI
 on:
     pull_request:
         branches: [main]
-
-concurrency:
-    group: ci-${{ github.head_ref }}
-    cancel-in-progress: true
+    # **main 에서도 돈다.** squash 머지는 PR 에서 돈 적이 없는 **새 커밋**을 만든다.
+    # 그 커밋에 판정이 없으면 배포 트리거가 "이 커밋의 gate 가 초록이었나" 를 물을
+    # 대상이 없고, 머지된 결과 자체는 아무도 검사하지 않은 채로 남는다.
+    push:
+        branches: [main]
 
 # 최소 권한. pull-requests:read 는 dorny/paths-filter 가 PR 이벤트에서
 # 변경 파일 목록을 REST API 로 조회하는 데 필요하다(체크아웃만으로는 부족).
@@ -22,10 +23,12 @@ jobs:
             build-affected: ${{ steps.filter.outputs.build-affected }}
         steps:
             - name: Checkout
-              uses: actions/checkout@v7
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
 
             - name: Filter paths
-              uses: dorny/paths-filter@v4
+              uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
               id: filter
               with:
                   filters: |
@@ -55,17 +58,20 @@ jobs:
 
         steps:
             - name: Checkout
-              uses: actions/checkout@v7
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
               with:
-                  ref: ${{ github.head_ref }}
+                  # PR 이면 그 가지의 끝, push 면 밀린 커밋. `github.head_ref` 는
+                  # push 이벤트에서 비어 있다.
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  persist-credentials: false
 
             - name: Setup Node.js
-              uses: actions/setup-node@v7
+              uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
                   node-version: 22
 
             - name: Setup Bun
-              uses: oven-sh/setup-bun@v2
+              uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
             - name: Install dependencies
               # bun 은 CI 환경에서도 frozen lockfile 을 자동 적용하지 않는다(1.3.x 실측).
@@ -101,22 +107,133 @@ jobs:
             - name: Build
               run: bun run build
 
-    required:
-        name: CI Required
+    # 자격증명이 이력에 들어왔는가. **지워진 커밋에 남은 것은 지워지지 않는다** —
+    # 공개 저장소에서 한 번 밀린 값은 밀린 순간 이미 밖에 있다.
+    secret-scan:
+        name: secret scan
         runs-on: ubuntu-latest
-        needs: [check-changes, ci]
-        if: always()
+        timeout-minutes: 15
         steps:
-            - name: Check result
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+            - name: gitleaks
+              # **액션 대신 바이너리를 직접 받는다.** 받은 것이 무엇인지 체크섬으로 확인할 수
+              # 있고, 남의 액션 안으로 토큰을 넘기지 않아도 된다.
+              env:
+                  GITLEAKS_VERSION: "8.30.1"
+                  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
               run: |
-                  # check-changes 가 실패하면 build-affected 가 빈 문자열이 되어 아래 조건이
-                  # 거짓이 된다. 그대로 두면 CI 가 한 번도 돌지 않은 채 필수 체크가 통과한다.
-                  if [[ "${{ needs.check-changes.result }}" != "success" ]]; then
-                    echo "::error::변경 파일 판별(check-changes)이 '${{ needs.check-changes.result }}' 로 끝났습니다 — CI 통과 여부를 확인할 수 없습니다."
-                    exit 1
+                  set -euo pipefail
+                  url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+                  curl -fsSL --retry 3 -o /tmp/gitleaks.tgz "$url"
+                  echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tgz" | sha256sum -c -
+                  tar xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+                  /tmp/gitleaks git --no-banner --redact --exit-code 1 .
+
+    # **워크플로 자체가 공격면이다.** 러너는 밖에서 온 코드를 실행하고, `${{ }}` 가
+    # `run:` 본문에 박히면 그게 곧 셸 코드가 된다. 사람은 리뷰에서 반드시 놓친다.
+    workflow-audit:
+        name: workflow audit
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - name: actionlint
+              env:
+                  ACTIONLINT_VERSION: "1.7.12"
+                  ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+              run: |
+                  set -euo pipefail
+                  url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+                  curl -fsSL --retry 3 -o /tmp/actionlint.tgz "$url"
+                  echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tgz" | sha256sum -c -
+                  tar xzf /tmp/actionlint.tgz -C /tmp actionlint
+                  /tmp/actionlint -color .github/workflows/*.yml
+            - name: zizmor
+              env:
+                  ZIZMOR_VERSION: "1.29.0"
+                  ZIZMOR_SHA256: "dd96df044a6e8538d5f423790f453bdd03d49e5b2bcc38214acc41a2f1297839"
+              run: |
+                  set -euo pipefail
+                  url="https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+                  curl -fsSL --retry 3 -o /tmp/zizmor.tgz "$url"
+                  echo "${ZIZMOR_SHA256}  /tmp/zizmor.tgz" | sha256sum -c -
+                  tar xzf /tmp/zizmor.tgz -C /tmp
+                  /tmp/zizmor --no-progress --persona=regular .github/workflows
+
+    # **PR 이 무엇을 끌고 들어오는지 본다.** `npm ci` 는 잠금 파일을 그대로 세우므로
+    # CI 는 새로 들어온 패키지에 대해 아무 말도 하지 않는다 — 초록이 곧 "이 의존성이
+    # 괜찮다" 로 읽히는 자리다.
+    dependency-review:
+        name: dependency review
+        # PR 에서만 뜻이 있다. 기준점이 있어야 "무엇이 새로 들어왔는가" 를 물을 수 있다.
+        if: github.event_name == 'pull_request'
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        permissions:
+            contents: read
+            # 무엇이 왜 막혔는지 PR 안에 적는다. 로그를 열어야만 알 수 있으면
+            # 밖에서 온 기여자는 그냥 막혔다고만 느낀다.
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  persist-credentials: false
+            - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+              with:
+                  # `moderate` 부터 막으면 전이 의존성의 소음에 파묻힌다. 막는 선은
+                  # **되돌릴 수 없는 것**에 맞춘다.
+                  fail-on-severity: high
+                  # 카피레프트를 거부한다. 정말 필요한 것이 걸리면 여기서 예외를 다는 대신
+                  # **왜 필요한지를 PR 에 적고** 이 줄을 고친다.
+                  deny-licenses: AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later, GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later, SSPL-1.0
+                  comment-summary-in-pr: on-failure
+
+    # **브랜치 규칙이 거는 이름은 이것 하나다.**
+    #
+    # 잡 이름을 규칙에 직접 적으면 이름이 바뀌는 날 그 체크는 "존재하지 않는 체크" 가
+    # 되고, 보호는 조용히 사라진다 — GitHub 은 그때 아무 말도 하지 않는다. 여기서
+    # 모아 받으면 잡의 증감이 `needs:` 한 줄로 끝나고, 규칙은 안 건드린다.
+    gate:
+        name: gate
+        runs-on: ubuntu-latest
+        needs: [check-changes, ci, secret-scan, workflow-audit, dependency-review]
+        # 선행 잡이 빨개도 이 잡은 돌아야 한다. 안 그러면 "돌지 않은 체크" 가 되어
+        # 규칙이 기다리기만 하고, 무엇이 깨졌는지는 아무 데도 안 적힌다.
+        if: always()
+        timeout-minutes: 5
+        steps:
+            - name: 선행 잡 판정
+              # `${{ }}` 를 `run:` 본문에 박지 않는다 — 그 자리는 셸이 스크립트를 보기
+              # 전에 통째로 치환되므로, 값에 따옴표나 `$(...)` 가 섞이면 그대로 셸
+              # 코드가 된다.
+              env:
+                  NEEDS: ${{ toJSON(needs) }}
+                  BUILD_AFFECTED: ${{ needs.check-changes.outputs.build-affected }}
+              run: |
+                  set -euo pipefail
+                  jq -r 'to_entries[] | "  \(.key): \(.value.result)"' <<<"$NEEDS"
+
+                  # **건너뛸지를 정하는 잡은 반드시 성공해야 한다.** 이게 빨가면
+                  # build-affected 가 비고, 그러면 ci 가 조용히 건너뛴 것을 "해당 없음"
+                  # 으로 읽게 된다 — 검사를 안 한 것이 통과로 둔갑한다.
+                  cc="$(jq -r '."check-changes".result' <<<"$NEEDS")"
+                  test "$cc" = "success" \
+                    || { echo "::error::변경 파일 판별이 '$cc' 로 끝났다 — 통과 여부를 알 수 없다"; exit 1; }
+
+                  # 빌드에 영향이 있다고 판별했는데 ci 가 안 돌았다면 그건 스킵이 아니라 사고다.
+                  if [ "$BUILD_AFFECTED" = "true" ]; then
+                    ci="$(jq -r '.ci.result' <<<"$NEEDS")"
+                    test "$ci" = "success" \
+                      || { echo "::error::빌드 영향이 있는데 ci 가 '$ci' 다"; exit 1; }
                   fi
-                  if [[ "${{ needs.check-changes.outputs.build-affected }}" == "true" && "${{ needs.ci.result }}" != "success" ]]; then
-                    echo "CI failed"
-                    exit 1
-                  fi
-                  echo "CI passed or skipped"
+
+                  # skipped 는 통과로 본다 — 이 이벤트에 해당하지 않는 잡이 있다(예: PR
+                  # 에서만 뜻이 있는 의존성 리뷰). 건너뛴 것과 실패한 것은 다른 말이다.
+                  bad="$(jq '[.[] | select(.result == "failure" or .result == "cancelled")] | length' <<<"$NEEDS")"
+                  test "$bad" = "0" || { echo "::error::선행 잡 $bad 개가 통과하지 않았다"; exit 1; }
+                  echo "게이트 통과"
