@@ -179,7 +179,7 @@ bun run dev
 
 ### Source tree
 
-```
+```text
 src/
 ├── hooks.server.ts        # session restore, security headers, CSRF origin check, tenant context
 ├── app.html

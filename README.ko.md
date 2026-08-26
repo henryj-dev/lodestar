@@ -155,7 +155,7 @@ bun run dev
 
 ### 디렉터리 구조
 
-```
+```text
 src/
 ├── hooks.server.ts        # 세션 복원, 보안 헤더, CSRF origin 검사, 테넌트 컨텍스트
 ├── app.html
