@@ -1,4 +1,7 @@
-# Keystone 코드 기반 기능·보안 감사 보고서
+# Lodestar 코드 기반 기능·보안 감사 보고서
+
+> 이 문서는 저장소가 `henryj-dev/keystone` 이던 시점의 감사 기록이다. 2026-08-25 `henryj-dev/lodestar` 로 개명되면서
+> 제목·절대경로·링크만 새 이름 기준으로 갱신했다. 발견 사항·근거·판정은 감사 당시 그대로다.
 
 ## 감사 범위
 
@@ -34,14 +37,14 @@
 
 근거:
 
-- [users/lookup/+server.ts:42](/Users/henry/github/henryj-dev/keystone/src/routes/api/users/lookup/+server.ts:42) — `url.searchParams.get("tenant")` 를 그대로 신뢰
-- [users/lookup/+server.ts:48](/Users/henry/github/henryj-dev/keystone/src/routes/api/users/lookup/+server.ts:48) — 그 슬러그로 tenants 행 해석
-- [users/lookup/+server.ts:66-94](/Users/henry/github/henryj-dev/keystone/src/routes/api/users/lookup/+server.ts:66) — 세 조회 경로 모두 이 tenant.id 로 스코프
-- [service-token.ts:103](/Users/henry/github/henryj-dev/keystone/src/lib/server/auth/service-token.ts:103) — 토큰 검증은 `row.tenantId === locals.tenant.id`(=default) 만 확인
+- [users/lookup/+server.ts:42](/Users/henry/github/henryj-dev/lodestar/src/routes/api/users/lookup/+server.ts:42) — `url.searchParams.get("tenant")` 를 그대로 신뢰
+- [users/lookup/+server.ts:48](/Users/henry/github/henryj-dev/lodestar/src/routes/api/users/lookup/+server.ts:48) — 그 슬러그로 tenants 행 해석
+- [users/lookup/+server.ts:66-94](/Users/henry/github/henryj-dev/lodestar/src/routes/api/users/lookup/+server.ts:66) — 세 조회 경로 모두 이 tenant.id 로 스코프
+- [service-token.ts:103](/Users/henry/github/henryj-dev/lodestar/src/lib/server/auth/service-token.ts:103) — 토큰 검증은 `row.tenantId === locals.tenant.id`(=default) 만 확인
 
 현재 요청 컨텍스트가 default 테넌트로 고정되어 있어 DB 저장형 토큰의 경우에는 default 테넌트가 아닌 행과의 조합이 제한된다. 그러나 `requireServiceToken()`의 `DISPATCHER_SERVICE_TOKEN` 환경변수 토큰 경로는 테넌트 행 검증을 하지 않고 전 스코프를 허용한다. 따라서 해당 환경변수 토큰으로 `?tenant=<임의 슬러그>&email=...` 을 보내면 다른 테넌트 사용자의 `id / tenantId / username / email / displayName / role / status` 를 얻을 수 있다. rate-limit 은 IP 당 분당 120회라 열거 상한도 느슨하다.
 
-이 파일의 주석([users/lookup/+server.ts:22-24](/Users/henry/github/henryj-dev/keystone/src/routes/api/users/lookup/+server.ts:22))은 정반대를 주장한다 — "전역 dispatcher service-token 이 임의 테넌트 사용자 레코드를 조회하는 것을 막는다". 코드는 **요청된** 테넌트로 스코프할 뿐 **토큰의** 테넌트로 스코프하지 않는다.
+이 파일의 주석([users/lookup/+server.ts:22-24](/Users/henry/github/henryj-dev/lodestar/src/routes/api/users/lookup/+server.ts:22))은 정반대를 주장한다 — "전역 dispatcher service-token 이 임의 테넌트 사용자 레코드를 조회하는 것을 막는다". 코드는 **요청된** 테넌트로 스코프할 뿐 **토큰의** 테넌트로 스코프하지 않는다.
 
 권장 조치:
 
@@ -59,10 +62,10 @@
 
 근거:
 
-- [oauth/jwt.ts:40](/Users/henry/github/henryj-dev/keystone/src/lib/server/oauth/jwt.ts:40) — `await fetch(jwksUri, ...)`
-- [oauth/client.ts:65](/Users/henry/github/henryj-dev/keystone/src/lib/server/oauth/client.ts:65) — discovery 응답의 `jwks_uri` 를 검증 없이 전달
-- [generic-oidc.ts:76-85](/Users/henry/github/henryj-dev/keystone/src/lib/server/oauth/providers/generic-oidc.ts:76) — 그 값을 `verifyUpstreamIdToken` 에 전달
-- [oauth/http.ts:24-69](/Users/henry/github/henryj-dev/keystone/src/lib/server/oauth/http.ts:24) — 정상 경로가 갖춘 방어(대조군)
+- [oauth/jwt.ts:40](/Users/henry/github/henryj-dev/lodestar/src/lib/server/oauth/jwt.ts:40) — `await fetch(jwksUri, ...)`
+- [oauth/client.ts:65](/Users/henry/github/henryj-dev/lodestar/src/lib/server/oauth/client.ts:65) — discovery 응답의 `jwks_uri` 를 검증 없이 전달
+- [generic-oidc.ts:76-85](/Users/henry/github/henryj-dev/lodestar/src/lib/server/oauth/providers/generic-oidc.ts:76) — 그 값을 `verifyUpstreamIdToken` 에 전달
+- [oauth/http.ts:24-69](/Users/henry/github/henryj-dev/lodestar/src/lib/server/oauth/http.ts:24) — 정상 경로가 갖춘 방어(대조군)
 
 `guardedFetch` 가 제공하는 다음 방어가 **전부** 비켜 간다.
 
@@ -94,13 +97,13 @@ TOTP 검증은 counter 를 조회·검증한 뒤 별도 UPDATE 를 수행한다.
 
 근거:
 
-- [api/totp/verify/+server.ts:57-78](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/verify/+server.ts:57)
-- [auth/mfa/+page.server.ts:160-172](</Users/henry/github/henryj-dev/keystone/src/routes/(auth)/mfa/+page.server.ts:160>) — 백업 코드
-- [auth/mfa/+page.server.ts:180-202](</Users/henry/github/henryj-dev/keystone/src/routes/(auth)/mfa/+page.server.ts:180>) — TOTP
+- [api/totp/verify/+server.ts:57-78](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/verify/+server.ts:57)
+- [auth/mfa/+page.server.ts:160-172](</Users/henry/github/henryj-dev/lodestar/src/routes/(auth)/mfa/+page.server.ts:160>) — 백업 코드
+- [auth/mfa/+page.server.ts:180-202](</Users/henry/github/henryj-dev/lodestar/src/routes/(auth)/mfa/+page.server.ts:180>) — TOTP
 
 동일 코드를 동시에 제출하면 두 요청이 모두 검증을 통과할 수 있다. 재사용 방지(`counter`, `usedAt`)는 순차 요청만 막는다. 실효 공격은 피싱·중계로 확보한 코드를 정상 사용자의 제출과 병렬로 던지는 시나리오이므로, 단독 우회가 아니라 심층 방어 통제의 실패로 본다.
 
-동일 파일의 enrollment 경로는 이미 올바른 패턴을 쓴다 — `credentials_totp_owner_uidx` UNIQUE 인덱스 + `runAtomic` 으로 동시 이중 등록을 DB 레벨에서 차단한다([enroll/confirm/+server.ts:76-106](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/enroll/confirm/+server.ts:76)). 검증 경로만 빠져 있다.
+동일 파일의 enrollment 경로는 이미 올바른 패턴을 쓴다 — `credentials_totp_owner_uidx` UNIQUE 인덱스 + `runAtomic` 으로 동시 이중 등록을 DB 레벨에서 차단한다([enroll/confirm/+server.ts:76-106](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/enroll/confirm/+server.ts:76)). 검증 경로만 빠져 있다.
 
 권장 조치:
 
@@ -118,9 +121,9 @@ TOTP 검증은 counter 를 조회·검증한 뒤 별도 UPDATE 를 수행한다.
 
 근거:
 
-- [ldap-providers/+page.server.ts:14-52](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.server.ts:14) — `buildConfig` 가 폼 데이터만으로 새 객체를 생성
-- [ldap-providers/+page.server.ts:164](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.server.ts:164) — 기존 행 조회 없이 config 재구성
-- [ldap-providers/+page.server.ts:171](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.server.ts:171) — `configJson` 을 통째로 덮어씀
+- [ldap-providers/+page.server.ts:14-52](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.server.ts:14) — `buildConfig` 가 폼 데이터만으로 새 객체를 생성
+- [ldap-providers/+page.server.ts:164](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.server.ts:164) — 기존 행 조회 없이 config 재구성
+- [ldap-providers/+page.server.ts:171](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.server.ts:171) — `configJson` 을 통째로 덮어씀
 
 결정적 근거는 코드가 스스로 반대 주장을 하고 있다는 점이다:
 
@@ -151,12 +154,12 @@ if (!config.bindPassword) {
 
 근거:
 
-- [oidc/role-change.ts:106-115](/Users/henry/github/henryj-dev/keystone/src/lib/server/oidc/role-change.ts:106) — `assertPublicWebhookUrl` + `assertResolvedHostAllowed` 직후 무방비 `fetch`
-- [oidc/logout.ts:244-252](/Users/henry/github/henryj-dev/keystone/src/lib/server/oidc/logout.ts:244) — 동일 패턴
+- [oidc/role-change.ts:106-115](/Users/henry/github/henryj-dev/lodestar/src/lib/server/oidc/role-change.ts:106) — `assertPublicWebhookUrl` + `assertResolvedHostAllowed` 직후 무방비 `fetch`
+- [oidc/logout.ts:244-252](/Users/henry/github/henryj-dev/lodestar/src/lib/server/oidc/logout.ts:244) — 동일 패턴
 
 등록·발송 시점에 SSRF 게이트를 두 겹 통과시켜 놓고도, 검증을 통과한 호스트가 3xx 로 내부 주소를 가리키면 **가드가 통째로 우회**되어 내부 주소로 요청이 발생한다. 특히 307/308 리다이렉트에서는 서명된 `logout_token` / `role_change_token` body까지 그 목적지로 재전송될 수 있다(301/302는 Fetch 동작상 POST가 GET으로 바뀌어 body가 제거될 수 있음). 수신 서버가 연결을 지연시키면 요청 또는 백그라운드 작업이 장시간 점유된다.
 
-같은 저장소의 [oauth/http.ts:48-66](/Users/henry/github/henryj-dev/keystone/src/lib/server/oauth/http.ts:48) 은 정확히 이 이유로 `redirect: "manual"` + 3xx 거부를 쓰며, Workers 에서 `redirect: "error"` 를 쓰면 안 되는 이유까지 주석으로 남겨 두었다. 웹훅 경로만 이 패턴이 적용되지 않았다.
+같은 저장소의 [oauth/http.ts:48-66](/Users/henry/github/henryj-dev/lodestar/src/lib/server/oauth/http.ts:48) 은 정확히 이 이유로 `redirect: "manual"` + 3xx 거부를 쓰며, Workers 에서 `redirect: "error"` 를 쓰면 안 되는 이유까지 주석으로 남겨 두었다. 웹훅 경로만 이 패턴이 적용되지 않았다.
 
 권장 조치:
 
@@ -174,18 +177,18 @@ if (!config.bindPassword) {
 
 근거:
 
-- [enroll/init/+server.ts:38](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/enroll/init/+server.ts:38)
-- [enroll/init/+server.ts:41-45](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/enroll/init/+server.ts:41)
-- [enroll/confirm/+server.ts:46](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/enroll/confirm/+server.ts:46)
-- [verify/+server.ts:57-61](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/verify/+server.ts:57)
-- [status/+server.ts:19-28](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/status/+server.ts:19)
+- [enroll/init/+server.ts:38](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/enroll/init/+server.ts:38)
+- [enroll/init/+server.ts:41-45](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/enroll/init/+server.ts:41)
+- [enroll/confirm/+server.ts:46](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/enroll/confirm/+server.ts:46)
+- [verify/+server.ts:57-61](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/verify/+server.ts:57)
+- [status/+server.ts:19-28](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/status/+server.ts:19)
 
 테넌트 A 의 유효 서비스 토큰과 테넌트 B 사용자의 UUID 를 조합하면 TOTP 등록, 검증, 상태 조회가 가능하다.
 
 **현재 도달 가능성**: 모든 HTTP 요청이 `DEFAULT_TENANT_SLUG` 로 고정되므로(K-009) 지금은 두 번째 테넌트 컨텍스트에 도달할 경로가 없다. 다만 이것은 "나중에 볼 문제"라는 뜻이 아니다 — 저장소는 이미 이 통제를 **구현해 두었고**, TOTP 4개 라우트만 빠져 있는 일관성 결함이다.
 
-- [guards.ts:95-109](/Users/henry/github/henryj-dev/keystone/src/lib/server/auth/guards.ts:95) — `assertUserInTenant()` (admin 라우트용, 주석에 "멀티테넌트 활성화 즉시 폭발하는 결함이라 사전 차단"이라고 명시)
-- [users/lookup/+server.ts:70](/Users/henry/github/henryj-dev/keystone/src/routes/api/users/lookup/+server.ts:70) — 서비스 API 도 `users.tenantId` 로 스코프 (단, K-011 의 결함은 별개)
+- [guards.ts:95-109](/Users/henry/github/henryj-dev/lodestar/src/lib/server/auth/guards.ts:95) — `assertUserInTenant()` (admin 라우트용, 주석에 "멀티테넌트 활성화 즉시 폭발하는 결함이라 사전 차단"이라고 명시)
+- [users/lookup/+server.ts:70](/Users/henry/github/henryj-dev/lodestar/src/routes/api/users/lookup/+server.ts:70) — 서비스 API 도 `users.tenantId` 로 스코프 (단, K-011 의 결함은 별개)
 
 권장 조치:
 
@@ -204,9 +207,9 @@ LDAP 목록 응답이 `configJson` 을 그대로 내려보내며, UI 가 그 안
 
 근거:
 
-- [ldap-providers/+page.server.ts:76-82](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.server.ts:76) — `select()` 전체 반환
-- [ldap-providers/+page.svelte:17-23](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.svelte:17) — 클라이언트에서 `configJson` 파싱
-- [ldap-providers/+page.svelte:355](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.svelte:355) — `value={c.bindPassword ?? ""}`
+- [ldap-providers/+page.server.ts:76-82](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.server.ts:76) — `select()` 전체 반환
+- [ldap-providers/+page.svelte:17-23](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.svelte:17) — 클라이언트에서 `configJson` 파싱
+- [ldap-providers/+page.svelte:355](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.svelte:355) — `value={c.bindPassword ?? ""}`
 
 레거시 평문 설정이 남아 있으면 SSR HTML, hydration 데이터, 브라우저 DOM 에 비밀번호가 노출된다. 평문뿐 아니라 **`bindPasswordEnc` 암호문도 함께 나간다** — 위험도는 낮지만 같은 DTO 화이트리스트로 처리해야 한다.
 
@@ -225,9 +228,9 @@ LDAP 목록 응답이 `configJson` 을 그대로 내려보내며, UI 가 그 안
 
 근거:
 
-- [reset-password/+page.server.ts:102-129](</Users/henry/github/henryj-dev/keystone/src/routes/(auth)/reset-password/+page.server.ts:102>) — 조회(102) → 비밀번호 쓰기(124/126) → 토큰 소진(129)
+- [reset-password/+page.server.ts:102-129](</Users/henry/github/henryj-dev/lodestar/src/routes/(auth)/reset-password/+page.server.ts:102>) — 조회(102) → 비밀번호 쓰기(124/126) → 토큰 소진(129)
 
-1차 보고서는 "동시 요청이 같은 토큰의 `usedAt IS NULL` 조회를 모두 통과할 수 있다"를 근거로 중간~높음으로 평가했으나, 이는 과대평가다. 두 요청 모두 **토큰 보유자**이므로 결과는 "비밀번호가 두 번 쓰인다"이지 권한 획득이 아니며, [line 132-140](</Users/henry/github/henryj-dev/keystone/src/routes/(auth)/reset-password/+page.server.ts:132>) 이 같은 사용자의 미사용 토큰을 일괄 소진하고 세션·refresh token·신뢰기기를 모두 폐기한다.
+1차 보고서는 "동시 요청이 같은 토큰의 `usedAt IS NULL` 조회를 모두 통과할 수 있다"를 근거로 중간~높음으로 평가했으나, 이는 과대평가다. 두 요청 모두 **토큰 보유자**이므로 결과는 "비밀번호가 두 번 쓰인다"이지 권한 획득이 아니며, [line 132-140](</Users/henry/github/henryj-dev/lodestar/src/routes/(auth)/reset-password/+page.server.ts:132>) 이 같은 사용자의 미사용 토큰을 일괄 소진하고 세션·refresh token·신뢰기기를 모두 폐기한다.
 
 실제로 유효한 근거는 **쓰기 순서와 부분 성공**이다. 비밀번호 쓰기가 토큰 소진보다 먼저 일어나고 전체 작업이 원자적이지 않으므로, 앞 단계가 성공하고 이후 토큰 소진 또는 세션·refresh token 폐기가 실패하면 **이미 사용된 재설정 링크가 만료까지 계속 유효**하거나 일부 세션이 남을 수 있다. 동시 요청 문제 외에도 비밀번호 credential 변경/삽입, 토큰 소진, 세션 폐기를 하나의 트랜잭션으로 묶어야 한다.
 
@@ -235,7 +238,7 @@ LDAP 목록 응답이 `configJson` 을 그대로 내려보내며, UI 가 그 안
 
 - 토큰 소비를 `UPDATE ... WHERE tokenHash = ? AND usedAt IS NULL` 로 원자화하고 **먼저** 수행
 - 영향받은 행이 1개가 아니면 실패 처리
-- 비밀번호 변경, 토큰 소비를 `runAtomic` 으로 묶기 (동일 유틸이 [db/atomic.ts](/Users/henry/github/henryj-dev/keystone/src/lib/server/db/atomic.ts:35) 에 이미 존재)
+- 비밀번호 변경, 토큰 소비를 `runAtomic` 으로 묶기 (동일 유틸이 [db/atomic.ts](/Users/henry/github/henryj-dev/lodestar/src/lib/server/db/atomic.ts:35) 에 이미 존재)
 
 ### K-013 — LDAP provider `update` 액션에 감사 로그 없음
 
@@ -246,9 +249,9 @@ LDAP 목록 응답이 `configJson` 을 그대로 내려보내며, UI 가 그 안
 
 근거:
 
-- [ldap-providers/+page.server.ts:128-136](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.server.ts:128) — create: 기록 있음
-- [ldap-providers/+page.server.ts:141-175](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.server.ts:141) — update: 기록 **없음**
-- [ldap-providers/+page.server.ts:188-197](/Users/henry/github/henryj-dev/keystone/src/routes/admin/ldap-providers/+page.server.ts:188) — delete: 기록 있음
+- [ldap-providers/+page.server.ts:128-136](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.server.ts:128) — create: 기록 있음
+- [ldap-providers/+page.server.ts:141-175](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.server.ts:141) — update: 기록 **없음**
+- [ldap-providers/+page.server.ts:188-197](/Users/henry/github/henryj-dev/lodestar/src/routes/admin/ldap-providers/+page.server.ts:188) — delete: 기록 있음
 
 세 액션 중 가장 민감한 것이 update 다 — LDAP 호스트를 공격자 서버로 바꿔 사용자 자격증명을 수확하는 변경이 흔적 없이 가능하다. `enabled` 토글도 같은 액션을 지나간다.
 
@@ -266,9 +269,9 @@ LDAP 목록 응답이 `configJson` 을 그대로 내려보내며, UI 가 그 안
 
 근거:
 
-- [ldap/provision.ts:25-30](/Users/henry/github/henryj-dev/keystone/src/lib/server/ldap/provision.ts:25) — identity 조회는 tenant 스코프
-- [ldap/provision.ts:34-42](/Users/henry/github/henryj-dev/keystone/src/lib/server/ldap/provision.ts:34) — 사용자 갱신은 `users.id`만 조건
-- [ldap/provision.ts:49-53](/Users/henry/github/henryj-dev/keystone/src/lib/server/ldap/provision.ts:49) — 사용자 반환도 `users.id`와 status만 조건
+- [ldap/provision.ts:25-30](/Users/henry/github/henryj-dev/lodestar/src/lib/server/ldap/provision.ts:25) — identity 조회는 tenant 스코프
+- [ldap/provision.ts:34-42](/Users/henry/github/henryj-dev/lodestar/src/lib/server/ldap/provision.ts:34) — 사용자 갱신은 `users.id`만 조건
+- [ldap/provision.ts:49-53](/Users/henry/github/henryj-dev/lodestar/src/lib/server/ldap/provision.ts:49) — 사용자 반환도 `users.id`와 status만 조건
 
 정상적인 생성 경로에서는 identity와 user의 테넌트가 일치하지만, 잘못된 마이그레이션·직접 DB 조작·기존 정합성 오류로 다른 테넌트의 userId를 가리키는 identity가 들어가면 LDAP 로그인 처리 중 다른 테넌트 사용자의 프로필을 갱신하고 반환할 수 있다. 즉시 원격에서 재현되는 단독 공격이라기보다, 테넌트 경계를 DB 조회 단계에서도 일관되게 강제하지 않은 잠재 결함이다.
 
@@ -285,7 +288,7 @@ LDAP 목록 응답이 `configJson` 을 그대로 내려보내며, UI 가 그 안
 
 근거:
 
-- [ratelimit/store.ts:163-166](/Users/henry/github/henryj-dev/keystone/src/lib/server/ratelimit/store.ts:163)
+- [ratelimit/store.ts:163-166](/Users/henry/github/henryj-dev/lodestar/src/lib/server/ratelimit/store.ts:163)
 
 ```ts
 const isWorkers = typeof platform?.ctx?.waitUntil === "function";
@@ -306,9 +309,9 @@ return isWorkers ? new DbRateLimitStore(db) : getMemoryRateLimitStore();
 
 근거:
 
-- [enroll/init/+server.ts:33](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/enroll/init/+server.ts:33)
-- [enroll/confirm/+server.ts:41](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/enroll/confirm/+server.ts:41)
-- [verify/+server.ts:52](/Users/henry/github/henryj-dev/keystone/src/routes/api/totp/verify/+server.ts:52)
+- [enroll/init/+server.ts:33](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/enroll/init/+server.ts:33)
+- [enroll/confirm/+server.ts:41](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/enroll/confirm/+server.ts:41)
+- [verify/+server.ts:52](/Users/henry/github/henryj-dev/lodestar/src/routes/api/totp/verify/+server.ts:52)
 
 `users.id`는 테넌트 무관 전역 UUID PK라 충돌은 불가능하지만, 멀티테넌트별 quota·관측성을 위해 서비스 TOTP와 웹/계정 MFA의 키를 `tenantId:userId`로 정규화했다.
 
@@ -323,9 +326,9 @@ return isWorkers ? new DbRateLimitStore(db) : getMemoryRateLimitStore();
 
 근거:
 
-- [bootstrap.ts:13-40](/Users/henry/github/henryj-dev/keystone/src/lib/server/auth/bootstrap.ts:13) — `ensureDefaultTenant` 가 `DEFAULT_TENANT_SLUG` 로 고정 조회
-- [bootstrap.ts:128-145](/Users/henry/github/henryj-dev/keystone/src/lib/server/auth/bootstrap.ts:128) — isolate 전역 캐시에 단일 tenant 보관
-- [hooks.server.ts:135](/Users/henry/github/henryj-dev/keystone/src/hooks.server.ts:135) — 요청마다 이 값을 `locals.tenant` 로 사용
+- [bootstrap.ts:13-40](/Users/henry/github/henryj-dev/lodestar/src/lib/server/auth/bootstrap.ts:13) — `ensureDefaultTenant` 가 `DEFAULT_TENANT_SLUG` 로 고정 조회
+- [bootstrap.ts:128-145](/Users/henry/github/henryj-dev/lodestar/src/lib/server/auth/bootstrap.ts:128) — isolate 전역 캐시에 단일 tenant 보관
+- [hooks.server.ts:135](/Users/henry/github/henryj-dev/lodestar/src/hooks.server.ts:135) — 요청마다 이 값을 `locals.tenant` 로 사용
 
 데이터베이스에는 테넌트 컬럼이 있지만 요청마다 `DEFAULT_TENANT_SLUG` 를 사용한다. 도메인, Host, 명시적 tenant context 에 따른 테넌트 선택은 구현되어 있지 않다. `globalThis.__idpBaselineCache` 가 단일 tenant 객체를 캐시하므로, 멀티테넌트를 켜려면 이 캐시 구조부터 키 기반으로 바꿔야 한다.
 

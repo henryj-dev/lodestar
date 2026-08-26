@@ -1,4 +1,7 @@
-# Keystone 감사 대응 작업 목록 (TODO)
+# Lodestar 감사 대응 작업 목록 (TODO)
+
+> 이 문서는 저장소가 `henryj-dev/keystone` 이던 시점의 감사 기록이다. 2026-08-25 `henryj-dev/lodestar` 로 개명되면서
+> 제목·절대경로·링크만 새 이름 기준으로 갱신했다. 발견 사항·근거·판정은 감사 당시 그대로다.
 
 > 출처: [CODE_AUDIT_REPORT.md](./CODE_AUDIT_REPORT.md) (2차 개정본)
 > 작성일: 2026-08-25
@@ -449,7 +452,7 @@
 - [x] **T6-6** 잘못된 주석 정정 확인 — K-011(users/lookup JSDoc), K-005(encryptBindPassword L60-63) 두 곳
 - [x] **T6-7** `CODE_AUDIT_REPORT.md` 에 대응 상태 표와 본 파일 링크 추가
 - [x] **T6-8** 감사 항목별 커밋 분할 및 리뷰 — 6개 감사 대응 커밋으로 분리
-- [x] **T6-9** PR 생성 및 리뷰 요청 — [PR #103](https://github.com/henryj-dev/keystone/pull/103)
+- [x] **T6-9** PR 생성 및 리뷰 요청 — [PR #103](https://github.com/henryj-dev/lodestar/pull/103)
 
 ---
 
