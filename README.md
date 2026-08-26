@@ -12,7 +12,6 @@ deployment target are chosen at build time.
 
 [![ci](https://github.com/henryj-dev/lodestar/actions/workflows/ci.yml/badge.svg)](https://github.com/henryj-dev/lodestar/actions/workflows/ci.yml)
 [![codeql](https://github.com/henryj-dev/lodestar/actions/workflows/codeql.yml/badge.svg)](https://github.com/henryj-dev/lodestar/actions/workflows/codeql.yml)
-[![gitleaks](https://github.com/henryj-dev/lodestar/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/henryj-dev/lodestar/actions/workflows/gitleaks.yml)
 
 <br/>
 
@@ -180,7 +179,7 @@ bun run dev
 
 ### Source tree
 
-```
+```text
 src/
 ├── hooks.server.ts        # session restore, security headers, CSRF origin check, tenant context
 ├── app.html

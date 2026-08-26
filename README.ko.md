@@ -12,7 +12,6 @@ OIDC, SAML 2.0, WebAuthn/Passkey, TOTP 2FA, LDAP 연동을 지원하고 멀티�
 
 [![ci](https://github.com/henryj-dev/lodestar/actions/workflows/ci.yml/badge.svg)](https://github.com/henryj-dev/lodestar/actions/workflows/ci.yml)
 [![codeql](https://github.com/henryj-dev/lodestar/actions/workflows/codeql.yml/badge.svg)](https://github.com/henryj-dev/lodestar/actions/workflows/codeql.yml)
-[![gitleaks](https://github.com/henryj-dev/lodestar/actions/workflows/gitleaks.yml/badge.svg)](https://github.com/henryj-dev/lodestar/actions/workflows/gitleaks.yml)
 
 <br/>
 
@@ -156,7 +155,7 @@ bun run dev
 
 ### 디렉터리 구조
 
-```
+```text
 src/
 ├── hooks.server.ts        # 세션 복원, 보안 헤더, CSRF origin 검사, 테넌트 컨텍스트
 ├── app.html
