@@ -6,10 +6,6 @@ on:
     schedule:
         - cron: "0 1 * * *" # 매일 오전 10시 (KST)
 
-concurrency:
-    group: codeql-${{ github.head_ref || github.ref }}
-    cancel-in-progress: true
-
 # 최상위 기본값을 읽기로 못 박는다. 없으면 저장소 기본값을 따라가고,
 # 그 값은 이 파일을 읽어서는 알 수 없다.
 permissions:

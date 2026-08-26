@@ -30,11 +30,6 @@ on:
 permissions:
     contents: read
 
-concurrency:
-    # 배포는 중간에 자르지 않는다.
-    group: deploy
-    cancel-in-progress: false
-
 jobs:
     vet:
         name: vet

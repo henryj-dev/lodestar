@@ -9,10 +9,6 @@ on:
     push:
         branches: [main]
 
-concurrency:
-    group: ci-${{ github.head_ref || github.ref }}
-    cancel-in-progress: true
-
 # 최소 권한. pull-requests:read 는 dorny/paths-filter 가 PR 이벤트에서
 # 변경 파일 목록을 REST API 로 조회하는 데 필요하다(체크아웃만으로는 부족).
 permissions:
