@@ -1,4 +1,7 @@
-# Keystone 설정·CI 전수검사 보고서
+# Lodestar 설정·CI 전수검사 보고서
+
+> 이 문서는 저장소가 `henryj-dev/keystone` 이던 시점의 감사 기록이다. 2026-08-25 `henryj-dev/lodestar` 로 개명되면서
+> 제목·절대경로·링크만 새 이름 기준으로 갱신했다. 발견 사항·근거·판정은 감사 당시 그대로다.
 
 ## 감사 범위
 
@@ -56,10 +59,10 @@ C-04 / C-06 / C-08 이하는 이 PR 범위 밖으로 남겨 두었다.
 
 근거:
 
-- [deploy.yml:97](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:97) — `CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}`
-- [deploy.yml:99-102](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:99) — 빈 값이면 메시지 출력 후 `exit 0`
+- [deploy.yml:97](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:97) — `CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}`
+- [deploy.yml:99-102](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:99) — 빈 값이면 메시지 출력 후 `exit 0`
 - `gh secret list` 결과 — 등록 시크릿은 `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` / `GITLEAKS_LICENSE` / `WORKFLOW_PAT` / `WRANGLER_JSONC` 5종뿐, `CLOUDFLARE_ZONE_ID` 없음
-- 실행 로그 [run 32807039213](https://github.com/henryj-dev/keystone/actions/runs/32807039213) 1258행 `CLOUDFLARE_ZONE_ID: `(빈 값), 1260행 `CLOUDFLARE_ZONE_ID 시크릿이 없으므로 캐시 퍼지를 건너뜁니다.` — 배포는 성공(38s)했고 퍼지만 누락
+- 실행 로그 [run 32807039213](https://github.com/henryj-dev/lodestar/actions/runs/32807039213) 1258행 `CLOUDFLARE_ZONE_ID: `(빈 값), 1260행 `CLOUDFLARE_ZONE_ID 시크릿이 없으므로 캐시 퍼지를 건너뜁니다.` — 배포는 성공(38s)했고 퍼지만 누락
 
 영향: `idp.hyochan.site` 커스텀 도메인에 Cloudflare 캐시가 걸려 있다면 배포 후에도 구 자산이 계속 서빙된다. 인증 서버라 로그인 페이지 JS/CSS 가 stale 하면 실제 장애로 이어진다.
 
@@ -78,11 +81,11 @@ C-04 / C-06 / C-08 이하는 이 PR 범위 밖으로 남겨 두었다.
 
 근거:
 
-- [ci.yml:96-108](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:96) — `needs: [check-changes, ci]`, `if: always()`, `build-affected` 만 검사하고 `needs.check-changes.result` 는 보지 않음
-- [ci.yml:48](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:48) — `check-changes` 실패 시 `ci` 는 스킵됨
+- [ci.yml:96-108](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:96) — `needs: [check-changes, ci]`, `if: always()`, `build-affected` 만 검사하고 `needs.check-changes.result` 는 보지 않음
+- [ci.yml:48](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:48) — `check-changes` 실패 시 `ci` 는 스킵됨
 - 브랜치 보호 API 응답 — 필수 컨텍스트가 `["CI Required", "CodeQL"]` 이므로 이 잡이 곧 머지 게이트
 
-도달 경로: `actions/checkout` 또는 `dorny/paths-filter` 가 실패하는 상황(액션 장애, 레이트리밋, 네트워크). 실제로 [run 32807039213](https://github.com/henryj-dev/keystone/actions/runs/32807039213) 에서 paths-filter 는 이미 `'before' field is missing in event payload` 경고를 낸 적이 있다.
+도달 경로: `actions/checkout` 또는 `dorny/paths-filter` 가 실패하는 상황(액션 장애, 레이트리밋, 네트워크). 실제로 [run 32807039213](https://github.com/henryj-dev/lodestar/actions/runs/32807039213) 에서 paths-filter 는 이미 `'before' field is missing in event payload` 경고를 낸 적이 있다.
 
 권장 조치:
 
@@ -99,7 +102,7 @@ C-04 / C-06 / C-08 이하는 이 PR 범위 밖으로 남겨 두었다.
 근거:
 
 - 브랜치 보호 API — `required_status_checks.contexts: ["CI Required", "CodeQL"]`, `Gitleaks` 부재
-- [gitleaks.yml:4-7](/Users/henry/github/henryj-dev/keystone/.github/workflows/gitleaks.yml:4) — 트리거 자체는 정상(PR + push)
+- [gitleaks.yml:4-7](/Users/henry/github/henryj-dev/lodestar/.github/workflows/gitleaks.yml:4) — 트리거 자체는 정상(PR + push)
 
 방금 PR #104 로 라이선스 전달을 고쳐 스캔이 동작하게 만들었지만, **게이트로는 여전히 작동하지 않는다.**
 
@@ -117,17 +120,17 @@ C-04 / C-06 / C-08 이하는 이 PR 범위 밖으로 남겨 두었다.
 
 근거:
 
-- [deploy.yml:63](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:63) — `oven-sh/setup-bun@v2` 가 배포 잡 내부
-- [deploy.yml:70](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:70), [deploy.yml:91](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:91) — 같은 잡 후속 스텝이 `WRANGLER_JSONC`·`CLOUDFLARE_API_TOKEN` 주입
-- [gitleaks.yml:24](/Users/henry/github/henryj-dev/keystone/.github/workflows/gitleaks.yml:24) — `gitleaks/gitleaks-action@v3`
-- [ci.yml:22](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:22) — `dorny/paths-filter@v4`
+- [deploy.yml:63](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:63) — `oven-sh/setup-bun@v2` 가 배포 잡 내부
+- [deploy.yml:70](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:70), [deploy.yml:91](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:91) — 같은 잡 후속 스텝이 `WRANGLER_JSONC`·`CLOUDFLARE_API_TOKEN` 주입
+- [gitleaks.yml:24](/Users/henry/github/henryj-dev/lodestar/.github/workflows/gitleaks.yml:24) — `gitleaks/gitleaks-action@v3`
+- [ci.yml:22](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:22) — `dorny/paths-filter@v4`
 
 인증·SSO 제품이라 배포 토큰 탈취의 파급이 일반 웹앱보다 크다.
 
 권장 조치:
 
 - 최소한 `oven-sh/setup-bun`·`dorny/paths-filter`·`gitleaks/gitleaks-action` 은 커밋 SHA 로 핀 고정 (`uses: oven-sh/setup-bun@<sha> # v2.x.x`)
-- dependabot 의 `github-actions` 에코시스템이 이미 켜져 있어 SHA 핀도 자동 갱신 PR 이 온다 ([dependabot.yml:32-41](/Users/henry/github/henryj-dev/keystone/.github/dependabot.yml:32))
+- dependabot 의 `github-actions` 에코시스템이 이미 켜져 있어 SHA 핀도 자동 갱신 PR 이 온다 ([dependabot.yml:32-41](/Users/henry/github/henryj-dev/lodestar/.github/dependabot.yml:32))
 
 ### C-05 — `bun install` 이 lockfile 을 강제하지 않는다
 
@@ -138,7 +141,7 @@ CI·배포 모두 `bun install` 을 플래그 없이 호출한다. **bun 은 CI 
 
 근거:
 
-- [ci.yml:65](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:65), [deploy.yml:66](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:66) — `run: bun install`
+- [ci.yml:65](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:65), [deploy.yml:66](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:66) — `run: bun install`
 - 실측(bun 1.3.14): 락파일에 없는 의존성을 `package.json` 에 추가한 뒤 `CI=true bun install` 실행 → `Saved lockfile` 출력, 설치 성공, `exit 0`. 즉 `--frozen-lockfile` 은 기본값이 아니다.
 
 영향: `bun.lock` 을 갱신하지 않고 `package.json` 만 고친 PR 이 CI 를 통과한다. 배포 시점에 semver 범위 내 신규 버전이 새로 해석돼 **락파일과 다른 트리가 프로덕션에 나갈 수 있다.**
@@ -157,12 +160,12 @@ CI·배포 모두 `bun install` 을 플래그 없이 호출한다. **bun 은 CI 
 
 근거:
 
-- [deploy.yml:84](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:84) — `DB_DIALECT: postgres` (주석도 "미설정 시 d1 로 번들링됨" 을 명시)
+- [deploy.yml:84](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:84) — `DB_DIALECT: postgres` (주석도 "미설정 시 d1 로 번들링됨" 을 명시)
 - `.github/workflows/` 전체에서 `DB_DIALECT` 는 위 1곳뿐
-- [svelte.config.js:26-27](/Users/henry/github/henryj-dev/keystone/svelte.config.js:26) — `$db-active-schema`·`$db-active-driver` alias 가 방언별로 다른 파일로 해석됨
-- [vitest.config.ts:11,16-17](/Users/henry/github/henryj-dev/keystone/vitest.config.ts:11) — 테스트도 sqlite 로 고정
+- [svelte.config.js:26-27](/Users/henry/github/henryj-dev/lodestar/svelte.config.js:26) — `$db-active-schema`·`$db-active-driver` alias 가 방언별로 다른 파일로 해석됨
+- [vitest.config.ts:11,16-17](/Users/henry/github/henryj-dev/lodestar/vitest.config.ts:11) — 테스트도 sqlite 로 고정
 
-완화 요소: [test/unit/schema-parity.test.ts](/Users/henry/github/henryj-dev/keystone/test/unit/schema-parity.test.ts) 가 3방언 스키마의 테이블·컬럼·nullable·타입계열·인덱스 parity 를 강제한다. **스키마 형상 drift 는 이미 잘 막힌다.** 남는 공백은 그 위의 빌드/번들 계층 — `driver-pg.ts` 배선, `postgres` 패키지의 Workers 번들링, vite `define` 치환 결과다.
+완화 요소: [test/unit/schema-parity.test.ts](/Users/henry/github/henryj-dev/lodestar/test/unit/schema-parity.test.ts) 가 3방언 스키마의 테이블·컬럼·nullable·타입계열·인덱스 parity 를 강제한다. **스키마 형상 drift 는 이미 잘 막힌다.** 남는 공백은 그 위의 빌드/번들 계층 — `driver-pg.ts` 배선, `postgres` 패키지의 Workers 번들링, vite `define` 치환 결과다.
 
 권장 조치:
 
@@ -178,7 +181,7 @@ CI·배포 모두 `bun install` 을 플래그 없이 호출한다. **bun 은 CI 
 
 근거:
 
-- [gitleaks.yml:20-21](/Users/henry/github/henryj-dev/keystone/.github/workflows/gitleaks.yml:20), [codeql.yml:17-20](/Users/henry/github/henryj-dev/keystone/.github/workflows/codeql.yml:17) — 선언 있음
+- [gitleaks.yml:20-21](/Users/henry/github/henryj-dev/lodestar/.github/workflows/gitleaks.yml:20), [codeql.yml:17-20](/Users/henry/github/henryj-dev/lodestar/.github/workflows/codeql.yml:17) — 선언 있음
 - `ci.yml`·`deploy.yml` — `permissions` 키 부재
 
 권장 조치:
@@ -194,9 +197,9 @@ CI·배포 모두 `bun install` 을 플래그 없이 호출한다. **bun 은 CI 
 
 근거:
 
-- [codeql-config.yml:3-4](/Users/henry/github/henryj-dev/keystone/.github/codeql/codeql-config.yml:3) — `paths-ignore: scripts/`
-- [tsconfig.json:18](/Users/henry/github/henryj-dev/keystone/tsconfig.json:18) — `exclude: ["scripts/**", ...]`
-- [ci.yml:76-94](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:76) — `typecheck` 미호출
+- [codeql-config.yml:3-4](/Users/henry/github/henryj-dev/lodestar/.github/codeql/codeql-config.yml:3) — `paths-ignore: scripts/`
+- [tsconfig.json:18](/Users/henry/github/henryj-dev/lodestar/tsconfig.json:18) — `exclude: ["scripts/**", ...]`
+- [ci.yml:76-94](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:76) — `typecheck` 미호출
 - 해당 디렉터리 파일 — `reencrypt-secrets.ts`, `reset-admin-password.ts`, `verify-saml-encryption.ts`, `migrate-d1-to-pg.ts` 등 **시크릿·자격증명·암호화 키를 직접 다루는 스크립트**
 
 완화 요소: ESLint 는 `.gitignore` 기반 무시만 적용하므로 `scripts/` 를 커버한다. `scripts/tsconfig.json` 도 존재하지만 CI 가 사용하지 않는다.
@@ -215,8 +218,8 @@ CI·배포 모두 `bun install` 을 플래그 없이 호출한다. **bun 은 CI 
 
 근거:
 
-- [deploy.yml:12-15](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:12) — env 및 사유 주석
-- [ci.yml:22](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:22) — 동일한 `dorny/paths-filter@v4` 사용, env 없음
+- [deploy.yml:12-15](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:12) — env 및 사유 주석
+- [ci.yml:22](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:22) — 동일한 `dorny/paths-filter@v4` 사용, env 없음
 
 권장 조치:
 
@@ -231,8 +234,8 @@ CI·배포 모두 `bun install` 을 플래그 없이 호출한다. **bun 은 CI 
 
 근거:
 
-- [ci.yml:53-54](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:53) — `with: ref: ${{ github.head_ref }}`
-- [ci.yml:18-19](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:18) — `check-changes` 는 `with` 없음
+- [ci.yml:53-54](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:53) — `with: ref: ${{ github.head_ref }}`
+- [ci.yml:18-19](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:18) — `check-changes` 는 `with` 없음
 
 완화 요소: 브랜치 보호의 `strict: true`(up-to-date 요구)가 head 와 merge 결과의 괴리를 상당히 줄인다. 현재 기여가 같은 저장소 브랜치로만 이뤄져 fork 경로는 미발생.
 
@@ -277,10 +280,10 @@ CI·배포 모두 `bun install` 을 플래그 없이 호출한다. **bun 은 CI 
 
 - **추적 파일 내 시크릿 노출 없음** — `.env.example`·`wrangler.example.jsonc` 는 전부 플레이스홀더(`""`, `YOUR_D1_DATABASE_ID`, `your-very-long-random-secret-...`). `.mcp.json`·`.vscode/mcp.json`·`.vscode/settings.json` 도 공개 URL·에디터 설정뿐
 - **`wrangler.jsonc`·`wrangler.prod.jsonc` 미추적** — `.gitignore:39-41` 로 무시되며 `git ls-files` 상 추적 파일은 `wrangler.example.jsonc` 하나뿐
-- **마이그레이션 drift 검사가 4방언 전부 커버** — `db:generate:all` 의 출력 경로가 `./drizzle`(d1) / `./drizzle/pg` / `./drizzle/mysql` / `./drizzle/sqlite` 로 모두 `drizzle/` 하위라, `git diff --exit-code -- drizzle` 한 줄로 전부 잡힌다 ([drizzle.config.ts:14,26,38,58](/Users/henry/github/henryj-dev/keystone/drizzle.config.ts:14), [ci.yml:85-91](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:85))
-- **배포의 시크릿 주입 방식이 안전** — `WRANGLER_JSONC` 를 `run:` 안에 직접 보간하지 않고 `env:` 로 넘긴 뒤 `printf '%s' "$WRANGLER_JSONC"` 로 기록한다 ([deploy.yml:68-71](/Users/henry/github/henryj-dev/keystone/.github/workflows/deploy.yml:68)). 셸 인젝션·로그 노출 경로가 없다
-- **`bun audit --audit-level=high` 가 CI 에 포함** ([ci.yml:67-68](/Users/henry/github/henryj-dev/keystone/.github/workflows/ci.yml:67)), `package.json` `overrides` 로 취약 전이 의존성 7종 상향 고정
-- **CSP 가 `unsafe-inline` 없이 hash 모드** ([svelte.config.js:43-62](/Users/henry/github/henryj-dev/keystone/svelte.config.js:43)). `form-action` 에 `https:` 를 넣은 사유도 주석에 근거와 함께 기록돼 있다
+- **마이그레이션 drift 검사가 4방언 전부 커버** — `db:generate:all` 의 출력 경로가 `./drizzle`(d1) / `./drizzle/pg` / `./drizzle/mysql` / `./drizzle/sqlite` 로 모두 `drizzle/` 하위라, `git diff --exit-code -- drizzle` 한 줄로 전부 잡힌다 ([drizzle.config.ts:14,26,38,58](/Users/henry/github/henryj-dev/lodestar/drizzle.config.ts:14), [ci.yml:85-91](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:85))
+- **배포의 시크릿 주입 방식이 안전** — `WRANGLER_JSONC` 를 `run:` 안에 직접 보간하지 않고 `env:` 로 넘긴 뒤 `printf '%s' "$WRANGLER_JSONC"` 로 기록한다 ([deploy.yml:68-71](/Users/henry/github/henryj-dev/lodestar/.github/workflows/deploy.yml:68)). 셸 인젝션·로그 노출 경로가 없다
+- **`bun audit --audit-level=high` 가 CI 에 포함** ([ci.yml:67-68](/Users/henry/github/henryj-dev/lodestar/.github/workflows/ci.yml:67)), `package.json` `overrides` 로 취약 전이 의존성 7종 상향 고정
+- **CSP 가 `unsafe-inline` 없이 hash 모드** ([svelte.config.js:43-62](/Users/henry/github/henryj-dev/lodestar/svelte.config.js:43)). `form-action` 에 `https:` 를 넣은 사유도 주석에 근거와 함께 기록돼 있다
 
 ## 참고 — 무해하지만 죽어 있는 설정
 
