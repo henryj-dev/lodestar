@@ -34,6 +34,7 @@ English · [한국어](README.ko.md)
 
 ## Contents
 
+- [The problem](#the-problem)
 - [What it does](#what-it-does)
 - [Quick start](#quick-start)
 - [How it fits together](#how-it-fits-together)
@@ -44,6 +45,26 @@ English · [한국어](README.ko.md)
 - [Security notes](#security-notes)
 - [Status & limitations](#status--limitations)
 - [License](#license)
+
+---
+
+## The problem
+
+An identity provider ends up holding two different things: who somebody is in the organization,
+and what they are allowed to do in each service. It is tempting to let one answer both — the org
+chart is already there, it is already a list, and a list of groups looks a lot like a set of
+permissions.
+
+It is not one. Authorize on group membership and moving teams moves a security boundary, a
+reorganization reassigns permissions, and the person who edits the org chart becomes the person
+who grants access.
+
+Lodestar keeps the two apart deliberately. `groups` and the `organization` claims describe the
+reporting structure and are meant for display. `roles` and `entitlements` are assigned per user
+per service and are the only claims meant for authorization — issued regardless of scope wherever
+a service assignment exists, and pushed to the relying party as a Security Event Token when an
+administrator changes them. A SAML SP sees organization attributes only when it has been granted
+them by name.
 
 ---
 
