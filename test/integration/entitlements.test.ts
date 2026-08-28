@@ -17,6 +17,7 @@ import {
     seedServiceEntitlement,
     grantEntitlement,
     seedSession,
+    seedMfaSession,
     makeEvent,
     pkceChallengeS256,
     catchRedirect,
@@ -277,8 +278,11 @@ describe("entitlement 정의 액션 (admin)", () => {
 
     let admin: User;
 
+    let adminSession: Session;
+
     beforeEach(async () => {
         admin = await seedUser(mem.db, { tenantId: tenant.id, email: "admin@test.example", role: "admin" });
+        adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
     });
 
     /** params.id = 대상 **사용자** 인 admin POST 이벤트 (사용자 상세 화면 액션용). */
@@ -287,7 +291,7 @@ describe("entitlement 정의 액션 (admin)", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/users/${user.id}`,
             form,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: user.id };
         return event as Parameters<typeof setAssignmentEntitlements>[0];
@@ -299,7 +303,7 @@ describe("entitlement 정의 액션 (admin)", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/oidc-clients/${clientDbId}`,
             form,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: clientDbId };
         return event as Parameters<typeof addEntitlement>[0];
@@ -508,7 +512,7 @@ describe("entitlement 정의 액션 (admin)", () => {
                 method: "POST",
                 url: `${TEST_ISSUER_URL}/admin/oidc-clients/${otherClient.id}`,
                 form,
-                locals: { db: mem.db, tenant, user: admin, env: mem.env },
+                locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
             });
             (event as unknown as { params: { id: string } }).params = { id: otherClient.id };
             return event as Parameters<typeof updateEntitlement>[0];
@@ -537,11 +541,14 @@ describe("회수·위조 경로", () => {
     const deleteEntitlement = clientDetailActions.deleteEntitlement!;
 
     let admin: User;
+
+    let adminSession: Session;
     let captured: string[];
     let originalFetch: typeof globalThis.fetch;
 
     beforeEach(async () => {
         admin = await seedUser(mem.db, { tenantId: tenant.id, email: "admin2@test.example", role: "admin" });
+        adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
         // role_change_uri 를 붙여 SET 발행을 관찰할 수 있게 한다.
         await mem.db.update(oidcClients).set({ roleChangeUri: "https://rp.test.example/role-change" }).where(eq(oidcClients.id, clientDbId));
         captured = [];
@@ -561,7 +568,7 @@ describe("회수·위조 경로", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/oidc-clients/${clientDbId}`,
             form,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: clientDbId };
         return event as Parameters<typeof addEntitlement>[0];
@@ -571,7 +578,7 @@ describe("회수·위조 경로", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/users/${user.id}`,
             form,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: user.id };
         return event as Parameters<typeof setAssignmentEntitlements>[0];
@@ -640,9 +647,11 @@ describe("회수·위조 경로", () => {
 describe("admin 액션 CSRF", () => {
     const addEntitlement = clientDetailActions.addEntitlement!;
     let admin: User;
+    let adminSession: Session;
 
     beforeEach(async () => {
         admin = await seedUser(mem.db, { tenantId: tenant.id, email: "csrf-admin@test.example", role: "admin" });
+        adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
     });
 
     /** csrf:false 로 토큰 없는 요청을 만든다(정상 화면은 hidden input 으로 항상 보낸다). */
@@ -652,7 +661,7 @@ describe("admin 액션 CSRF", () => {
             url: `${TEST_ISSUER_URL}/admin/oidc-clients/${clientDbId}`,
             form,
             csrf: false,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: clientDbId };
         return event as Parameters<typeof addEntitlement>[0];
@@ -663,7 +672,7 @@ describe("admin 액션 CSRF", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/oidc-clients/${clientDbId}`,
             form,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: clientDbId };
         return event as Parameters<typeof addEntitlement>[0];
@@ -691,7 +700,7 @@ describe("admin 액션 CSRF", () => {
             url: `${TEST_ISSUER_URL}/admin/users/${user.id}`,
             form: { assignmentId },
             csrf: false,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: user.id };
 

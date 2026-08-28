@@ -9,8 +9,8 @@ import { encryptTotpSecret, generateTotpCode, generateTotpSecret } from "../../s
 import { generateServiceToken, hashServiceToken } from "../../src/lib/server/auth/service-token";
 import { actions as tokenPageActions } from "../../src/routes/admin/service-tokens/+page.server";
 import { auditEvents, credentials, serviceApiTokens, tenants } from "../../src/lib/server/db/schema";
-import { openMemoryDb, seedTenantAndSigningKey, seedUser, makeEvent, catchError, TEST_ISSUER_URL, TEST_SIGNING_SECRET, type MemoryDb } from "./harness";
-import type { Tenant, User } from "../../src/lib/server/db/schema";
+import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedMfaSession, makeEvent, catchError, TEST_ISSUER_URL, TEST_SIGNING_SECRET, type MemoryDb } from "./harness";
+import type { Tenant, User, Session } from "../../src/lib/server/db/schema";
 
 // Service-to-Service TOTP API 는 서비스 토큰 경계 안에서 동작하고 requireServiceToken 은
 // 성공 시 조용히 반환한다. 그래서 **성공 호출이 감사에 전혀 남지 않는 상태**였다 —
@@ -293,9 +293,11 @@ describe("서비스 토큰 발급 UI", () => {
     const create = tokenPageActions.create!;
     const revoke = tokenPageActions.revoke!;
     let admin: User;
+    let adminSession: Session;
 
     beforeEach(async () => {
         admin = await seedUser(mem.db, { tenantId: tenant.id, email: "tkadmin@test.example", role: "admin" });
+        adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
     });
 
     function adminEvent(form: Record<string, string | string[]>) {
@@ -303,7 +305,7 @@ describe("서비스 토큰 발급 UI", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/service-tokens`,
             form,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         }) as Parameters<typeof create>[0];
     }
 

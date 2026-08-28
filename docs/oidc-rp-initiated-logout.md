@@ -71,9 +71,42 @@ throw redirect(302, url.toString());
 자세한 흐름은 `src/routes/oidc/end-session/+server.ts` 의 `executeLogout`
 함수 참고.
 
+### `sid` 계약 — ID 토큰과 같은 값이다
+
+세션 단위 로그아웃을 쓰는 RP 에게 **`sid` 는 로그인 시 받은 ID 토큰의 `sid` 와 반드시 같은 값**이어야
+한다. RP 의 구현은 보통 이렇게 생긴다.
+
+1. 로그인 콜백에서 ID 토큰의 `sid` 를 읽어 자기 세션 레코드에 저장한다.
+2. 로그아웃 통지의 `sid` 로 그 레코드를 찾아 폐기한다.
+
+두 값이 다르면 RP 는 대상 세션을 찾지 못하고 **로그아웃이 조용히 실패**한다. 응답은 200 이고 로그에도
+오류가 남지 않으므로 발견하기 어렵다.
+
+Lodestar 가 내보내는 값은 세 곳 모두 **`sessions.id`(무작위 UUID)** 다.
+
+| 위치                                           | 값            |
+| ---------------------------------------------- | ------------- |
+| ID 토큰의 `sid` 클레임                         | `sessions.id` |
+| 프론트채널 로그아웃 URL 의 `sid` 쿼리 파라미터 | `sessions.id` |
+| 백채널 `logout_token` 의 `sid` 클레임          | `sessions.id` |
+
+`sessions.idp_session_id` 는 **세션 쿠키의 조회 키**(세션 토큰의 SHA-256)이므로 RP 에 내보내지 않는다.
+예전에는 로그아웃 통지 쪽이 이 값을 실어 ID 토큰의 `sid` 와 어긋났는데, 그 상태에서
+`backchannel_logout_session_required` 를 켜면 RP 가 매칭에 실패한다.
+
+`*_logout_session_required` 가 **꺼져 있으면 `sid` 를 아예 보내지 않고 `sub` 만 보낸다.** 그 경우 통지의
+뜻은 "이 사용자의 세션 전부"이므로, RP 는 주체 단위로 폐기해야 한다(세션 하나만 골라 끊으면 나머지가
+살아남는다).
+
+MFA step-up 으로 세션이 승격돼도 `sessions.id` 와 세션 쿠키는 유지되므로, 이미 로그인된 RP 들의 `sid`
+매핑은 끊기지 않는다.
+
 ## 변경 이력
 
 - **PR #54** (`feat/auto-logout-on-valid-hint`): GET 도 confirmation 없이
   즉시 logout 처리.
 - **PR #55** (`fix/logout-redirect-without-client-id`): `client_id` 누락 시
   `id_token_hint.aud` 에서 자동 추출. RP 가 redirect 잃지 않도록.
+- **2026-08-28**: 로그아웃 통지의 `sid` 를 `sessions.idp_session_id` 에서
+  `sessions.id` 로 바꿔 **ID 토큰의 `sid` 와 일치**시켰다. 위
+  [`sid` 계약](#sid-계약--id-토큰과-같은-값이다) 참고.

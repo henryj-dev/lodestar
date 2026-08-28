@@ -58,6 +58,16 @@ function acrLevel(acr: string | null): number {
 }
 
 /**
+ * 세션 ACR 이 MFA 수준(`refeds/mfa`)에 도달했는지.
+ *
+ * 클라이언트/SP 의 `requireMfa` 게이트가 쓴다. `acrSatisfies` 는 SAML
+ * `RequestedAuthnContext` 의 comparison 문법을 해석하는 용도라 단순 판정에는 과하다.
+ */
+export function acrMeetsMfa(acr: string | null): boolean {
+    return acrLevel(acr) >= ACR_LEVEL[ACR_MFA];
+}
+
+/**
  * 상위 ACR 이 포함(subsume)하는 하위 ACR 목록.
  * refeds/mfa 로 인증한 사용자는 PasswordProtectedTransport 도 만족한다.
  */

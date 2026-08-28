@@ -5,8 +5,8 @@ import { b64uDecode, getActiveSigningKey } from "../../src/lib/server/crypto/key
 import { getRuntimeConfig } from "../../src/lib/server/auth/runtime";
 import { ROLE_CHANGE_EVENT, sendRoleChangeSet } from "../../src/lib/server/oidc/role-change";
 import { auditEvents, oidcClients, oidcRefreshTokens, serviceEntitlements, serviceRoles, userServiceAssignments } from "../../src/lib/server/db/schema";
-import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedOidcClient, seedSamlSp, makeEvent, makePlatform, TEST_ISSUER_URL, type MemoryDb } from "./harness";
-import type { Tenant, User } from "../../src/lib/server/db/schema";
+import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedMfaSession, seedOidcClient, seedSamlSp, makeEvent, makePlatform, TEST_ISSUER_URL, type MemoryDb } from "./harness";
+import type { Tenant, User, Session } from "../../src/lib/server/db/schema";
 
 // role 부여/회수 시 대상 OIDC 클라이언트의 role_change_uri 로 서명된 SET 이 발행되는지를
 // 실 DB + 실 admin 액션(addAssignment/revokeAssignment)으로 검증한다.
@@ -18,6 +18,7 @@ const ROLE_CHANGE_URI = "https://rp.test.example/auth/oidc/role-change";
 let mem: MemoryDb;
 let tenant: Tenant;
 let admin: User;
+let adminSession: Session;
 let target: User;
 
 // 캡처된 outbound POST (role_change_uri 전송).
@@ -34,6 +35,7 @@ beforeEach(async () => {
     mem = await openMemoryDb();
     tenant = await seedTenantAndSigningKey(mem);
     admin = await seedUser(mem.db, { tenantId: tenant.id, email: "admin@test.example", role: "admin" });
+    adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
     target = await seedUser(mem.db, { tenantId: tenant.id, email: "member@test.example", role: "user" });
 
     captured = [];
@@ -89,7 +91,7 @@ function makeAdminEvent(form: Record<string, string>) {
         method: "POST",
         url: `${TEST_ISSUER_URL}/admin/users/${target.id}`,
         form,
-        locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
     });
     (event as unknown as { params: { id: string } }).params = { id: target.id };
     return event as Parameters<typeof addAssignment>[0];
@@ -236,7 +238,7 @@ describe("권한 변경 시 SET 발행", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/users/${target.id}`,
             form,
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: target.id };
         return event as Parameters<typeof setAssignmentEntitlements>[0];
@@ -330,7 +332,7 @@ describe("만료 변경 시 SET 발행", () => {
             method: "POST",
             url: `${TEST_ISSUER_URL}/admin/users/${target.id}`,
             form: { assignmentId, expiresAt },
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         (event as unknown as { params: { id: string } }).params = { id: target.id };
         return event as Parameters<typeof updateAssignmentExpiry>[0];

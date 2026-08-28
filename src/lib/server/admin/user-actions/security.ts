@@ -38,11 +38,14 @@ export async function forceLogout(event: UserActionEvent) {
     const csrfFail = requireCsrf(event, fd);
     if (csrfFail) return csrfFail;
 
-    // 폐기 **전에** 살아 있는 세션의 idpSessionId 를 읽어 둔다. sid 를 요구하는 클라이언트
+    // 폐기 **전에** 살아 있는 세션의 id 를 읽어 둔다. sid 를 요구하는 클라이언트
     // (backchannel_logout_session_required)에는 세션별로 한 건씩 보내야 하는데, 폐기 후에는
     // 그 목록을 다시 만들 수 없다. (revokeAssignment 가 삭제 전에 대상을 읽어 두는 것과 같은 패턴.)
+    //
+    // sessions.id 를 읽는 이유: 이 값이 ID 토큰의 `sid` 와 같아야 RP 가 대상 세션을 찾는다.
+    // 예전에는 idp_session_id(세션 토큰 해시)를 보내 RP 쪽 매칭이 조용히 실패했다.
     const liveSessions = await db
-        .select({ idpSessionId: sessions.idpSessionId })
+        .select({ id: sessions.id })
         .from(sessions)
         .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt), gt(sessions.expiresAt, new Date())));
     const bcTargets = await getOidcBackchannelTargetsForUser(db, tenant.id, userId);
@@ -69,6 +72,7 @@ export async function forceLogout(event: UserActionEvent) {
         const signingKey = await getActiveSigningKey(db, tenant.id, signingKeySecrets);
         if (signingKey) {
             const meta = getRequestMetadata(event);
+            // sessionId 는 `sessions.id` = ID 토큰의 `sid` 와 동일한 값이다.
             const deliver = async (target: (typeof bcTargets)[number], sessionId: string) => {
                 const detail = {
                     clientId: target.clientId,
@@ -108,7 +112,7 @@ export async function forceLogout(event: UserActionEvent) {
                     // sid 를 요구하는 클라이언트: 끊은 세션마다 한 건씩. 세션이 없었다면 보낼 sid 가
                     // 없으므로 건너뛴다(주체 단위 토큰을 보내면 그 RP 는 sid 부재로 거부한다).
                     for (const s of liveSessions) {
-                        promises.push(deliver(target, s.idpSessionId));
+                        promises.push(deliver(target, s.id));
                     }
                 } else {
                     // 주체 단위 클라이언트: sub 만 실린다 = "이 사용자의 세션 전부".

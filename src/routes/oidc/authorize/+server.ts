@@ -7,6 +7,8 @@ import { createGrant } from "$lib/server/oidc/grant";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { hasServiceAccess } from "$lib/server/access/service-permissions";
 import { verifyIdToken, b64uEncode } from "$lib/server/crypto/keys";
+import { acrMeetsMfa } from "$lib/server/auth/constants";
+import { sessionAuthTime } from "$lib/server/auth/session";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import { translate } from "$lib/i18n/server";
 
@@ -147,20 +149,37 @@ export const GET: RequestHandler = async (event) => {
     // 신뢰 기기(trusted device) 가 OTP 를 건너뛰지 않는다. 나머지 두 조건은 locals.session/user 를
     // 읽으므로 로그인된 경우에만 평가한다(미로그인은 어차피 새로 인증하므로 자동 충족).
     let reauthRequired = prompts.has("login");
+    // 재인증 요구를 MFA step-up(OTP 만)으로 충족시킬 수 있는지. reauthPolicy=mfa_only 라도
+    // **계정 전환** 요구는 OTP 로 해결할 수 없으므로 이 플래그로 전체 로그인 경로를 강제한다.
+    let stepUpEligible = true;
     if (loggedIn) {
         if (!reauthRequired && maxAge !== null) {
-            const authTimeSec = Math.floor(locals.session!.createdAt.getTime() / 1000);
+            const authTimeSec = Math.floor(sessionAuthTime(locals.session!).getTime() / 1000);
             if (Math.floor(Date.now() / 1000) - authTimeSec > maxAge) reauthRequired = true;
         }
-        if (!reauthRequired && idTokenHint) {
+        // reauthRequired 여부와 무관하게 평가한다. prompt=login 이 먼저 참이 되어 이 검사를
+        // 건너뛰면 sub 불일치를 모른 채 step-up 을 띄우게 되고, OTP 를 받아도 계정이 바뀌지
+        // 않아 다음 왕복에서 다시 전체 로그인을 요구하게 된다(불필요한 OTP 프롬프트 1회).
+        if (idTokenHint) {
             const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
             // id_token_hint 는 만료돼 있는 것이 정상이므로 exp 검사는 건너뛰되 서명은 검증한다.
             const hintClaims = await verifyIdToken(db, tenant.id, idTokenHint, { expectedIssuer: issuer, ignoreExpiry: true });
-            if (!hintClaims || hintClaims.sub !== locals.user!.id) reauthRequired = true;
+            if (!hintClaims || hintClaims.sub !== locals.user!.id) {
+                reauthRequired = true;
+                stepUpEligible = false;
+            }
         }
     }
 
-    const needsInteraction = !loggedIn || reauthRequired;
+    // 클라이언트가 MFA 수준 세션을 요구하는데(requireMfa) 현재 세션이 못 미치는 경우.
+    //
+    // reauthRequired 와 분리해서 다루는 이유: 아래 마커 쿠키 가드는 "재인증을 마치고 돌아왔음"을
+    // 증명하기 위한 것인데, 이 조건은 **세션 ACR 이 올라가면 스스로 해소**되므로 마커가 필요 없다.
+    // 마커를 남기면 소진되지 않고 600초간 남아, 같은 URL 로 오는 후속 prompt=login 요청이
+    // "이미 재인증했다"고 오판할 여지가 생긴다.
+    const mfaGateUnmet = loggedIn && client.requireMfa && !acrMeetsMfa(locals.session!.acr);
+
+    const needsInteraction = !loggedIn || reauthRequired || mfaGateUnmet;
 
     if (promptNone && needsInteraction) {
         // 무상호작용 요청인데 상호작용이 필요 → 표준 오류를 redirect_uri 로 반환.
@@ -172,7 +191,7 @@ export const GET: RequestHandler = async (event) => {
             outcome: "failure",
             ip,
             userAgent: getRequestMetadata(event).userAgent,
-            detail: { error: "login_required", reason: reauthRequired ? "reauth_required" : "not_authenticated" },
+            detail: { error: "login_required", reason: reauthRequired ? "reauth_required" : mfaGateUnmet ? "mfa_required" : "not_authenticated" },
         });
         authRedirectError(redirectUri, "login_required", translate(locals.locale, "oidc.errors.login_required"), state);
     }
@@ -189,16 +208,20 @@ export const GET: RequestHandler = async (event) => {
         if (reauthRequired) {
             const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(url.pathname + url.search));
             const reauthCookieName = `oidc_reauth_${b64uEncode(digest).slice(0, 32)}`;
-            // 마커에는 발급 시각(ms)을 담고, 복귀 시 "그 이후에 생성된 세션" 일 때만 재인증을 인정한다.
+            // 마커에는 발급 시각(ms)을 담고, 복귀 시 "그 이후에 인증한 세션" 일 때만 재인증을 인정한다.
             // 존재 여부만 보면(SAML 가드의 약점) 사용자가 /login 에서 실제로 인증하지 않고 같은 authorize
             // URL 로 되돌아오기만 해도 prompt=login 이 소진돼 재인증 요구를 우회할 수 있다.
             // 미로그인 상태에서는 마커가 있어도 재인증을 마쳤다고 볼 수 없다 — 반드시 forceAuthn 을 붙인다.
             // 숫자 형식을 원시 문자열에서 검사한다: Number("") 는 0 이라 빈 쿠키 값이 "아주 오래된 마커" 로
             // 둔갑해 무조건 통과해버린다.
+            //
+            // 비교 기준이 createdAt 이 아니라 authTime 인 것이 중요하다. MFA step-up 은 세션 행을
+            // 유지하므로 createdAt 이 그대로다 — createdAt 으로 비교하면 승격을 마치고 돌아와도
+            // "재인증 안 함" 으로 판정되어 무한 왕복한다.
             const rawMarker = event.cookies.get(reauthCookieName);
             const marker = rawMarker && /^\d+$/.test(rawMarker) ? Number(rawMarker) : null;
-            if (loggedIn && marker !== null && locals.session!.createdAt.getTime() >= marker) {
-                // 마커 발급 이후에 만들어진 세션 = 재인증을 실제로 마치고 돌아온 복귀 — 소진 후 정상 진행.
+            if (loggedIn && marker !== null && sessionAuthTime(locals.session!).getTime() >= marker) {
+                // 마커 발급 이후에 인증한 세션 = 재인증을 실제로 마치고 돌아온 복귀 — 소진 후 정상 진행.
                 event.cookies.delete(reauthCookieName, { path: "/oidc/authorize" });
                 reauthRequired = false;
             } else {
@@ -212,12 +235,25 @@ export const GET: RequestHandler = async (event) => {
             }
         }
 
-        if (!loggedIn || reauthRequired) {
+        if (!loggedIn || reauthRequired || mfaGateUnmet) {
+            // reauthPolicy=mfa_only: 세션을 유지한 채 OTP 만 받아 세션 ACR/AMR 을 승격한다.
+            // 승격이 불가능한 경우(TOTP 미등록, 서명키 부재 등)는 /mfa 가 스스로
+            // /login?forceAuthn=true 로 되돌리므로 여기서 사용자 크레덴셜을 조회하지 않는다.
+            if (loggedIn && stepUpEligible && client.reauthPolicy === "mfa_only") {
+                const stepUpUrl = new URL("/mfa", url);
+                stepUpUrl.searchParams.set("stepUp", "mfa");
+                stepUpUrl.searchParams.set("redirectTo", url.pathname + url.search);
+                stepUpUrl.searchParams.set("skinHint", `oidc:${client.id}`);
+                throw redirect(302, stepUpUrl.toString());
+            }
+
             // 인터랙티브 로그인/재인증으로 리다이렉트.
             const loginUrl = new URL("/login", url);
             loginUrl.searchParams.set("redirectTo", url.pathname + url.search);
             loginUrl.searchParams.set("skinHint", `oidc:${client.id}`);
-            if (reauthRequired) loginUrl.searchParams.set("forceAuthn", "true");
+            // mfaGateUnmet 도 강제 재인증이다 — 신뢰 기기로 OTP 를 건너뛰면 ACR 이 올라가지 않아
+            // 되돌아와서 다시 걸린다(무한 왕복). requireMfa 는 신뢰 기기보다 우선한다.
+            if (reauthRequired || mfaGateUnmet) loginUrl.searchParams.set("forceAuthn", "true");
             if (loginHint) loginUrl.searchParams.set("loginHint", loginHint);
             throw redirect(302, loginUrl.toString());
         }

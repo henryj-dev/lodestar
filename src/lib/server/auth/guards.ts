@@ -2,6 +2,7 @@ import { error, fail } from "@sveltejs/kit";
 import { and, eq, ne, or, exists, sql } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
 import { users, credentials, identities } from "$lib/server/db/schema";
+import { acrMeetsMfa } from "./constants";
 
 export function requireDbContext(locals: App.Locals) {
     if (!locals.db || !locals.tenant) {
@@ -17,6 +18,10 @@ export function requireDbContext(locals: App.Locals) {
  * 관리자 전용 엔드포인트 가드.
  * +layout.server.ts load 는 form action 제출 시 실행되지 않으므로,
  * 모든 admin action 핸들러에서 반드시 이 함수를 사용해야 한다.
+ *
+ * MFA 검사도 여기에 있다. 레이아웃의 게이트는 사용자를 승격 화면으로 보내기 위한 것이고,
+ * 이쪽은 그 화면을 건너뛰고 action 에 직접 POST 하는 경로를 막는 백스톱이다. 리다이렉트가
+ * 아니라 403 인 이유는 form action 응답에 리다이렉트를 섞으면 폼 흐름이 깨지기 때문이다.
  */
 export function requireAdminContext(locals: App.Locals) {
     const ctx = requireDbContext(locals);
@@ -25,6 +30,9 @@ export function requireAdminContext(locals: App.Locals) {
     }
     if (locals.user.role !== "admin") {
         throw error(403, "관리자 권한이 필요합니다.");
+    }
+    if (!acrMeetsMfa(locals.session?.acr ?? null)) {
+        throw error(403, "관리 콘솔은 2단계 인증을 통과한 세션만 사용할 수 있습니다.");
     }
     return { ...ctx, user: locals.user };
 }

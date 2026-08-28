@@ -24,7 +24,25 @@ Lodestar(멀티테넌트 IdP)의 관리 콘솔 운영 가이드입니다. 각 �
 - `/admin/**` 전 구간은 레이아웃 가드(`+layout.server.ts`)가 보호합니다.
     - 미로그인 → `/admin/login?redirectTo=...` 로 리다이렉트.
     - **`role !== "admin"` → `/` 로 강제 이동**(일반 사용자는 콘솔 접근 불가).
+    - **세션이 MFA 수준(ACR `refeds/mfa`)이 아니면 콘솔에 들어올 수 없습니다.** 아래 참조.
 - `/admin/login` 만 예외적으로 비인증 접근 허용.
+
+#### MFA 세션 요구
+
+`/admin/login` 은 원래부터 TOTP 를 강제하지만, **`/login`(일반 로그인)으로 만든 세션도 `role=admin` 이면
+콘솔에 들어올 수 있었습니다.** TOTP 를 등록하지 않은 관리자가 비밀번호만으로 콘솔에 진입하는 경로였고,
+지금은 막혀 있습니다.
+
+- 판정 기준은 세션의 **ACR** 입니다. `pwd + totp`, `pwd + 백업코드`, 패스키(`hwk`), 신뢰 기기 경로는
+  모두 `refeds/mfa` 를 만족하므로 **TOTP 를 등록한 관리자는 이 게이트에 걸리지 않습니다.**
+- 못 미치는 세션은 **`/mfa?stepUp=mfa` 로 보내 OTP 만 추가로 받습니다**(로그인 상태 유지 — 아이디·비밀번호를
+  다시 묻지 않습니다).
+- **TOTP 미등록 관리자는 403** 과 함께 등록 안내를 받습니다. 리다이렉트로 보내면 비밀번호로 로그인해도
+  ACR 이 올라가지 않아 무한 왕복하기 때문입니다. `/account/mfa` 는 관리자 권한을 요구하지 않으므로
+  거기서 TOTP 를 등록한 뒤 콘솔로 들어오면 됩니다.
+- 게이트는 **두 겹**입니다. 레이아웃 가드는 화면 이동용이고, 폼 액션(POST)은 레이아웃 load 를 거치지
+  않으므로 `requireAdminContext()` 가 같은 조건을 403 으로 막습니다. 한쪽만 있으면 액션 직접 호출로
+  우회됩니다.
 
 ### 대시보드
 
@@ -88,6 +106,7 @@ Lodestar(멀티테넌트 IdP)의 관리 콘솔 운영 가이드입니다. 각 �
 - **token_endpoint_auth_method**: `client_secret_basic` / `client_secret_post` / `none` 중 선택.
 - **PKCE(`requirePkce`)**: 체크로 강제. **public 클라이언트(`none`)는 PKCE 가 항상 강제**되며 수정 시에도 해제 불가.
 - **Wildcard Redirect URI(`allowWildcardRedirectUri`)**: 보안상 기본 비활성. 와일드카드 매칭이 꼭 필요할 때만 **명시적 opt-in**(체크).
+- **MFA 인증된 세션만 허용(`requireMfa`)** / **재인증 방식(`reauthPolicy`)**: 아래 [재인증 정책](#재인증-정책-requiremfa--reauthpolicy) 참고.
 - **Scopes**(공백 구분): `openid`(필수) / `profile` / `email` / `address` / `phone` / `offline_access` / `organization` / `groups`. `openid` 누락 시 거부.
     - `offline_access` 를 넣어야 refresh token(grant) 이 발급됩니다.
     - ⚠️ **`groups` 는 조직 소속(부서·팀·파트)이며 인가에 사용하지 마세요.** 서비스 권한은 `roles` 클레임을 씁니다. 자세한 구분은 아래 [발행 클레임](#발행-클레임) 참고.
@@ -111,6 +130,66 @@ RP 가 받는 클레임은 성격이 다른 세 갈래이며, **어느 것으로
 역할·권한 정의는 **4장(서비스 role/entitlement 설정)**, 사용자별 배정은 **10장(사용자 운영 흐름)** 을 참고하세요.
 
 SAML SP 에도 같은 값이 Assertion 의 **`Entitlements` 속성**으로 나갑니다. 다만 `Role`·`RoleLabel` 과 동일하게 **SP 의 허용 속성 목록에 `Entitlements` 를 넣어야** 전달됩니다(6장 참조) — 목록에 없으면 정의·배정을 해도 Assertion 에 나가지 않습니다.
+
+### 재인증 정책 (`requireMfa` / `reauthPolicy`)
+
+두 설정은 축이 다릅니다. **`requireMfa` 는 "무엇을 요구할지", `reauthPolicy` 는 "그 요구를 무엇으로
+충족시킬지"** 를 정합니다. OIDC 클라이언트와 SAML SP 양쪽에 같은 이름으로 있습니다.
+
+| 설정           | 기본값 | 뜻                                                                     |
+| -------------- | ------ | ---------------------------------------------------------------------- |
+| `requireMfa`   | 꺼짐   | 이 서비스로 SSO 하려면 세션이 MFA 수준(ACR `refeds/mfa`)이어야 한다    |
+| `reauthPolicy` | `full` | 재인증이 필요할 때 `full`(아이디·비밀번호부터) 또는 `mfa_only`(OTP 만) |
+
+#### `requireMfa` — `prompt=login` 과 다릅니다
+
+RP 가 매번 `prompt=login` 을 보내는 방식과 결과가 다릅니다. `prompt=login` 은 세션이 **이미 MFA 여도**
+무조건 재인증을 요구하므로, 같은 패밀리 앱 사이를 오갈 때마다 인증 화면이 뜹니다. `requireMfa` 는
+**부족할 때만** 요구하므로 **한 번 OTP 를 통과한 뒤의 재방문은 그대로 통과**합니다.
+
+SAML 에서는 SP 가 `RequestedAuthnContext` 로 같은 요구를 보낼 수 있지만, `requireMfa` 는 SP 가 요청에
+아무것도 담지 않아도 **IdP 측에서 강제**합니다. SP-initiated 와 IdP-initiated(`?sp=<entityId>`) 양쪽에
+모두 걸립니다.
+
+#### `reauthPolicy=mfa_only` — 세션을 유지한 채 OTP 만
+
+재인증이 필요해질 때 `/login` 으로 보내는 대신 **`/mfa` 에서 OTP 만 받아 기존 세션의 AMR/ACR 을
+승격**합니다. 세션 행을 새로 만들지 않으므로 `sid` 와 세션 쿠키가 그대로 유지되고, 이미 로그인돼 있던
+다른 RP 들의 세션 매핑도 끊기지 않습니다.
+
+적용되는 트리거:
+
+| 트리거                              | `full`               | `mfa_only`               |
+| ----------------------------------- | -------------------- | ------------------------ |
+| `requireMfa` 미충족                 | `/login` 전체 재인증 | `/mfa` OTP 승격          |
+| OIDC `prompt=login`                 | `/login` 전체 재인증 | `/mfa` OTP 승격          |
+| OIDC `max_age` 초과                 | `/login` 전체 재인증 | `/mfa` OTP 승격          |
+| SAML `RequestedAuthnContext` 미충족 | `/login` 전체 재인증 | `/mfa` OTP 승격          |
+| SAML `ForceAuthn`                   | `/login` 전체 재인증 | `/mfa` OTP 승격          |
+| OIDC `id_token_hint` 의 sub 불일치  | `/login` 전체 로그인 | **`/login` 전체 로그인** |
+
+**`id_token_hint` sub 불일치는 정책과 무관하게 항상 전체 로그인**입니다. RP 가 다른 사용자로
+로그인시키라고 요구하는 **계정 전환**이므로 OTP 로는 해결할 수 없습니다.
+
+TOTP 미등록 사용자는 OTP 로 승격할 수단이 없으므로 `/mfa` 가 스스로 `/login?forceAuthn=true` 로
+되돌립니다. 결과적으로 기존 동작(로그인 후에도 ACR 이 부족하면 SAML SP 에 `NoAuthnContext` 반환)이
+유지됩니다.
+
+#### 켤 때 알아야 할 트레이드오프
+
+`mfa_only` 는 **"비밀번호를 최근에 다시 제시했다"는 보증을 포기하고** 세션에 남은 1차 인증 증명을
+재사용합니다. 그래서 기본값이 `full` 이고 서비스별 opt-in 입니다.
+
+- OIDC `prompt=login` 의 재인증 의도를 완화합니다.
+- SAML `ForceAuthn` 은 규격(SAML Core 3.4.1.1)이 "기존 세션에 의존하지 말고 새로 인증을 확립하라"고
+  요구하는데, `mfa_only` 는 그 요구를 완화합니다. **SP 운영자가 알고 켜야 합니다.**
+- 반대로 볼 면도 있습니다. 어깨 넘어로 훔쳐볼 수 있는 비밀번호와 달리 **OTP 는 기기 보유를 요구**하므로,
+  공유 워크스테이션에서 키보드 앞의 공격자를 막는 데는 비밀번호 재입력보다 강할 수 있습니다.
+
+같은 패밀리 앱 사이의 이동처럼 **서로 신뢰하는 서비스 간 전환**을 전제로 한 설정입니다.
+
+정책 변경은 감사 로그에 기록됩니다(SAML SP 는 `saml_sp_updated` 의 `changed.reauthPolicy` ·
+`newReauthPolicy`).
 
 ### 관리
 
@@ -201,8 +280,9 @@ role 과 직교하는 권한 축입니다. role 이 "이 사람이 이 서비스
     - **`signResponse` 는 항상 `true` 로 강제**됩니다(관리 UI 가 false 를 보내도 무시). XSW 계열 공격 방지를 위해 IdP 가 Response 자체를 항상 서명.
     - `signAssertion`, `wantAuthnRequestsSigned` 는 토글.
     - **`encryptAssertion` 을 켜려면 SP 공개키(cert)가 반드시 있어야** 합니다(없으면 400).
-- **allowedAttributes**: 콤마 구분. 허용 키 화이트리스트(`email`, `username`, `displayName`, `givenName`, `familyName`, `surName`, `phoneNumber`, `department`, `team`, `jobTitle`, `position`, `Role`, `RoleLabel`, `Entitlements`)에 없는 값은 무시됩니다.
-    - **미설정 시 기본값은 `email`, `username`, `displayName` 뿐입니다.** 조직 정보와 서비스 권한(`Role` / `RoleLabel` / `Entitlements`)은 여기에 **명시적으로 넣어야** 나갑니다. 권한을 정의·배정했는데 SP 가 못 받는다면 이 목록부터 확인하세요.
+- **MFA 인증된 세션만 허용(`requireMfa`)** / **재인증 방식(`reauthPolicy`)**: OIDC 클라이언트와 같은 설정이며 3장의 [재인증 정책](#재인증-정책-requiremfa--reauthpolicy) 에 자세히 설명돼 있습니다. SAML 에서는 `RequestedAuthnContext` 미충족과 **`ForceAuthn`** 에도 적용되므로, `mfa_only` 를 켠다는 것은 SAML 규격이 요구하는 "기존 세션에 의존하지 않는 새 인증"을 완화한다는 뜻입니다.
+- **AuthnInstant**: Assertion 의 `AuthnStatement/@AuthnInstant` 는 **사용자가 실제로 인증한 시각**입니다(응답 발급 시각이 아님). MFA step-up 으로 세션이 승격되면 이 값이 갱신되므로, SP 는 IdP 가 실제로 재인증을 했는지 이 값으로 판단할 수 있습니다.
+- **allowedAttributes**: 콤마 구분. 허용 키 화이트리스트(`email`, `username`, `displayName`, `givenName`, `familyName`, `surName`, `phoneNumber`, `department`, `team`, `jobTitle`, `position`, `Role`, `RoleLabel`, `Entitlements`)에 없는 값은 무시됩니다. - **미설정 시 기본값은 `email`, `username`, `displayName` 뿐입니다.** 조직 정보와 서비스 권한(`Role` / `RoleLabel` / `Entitlements`)은 여기에 **명시적으로 넣어야** 나갑니다. 권한을 정의·배정했는데 SP 가 못 받는다면 이 목록부터 확인하세요.
     - `Role` / `RoleLabel` / `Entitlements` 는 인가 판정에 쓰이는 값이라, 사용자별 추가 속성(`attributesJson`)으로 **덮어쓸 수 없습니다**(위조 방지).
 - 보안 설정 변경(특히 **cert / acsUrl / wantAuthnRequestsSigned**)은 ACS 하이재킹 포렌식을 위해 before/after diff 가 감사 로그(`saml_sp_updated`)에 상세 기록됩니다.
 

@@ -267,6 +267,13 @@
       "when": 1786678699080,
       "tag": "0037_icy_cloak",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1787905030786,
+      "tag": "0038_little_maggott",
+      "breakpoints": true
     }
   ]
 }

@@ -1,10 +1,12 @@
 import { fail, redirect } from "@sveltejs/kit";
 import { eq, and, isNull } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
+import { dev } from "$app/environment";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { requireDbContext } from "$lib/server/auth/guards";
-import { createSessionRecord, setSessionCookie } from "$lib/server/auth/session";
-import { verifyMfaPendingToken, MFA_PENDING_COOKIE } from "$lib/server/auth/mfa";
+import { createSessionRecord, elevateSession, setSessionCookie } from "$lib/server/auth/session";
+import { createMfaPendingToken, verifyMfaPendingToken, MFA_PENDING_COOKIE } from "$lib/server/auth/mfa";
+import { hasTotpCredential } from "$lib/server/auth/users";
 import { createTrustedDevice, setTrustedDeviceCookie } from "$lib/server/auth/trusted-device";
 import { tryWithSecrets, tryWithSecretsNullable } from "$lib/server/crypto/keys";
 import { consumeBackupCode, consumeTotpCredential, verifyTotp, decryptTotpSecret, encryptTotpSecret, isLegacyTotpCiphertext, verifyBackupCode } from "$lib/server/auth/totp";
@@ -19,8 +21,89 @@ import { dispatchSecurityAlert } from "$lib/server/security-notify";
 // 백업 코드 저잔량 경고 임계값(이하이면 경고 알림). account/mfa 의 backupCodesRemaining 표시와 정합.
 const BACKUP_CODES_LOW_THRESHOLD = 2;
 
-export const load: PageServerLoad = async ({ locals, cookies, platform, url }) => {
-    const mfaToken = cookies.get(MFA_PENDING_COOKIE);
+/** 내부 경로만 허용. `//host` · 역슬래시를 걸러 open redirect 를 막는다(login 라우트와 동일 규칙). */
+function sanitizeRedirectTarget(target: string | null): string | null {
+    if (!target) return null;
+    let decoded: string;
+    try {
+        decoded = decodeURIComponent(target);
+    } catch {
+        return null;
+    }
+    if (!decoded.startsWith("/") || decoded.startsWith("//") || decoded.includes("\\")) {
+        return null;
+    }
+    return target;
+}
+
+/**
+ * step-up 을 진행할 수 없을 때 되돌려 보낼 전체 재인증 URL.
+ *
+ * `forceAuthn=true` 를 유지하는 것이 중요하다 — 이 경로로 오는 사용자는 이미 "재인증이
+ * 필요하다"고 판정된 상태이므로, 신뢰 기기로 MFA 단계를 건너뛰게 하면 안 된다.
+ */
+function buildFullReauthUrl(redirectTo: string | null, skinHint: string | null): string {
+    const params = new URLSearchParams({ forceAuthn: "true" });
+    if (redirectTo) params.set("redirectTo", redirectTo);
+    if (skinHint) params.set("skinHint", skinHint);
+    return `/login?${params.toString()}`;
+}
+
+/** `sessions.amr` 의 공백 구분 문자열을 배열로. */
+function parseSessionAmr(amr: string | null): string[] {
+    return (amr ?? "").split(" ").filter(Boolean);
+}
+
+export const load: PageServerLoad = async (event) => {
+    const { locals, cookies, platform, url } = event;
+    const config = getRuntimeConfig(platform);
+    const skinHint = url.searchParams.get("skinHint");
+    const requestedRedirect = sanitizeRedirectTarget(url.searchParams.get("redirectTo"));
+    let mfaToken = cookies.get(MFA_PENDING_COOKIE);
+
+    // ── step-up 진입 ─────────────────────────────────────────────────────────
+    // 클라이언트/SP 의 reauthPolicy=mfa_only 로 넘어온 경우. 1차 인증을 다시 받지 않고
+    // 현재 세션을 유지한 채 OTP 만 받기 위해, 이 자리에서 pending 토큰을 직접 발급한다.
+    // (다른 발급처와 달리 비밀번호 검증을 거치지 않으므로 sessionId 바인딩이 필수다.)
+    if (!mfaToken && url.searchParams.get("stepUp") === "mfa") {
+        const fullReauthUrl = buildFullReauthUrl(requestedRedirect, skinHint);
+
+        // 승격할 세션이 없거나 서명 키/DB 가 없으면 step-up 자체가 불가능하다.
+        if (!locals.user || !locals.session || !locals.db || !config.signingKeySecret) {
+            throw redirect(303, fullReauthUrl);
+        }
+        // TOTP 미등록 사용자는 OTP 로 승격할 수단이 없다. 전체 재인증 경로로 되돌려 보내면
+        // 로그인 후에도 ACR 이 부족한 것이 확인되어 SP 에는 NoAuthnContext 가 나간다
+        // (= 기존 동작 유지). 여기서 임의로 통과시키면 요구 ACR 이 조용히 무시된다.
+        if (!(await hasTotpCredential(locals.db, locals.user.id))) {
+            throw redirect(303, fullReauthUrl);
+        }
+
+        const meta = getRequestMetadata(event);
+        mfaToken = await createMfaPendingToken(
+            {
+                userId: locals.user.id,
+                tenantId: locals.session.tenantId,
+                redirectTo: requestedRedirect,
+                ip: meta.ip,
+                // step-up 은 RP 가 요구해서 진행되는 것이므로 신뢰 기기로 건너뛰거나
+                // 새로 등록하게 해서는 안 된다.
+                forced: true,
+                // 기존 세션이 이미 통과한 수단을 그대로 이어받는다. 하드코딩하면 소셜
+                // 로그인(fed) 세션에 pwd 가 붙어 downstream RP 에 거짓 정보가 나간다.
+                baseAmr: parseSessionAmr(locals.session.amr),
+                sessionId: locals.session.id,
+            },
+            config.signingKeySecret,
+        );
+        cookies.set(MFA_PENDING_COOKIE, mfaToken, {
+            path: "/",
+            httpOnly: true,
+            sameSite: "lax",
+            secure: !dev || url.protocol === "https:",
+            maxAge: 5 * 60,
+        });
+    }
 
     // MFA pending 토큰이 없는 경우에만 자동 리다이렉트.
     // 토큰이 있으면 forceAuthn 등으로 재인증 중인 상태이므로 기존 세션을 무시한다.
@@ -31,7 +114,6 @@ export const load: PageServerLoad = async ({ locals, cookies, platform, url }) =
         throw redirect(303, "/login");
     }
 
-    const config = getRuntimeConfig(platform);
     if (!config.signingKeySecret) {
         throw redirect(303, "/login");
     }
@@ -42,7 +124,13 @@ export const load: PageServerLoad = async ({ locals, cookies, platform, url }) =
         throw redirect(303, "/login");
     }
 
-    const skinHint = url.searchParams.get("skinHint");
+    // step-up 토큰은 **발급 당시의 그 세션**에만 쓸 수 있다. 이 검사가 없으면 A 계정으로
+    // 받아 둔 step-up 토큰을 들고 B 계정으로 로그인해 B 세션을 승격시킬 수 있다.
+    if (claims.sessionId && (locals.user?.id !== claims.userId || locals.session?.id !== claims.sessionId)) {
+        cookies.delete(MFA_PENDING_COOKIE, { path: "/" });
+        throw redirect(303, "/login");
+    }
+
     let skinHtml: string | null = null;
 
     if (skinHint && locals.db && locals.tenant) {
@@ -65,7 +153,14 @@ export const load: PageServerLoad = async ({ locals, cookies, platform, url }) =
     }
 
     // 강제 재인증(admin·ForceAuthn·prompt=login 등) 중에는 신뢰 기기 옵션 자체를 노출하지 않는다.
-    return { skinHtml, skinHint, redirectTo: claims.redirectTo ?? null, canRememberDevice: !claims.forced };
+    // stepUp=true 면 로그인이 아니라 "기존 세션에 인증 단계를 추가"하는 흐름이므로 화면 문구가 다르다.
+    return {
+        skinHtml,
+        skinHint,
+        redirectTo: claims.redirectTo ?? null,
+        canRememberDevice: !claims.forced,
+        stepUp: Boolean(claims.sessionId),
+    };
 };
 
 async function resolveMfaSkinForAction(event: Parameters<Actions["default"]>[0], flashMsg: string): Promise<string | null> {
@@ -103,6 +198,13 @@ export const actions: Actions = {
 
         const claims = await tryWithSecretsNullable(config.signingKeySecrets, (s) => verifyMfaPendingToken(mfaToken, s));
         if (!claims) {
+            event.cookies.delete(MFA_PENDING_COOKIE, { path: "/" });
+            throw redirect(303, "/login");
+        }
+
+        // step-up 토큰은 발급 당시의 그 세션에만 쓸 수 있다(load 와 동일 검사 — form action 은
+        // load 를 거치지 않고 직접 POST 될 수 있으므로 양쪽에 모두 있어야 한다).
+        if (claims.sessionId && (event.locals.user?.id !== claims.userId || event.locals.session?.id !== claims.sessionId)) {
             event.cookies.delete(MFA_PENDING_COOKIE, { path: "/" });
             throw redirect(303, "/login");
         }
@@ -237,12 +339,47 @@ export const actions: Actions = {
             }
         }
 
-        // MFA 통과 — 세션 생성
+        // MFA 통과 — 세션 생성(login 모드) 또는 기존 세션 승격(step-up 모드)
         event.cookies.delete(MFA_PENDING_COOKIE, { path: "/" });
 
-        // 1차 인증 수단은 pending 토큰이 실어온 값을 쓴다. 로컬 로그인은 pwd, 소셜
-        // 연합 로그인은 fed — 하드코딩하면 비밀번호를 쓴 적 없는 사용자에게 pwd 가 붙는다.
-        const amr = [claims.firstFactor ?? AMR_PASSWORD, amrMethod];
+        // 이미 통과한 인증 수단은 pending 토큰이 실어온 값을 쓴다. 로컬 로그인은 pwd, 소셜
+        // 연합 로그인은 fed, step-up 은 승격 대상 세션의 기존 amr — 하드코딩하면 비밀번호를
+        // 쓴 적 없는 사용자에게 pwd 가 붙는다. 중복은 제거한다(백업코드 재시도 등으로 같은
+        // 수단이 두 번 들어오는 경우 amr 배열에 중복이 남지 않도록).
+        const baseAmr = claims.baseAmr && claims.baseAmr.length > 0 ? claims.baseAmr : [AMR_PASSWORD];
+        const amr = Array.from(new Set([...baseAmr, amrMethod]));
+
+        if (claims.sessionId) {
+            // ── step-up: 세션 행을 유지한 채 인증 수단만 승격한다 ──────────────────
+            // 세션 쿠키를 재발급하지 않는다 — sessions.id(OIDC sid)와 idpSessionId(로그아웃
+            // 통지의 sid)가 그대로여야 이미 로그인된 다른 RP 들의 세션 매핑이 유지된다.
+            const elevated = await elevateSession(db, {
+                sessionId: claims.sessionId,
+                userId: user.id,
+                amr,
+                acr: amrToAcr(amr),
+            });
+            if (!elevated) {
+                // 승격 도중 세션이 폐기·만료됐다(다른 탭 로그아웃, 관리자 강제 종료 등).
+                // 승격할 대상이 없으므로 처음부터 로그인하게 한다.
+                throw redirect(303, "/login");
+            }
+
+            await recordAuditEvent(db, {
+                tenantId: claims.tenantId,
+                userId: user.id,
+                actorId: user.id,
+                // 새 로그인이 아니라 기존 세션의 인증 수준 승격이므로 login 과 구분한다.
+                kind: "mfa_stepup",
+                outcome: "success",
+                ip: requestMetadata.ip,
+                userAgent: requestMetadata.userAgent,
+                detail: { amr, method: useBackup ? "backup_code" : "totp", sessionId: claims.sessionId },
+            });
+
+            const stepUpDest = claims.redirectTo;
+            throw redirect(303, user.role === "admin" ? (stepUpDest ?? "/admin") : (stepUpDest ?? "/"));
+        }
 
         const { sessionToken, expiresAt } = await createSessionRecord(db, {
             tenantId: claims.tenantId,

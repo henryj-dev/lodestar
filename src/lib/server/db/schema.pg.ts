@@ -199,6 +199,15 @@ export const sessions = pgTable(
         idpSessionId: text("idp_session_id").notNull(),
         amr: text("amr"),
         acr: text("acr"),
+        /**
+         * 마지막 **인증 이벤트** 시각 — OIDC `auth_time` 클레임과 재인증 판정(max_age,
+         * prompt=login 복귀 확인, SAML isPostReauth)의 기준. `createdAt` 과 분리한 이유:
+         * MFA step-up 은 세션 행을 유지한 채 인증 수단만 승격하므로 "세션이 시작된 시각"과
+         * "마지막으로 인증한 시각"이 갈라진다. createdAt 을 덮어쓰면 세션 목록의 시작 시각이
+         * 승격 시점으로 밀려 사용자에게 거짓 정보가 표시된다.
+         * NULL 인 구행(마이그레이션 이전 세션)은 읽는 쪽에서 `createdAt` 으로 폴백한다.
+         */
+        authTime: timestamp("auth_time", { mode: "date", withTimezone: true, precision: 3 }),
         ip: text("ip"),
         userAgent: text("user_agent"),
         createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
@@ -284,6 +293,30 @@ export const oidcClients = pgTable(
         // 기본 false — 미인증 계정도 로그인 가능(email_verified 클레임은 그대로 전파). true 면
         // /oidc/authorize 에서 미인증 사용자를 access_denied(email_verification_required)로 거부.
         requireVerifiedEmail: boolean("require_verified_email").notNull().default(false),
+        /**
+         * 이 클라이언트로 SSO 하려면 세션이 MFA 수준(ACR `refeds/mfa`)이어야 한다. 기본 false.
+         *
+         * RP 가 매번 `prompt=login` 을 보내는 것과 다르다 — `prompt=login` 은 세션이 이미 MFA 여도
+         * 무조건 재인증을 요구하므로, 같은 패밀리 앱 사이를 오갈 때마다 인증 화면이 뜬다. 이 플래그는
+         * **부족할 때만** 요구하므로 한 번 승격된 뒤의 재방문은 그대로 통과한다.
+         */
+        requireMfa: boolean("require_mfa").notNull().default(false),
+        /**
+         * 이미 인증된 세션에 재인증이 필요할 때 그것을 **무엇으로 충족시킬지**.
+         *
+         * - `full`(기본): `/login` 으로 보내 1차 인증(비밀번호 등)부터 다시 받는다.
+         * - `mfa_only`: 세션을 유지한 채 `/mfa` 에서 OTP 만 받아 세션 ACR/AMR 을 승격한다.
+         *
+         * `mfa_only` 는 `prompt=login` · `max_age` 초과 · `requireMfa` 미충족에 적용된다.
+         * `id_token_hint` 의 sub 불일치는 **계정 전환** 요구이므로 정책과 무관하게 항상 전체 로그인이다.
+         *
+         * 보안 트레이드오프: `mfa_only` 는 "비밀번호를 최근에 다시 제시했다"는 보증을 포기하고 세션에
+         * 남은 1차 인증 증명을 재사용한다. OIDC `prompt=login` 의 재인증 의도를 완화하는 선택이므로,
+         * 서로 신뢰하는 동일 패밀리 앱 사이에서만 켜는 것을 전제로 한 opt-in 이다.
+         */
+        reauthPolicy: text("reauth_policy", { enum: ["full", "mfa_only"] })
+            .notNull()
+            .default("full"),
         idTokenSignedResponseAlg: text("id_token_signed_response_alg").notNull().default("RS256"),
         jwksUri: text("jwks_uri"),
         jwks: text("jwks"),
@@ -386,6 +419,22 @@ export const samlSps = pgTable(
         // ctrls R6: 이 SP 로 SSO 할 때 이메일 인증을 요구한다(기본 false). true 면 /saml/sso 에서
         // 미인증 사용자를 명확한 오류로 거부한다.
         requireVerifiedEmail: boolean("require_verified_email").notNull().default(false),
+        /**
+         * 이 SP 로 SSO 하려면 세션이 MFA 수준(ACR `refeds/mfa`)이어야 한다. 기본 false.
+         * SP 가 `RequestedAuthnContext` 를 보내지 않아도 IdP 측에서 강제할 수 있게 한다.
+         */
+        requireMfa: boolean("require_mfa").notNull().default(false),
+        /**
+         * 이미 인증된 세션에 재인증이 필요할 때 그것을 무엇으로 충족시킬지.
+         * `full`(기본) = `/login` 전체 재인증, `mfa_only` = 세션 유지 + `/mfa` OTP 승격.
+         *
+         * `mfa_only` 는 `RequestedAuthnContext` 미충족 · `requireMfa` 미충족 · `ForceAuthn` 에 적용된다.
+         * `ForceAuthn` 에 대한 적용은 SAML Core 3.4.1.1 의 "기존 세션에 의존하지 말 것"을 완화하는
+         * 선택이므로, SP 운영자가 명시적으로 켜는 opt-in 으로만 허용한다.
+         */
+        reauthPolicy: text("reauth_policy", { enum: ["full", "mfa_only"] })
+            .notNull()
+            .default("full"),
         attributeMappingJson: text("attribute_mapping_json"),
         // JSON 배열 문자열 (예: ["email","department"]). NULL 이면 기본 최소 집합만 허용.
         allowedAttributes: text("allowed_attributes"),

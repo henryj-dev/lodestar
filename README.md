@@ -74,6 +74,7 @@ them by name.
 | **OIDC**                  | Authorization Code + PKCE, refresh tokens (rotation and reuse detection), UserInfo, JWKS, introspection, revocation, end-session                                               |
 | **SAML 2.0**              | SP-initiated SSO (HTTP-Redirect and HTTP-POST bindings), assertion signing and encryption, `ForceAuthn`, `IsPassive`, `RequestedAuthnContext`, SLO                             |
 | **ACR / AMR**             | ACR decided from how the session authenticated — carried in the SAML assertion and the OIDC ID token                                                                           |
+| **Re-auth policy**        | Per client and per SP: require an MFA-level session, and choose whether re-authentication takes the password again or just an OTP on the live session                          |
 | **WebAuthn / Passkey**    | Passkey registration and authentication, single-use challenges held in the database, tenant isolation                                                                          |
 | **TOTP 2FA**              | Compatible with Google Authenticator and the like, with backup codes                                                                                                           |
 | **LDAP**                  | LDAP authentication and JIT user provisioning, providers configured from the admin UI                                                                                          |
@@ -102,6 +103,41 @@ assertion and the OIDC ID token.
 When a SAML SP demands a particular ACR through `RequestedAuthnContext` and the session's
 ACR does not meet it, re-authentication is forced. If it cannot be met at all — no MFA
 enrolled, for instance — a `NoAuthnContext` error is returned to the ACS URL.
+
+The admin console requires an MFA-level session of its own. An administrator whose session
+is password-only is sent through an OTP step-up before `/admin` opens.
+
+### Re-authentication policy — per client and per SP
+
+Two settings on each OIDC client and SAML SP, on different axes. `require_mfa` decides
+**what is demanded**; `reauth_policy` decides **what satisfies it**.
+
+| Setting         | Default | Means                                                                            |
+| --------------- | ------- | -------------------------------------------------------------------------------- |
+| `require_mfa`   | off     | SSO to this service needs an MFA-level session (ACR `refeds/mfa`)                |
+| `reauth_policy` | `full`  | `full` = re-authenticate from the password; `mfa_only` = OTP on the live session |
+
+`require_mfa` is not the same as an RP sending `prompt=login`. `prompt=login` demands
+re-authentication even when the session is already MFA, so moving between apps in the same
+family throws up a login screen every time. `require_mfa` asks **only when the session falls
+short**, so return visits after one OTP pass straight through. On SAML it is enforced by the
+IdP even when the SP sends no `RequestedAuthnContext`, on both the SP-initiated and the
+IdP-initiated path.
+
+`reauth_policy=mfa_only` keeps the session and takes only an OTP, then raises that session's
+AMR/ACR in place — the session row, its `sid` and the session cookie all survive, so other
+RPs already signed in through it stay mapped. It applies to `require_mfa` shortfalls,
+`prompt=login`, `max_age` expiry, `RequestedAuthnContext` shortfalls and `ForceAuthn`.
+
+> [!WARNING]
+> `mfa_only` gives up the guarantee that the password was reconfirmed recently — it reuses the
+> first-factor proof already in the session. It relaxes what `prompt=login` asks for, and for
+> SAML it relaxes `ForceAuthn`, which the spec (SAML Core 3.4.1.1) defines as establishing
+> authentication freshly rather than relying on an existing session. That is why the default is
+> `full` and this is opt-in per service. Enable it between services that trust each other.
+
+An `id_token_hint` whose `sub` does not match the session is a request to **switch accounts**,
+which an OTP cannot satisfy. That always forces a full login regardless of this setting.
 
 ### Per-SP attribute filtering
 
@@ -610,8 +646,14 @@ administrator's explicit action.
 ### Bootstrap administrator
 
 `bun run setup` inserts the first administrator straight into the active database, whichever
-dialect it is. Change that password and set up MFA as soon as setup finishes. An administrator
-without TOTP enrolled is blocked from the console.
+dialect it is. Change that password and set up MFA as soon as setup finishes.
+
+The console is gated on the session's ACR, not just on the role — an administrator without TOTP
+enrolled cannot reach `/admin` by any path, including a session established at `/login`. The gate
+sits in two places because a `+layout.server.ts` load does not run for form-action POSTs: the
+layout redirects to the OTP step-up, and `requireAdminContext()` returns 403 for any admin action
+called directly. An administrator with no TOTP credential gets an enrollment notice instead of a
+redirect, and can enroll at `/account/mfa`, which does not require admin rights.
 
 ### Audit log integrity
 
@@ -627,7 +669,8 @@ with Logpush or similar, if you need that.
 **What works.** OIDC (Authorization Code + PKCE, refresh-token rotation and reuse detection,
 UserInfo, JWKS, introspection, revocation, end-session), SAML 2.0 SP-initiated SSO and SLO,
 WebAuthn/Passkey, TOTP 2FA, LDAP authentication with JIT provisioning, account self-service,
-per-service roles and entitlements, the organization hierarchy, multi-tenancy, the admin UI,
+per-service roles and entitlements, per-client and per-SP re-authentication policy (MFA-only
+step-up on a live session), the organization hierarchy, multi-tenancy, the admin UI,
 custom login skins, an audit log with per-row integrity MACs, and Korean/English i18n. It deploys
 to Cloudflare Workers or plain Node, over D1, libSQL, PostgreSQL or MySQL — one per deployment.
 

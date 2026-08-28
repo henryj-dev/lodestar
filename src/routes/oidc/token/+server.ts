@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { RequestHandler } from "./$types";
 import { oidcClients, sessions } from "$lib/server/db/schema";
 import { requireDbContext } from "$lib/server/auth/guards";
+import { sessionAuthTime } from "$lib/server/auth/session";
 import { findActiveUserById } from "$lib/server/auth/users";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit";
 import { checkRateLimit } from "$lib/server/ratelimit";
@@ -432,7 +433,7 @@ export const POST: RequestHandler = async (event) => {
             }
         }
 
-        const authTimeSec = sessionRow ? Math.floor(sessionRow.createdAt.getTime() / 1000) : Math.floor(record.createdAt.getTime() / 1000);
+        const authTimeSec = sessionRow ? Math.floor(sessionAuthTime(sessionRow).getTime() / 1000) : Math.floor(record.createdAt.getTime() / 1000);
         const { idToken, accessToken } = await buildTokens({
             db,
             tenantId: tenant.id,
@@ -529,7 +530,7 @@ export const POST: RequestHandler = async (event) => {
 
     // ctrls LOW: auth_time 은 실제 인증(세션 생성) 시각이어야 한다. code 발급 시각(grant.createdAt)이
     // 아니라 세션의 createdAt 을 쓴다(refresh grant 와 정합). RP 의 max_age 검증 정확도 향상.
-    const authTimeSec = acSessionRow ? Math.floor(acSessionRow.createdAt.getTime() / 1000) : Math.floor(grant.createdAt.getTime() / 1000);
+    const authTimeSec = acSessionRow ? Math.floor(sessionAuthTime(acSessionRow).getTime() / 1000) : Math.floor(grant.createdAt.getTime() / 1000);
     const { idToken, accessToken } = await buildTokens({
         db,
         tenantId: tenant.id,

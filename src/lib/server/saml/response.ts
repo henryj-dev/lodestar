@@ -56,6 +56,14 @@ export interface BuildSamlResponseParams {
     signResponse?: boolean;
     /** AuthnContextClassRef 값 (기본값: PasswordProtectedTransport) */
     authnContextClassRef?: string;
+    /**
+     * `AuthnStatement/@AuthnInstant` — **사용자가 실제로 인증한 시각**.
+     *
+     * 생략하면 응답 발급 시각을 쓴다(하위호환). 예전에는 항상 발급 시각이어서 12시간 전에
+     * 로그인한 세션의 Assertion 도 방금 인증한 것처럼 보였고, AuthnInstant 신선도를 검사하는
+     * SP 는 이 값으로 아무것도 판단할 수 없었다. 호출부는 세션의 인증 시각을 넘겨야 한다.
+     */
+    authnInstant?: Date;
     /** true 이면 서명된 Assertion 을 SP 공개키로 암호화해 EncryptedAssertion 으로 감싼다. */
     encryptAssertion?: boolean;
     /** 암호화 대상 SP 인증서(PEM). encryptAssertion=true 일 때 필수. */
@@ -69,6 +77,8 @@ export async function buildSignedSamlResponse(params: BuildSamlResponseParams): 
     const responseId = `_r${crypto.randomUUID().replace(/-/g, "")}`;
     const assertionId = `_a${crypto.randomUUID().replace(/-/g, "")}`;
     const issueInstant = toIso(now);
+    // 인증 시각은 발급 시각과 별개다 — 호출부가 넘기지 않으면 발급 시각으로 폴백한다.
+    const authnInstant = toIso(params.authnInstant ?? now);
     const notBefore = toIso(new Date(now.getTime() - 30_000));
     const notOnOrAfter = toIso(new Date(now.getTime() + 5 * 60 * 1000));
     const sessionNotOnOrAfter = toIso(new Date(now.getTime() + 8 * 60 * 60 * 1000));
@@ -127,7 +137,7 @@ export async function buildSignedSamlResponse(params: BuildSamlResponseParams): 
         `</saml:AudienceRestriction>` +
         `</saml:Conditions>` +
         `<saml:AuthnStatement` +
-        ` AuthnInstant="${issueInstant}"` +
+        ` AuthnInstant="${authnInstant}"` +
         ` SessionIndex="${xmlEscape(params.sessionIndex)}"` +
         ` SessionNotOnOrAfter="${sessionNotOnOrAfter}">` +
         `<saml:AuthnContext>` +

@@ -70,6 +70,7 @@ Event Token 으로 RP 에 통지됩니다. SAML SP 는 이름으로 허용받은
 | **OIDC**               | Authorization Code + PKCE, Refresh Token(회전·재사용 감지), UserInfo, JWKS, Introspection, Revocation, End-Session            |
 | **SAML 2.0**           | SP-Initiated SSO (HTTP-Redirect · HTTP-POST 바인딩), Assertion 서명·암호화, ForceAuthn, IsPassive, RequestedAuthnContext, SLO |
 | **ACR / AMR**          | 인증 방식에 따른 ACR 자동 결정 — SAML Assertion 및 OIDC ID Token에 포함                                                       |
+| **재인증 정책**        | 클라이언트·SP별 설정 — MFA 세션 요구 여부와, 재인증을 비밀번호부터 받을지 OTP만 받을지 선택                                   |
 | **WebAuthn / Passkey** | 패스키 등록 및 인증, challenge 1회용 DB 처리, 테넌트 격리                                                                     |
 | **TOTP 2FA**           | Google Authenticator 등 호환, 백업 코드 지원                                                                                  |
 | **LDAP 연동**          | LDAP 인증 및 JIT 사용자 프로비저닝, 관리자 UI에서 프로바이더 설정                                                             |
@@ -95,6 +96,26 @@ Event Token 으로 RP 에 통지됩니다. SAML SP 는 이름으로 허용받은
 | WebAuthn / Passkey   | `hwk`         | `https://refeds.org/profile/mfa`                                    |
 
 SAML SP가 `RequestedAuthnContext`로 특정 ACR을 요구하는 경우, 세션 ACR이 해당 수준을 만족하지 않으면 재인증이 강제됩니다. MFA 미설정 등으로 만족 불가 시 `NoAuthnContext` 오류가 ACS URL로 반환됩니다.
+
+관리 콘솔도 자체적으로 MFA 수준 세션을 요구합니다. 비밀번호만으로 인증된 세션의 관리자는 `/admin`에 들어가기 전 OTP 단계를 한 번 거칩니다.
+
+### 재인증 정책 — 클라이언트·SP별 설정
+
+OIDC 클라이언트와 SAML SP에 각각 두 개의 설정이 있고, 축이 다릅니다. `require_mfa`는 **무엇을 요구할지**, `reauth_policy`는 **그 요구를 무엇으로 충족시킬지**를 정합니다.
+
+| 설정            | 기본값 | 뜻                                                                  |
+| --------------- | ------ | ------------------------------------------------------------------- |
+| `require_mfa`   | 꺼짐   | 이 서비스로 SSO하려면 세션이 MFA 수준(ACR `refeds/mfa`)이어야 한다  |
+| `reauth_policy` | `full` | `full` = 비밀번호부터 다시 인증, `mfa_only` = 로그인 상태에서 OTP만 |
+
+`require_mfa`는 RP가 `prompt=login`을 보내는 것과 다릅니다. `prompt=login`은 세션이 이미 MFA여도 무조건 재인증을 요구하므로 같은 패밀리 앱 사이를 오갈 때마다 로그인 화면이 뜹니다. `require_mfa`는 **세션이 부족할 때만** 요구하므로 한 번 OTP를 통과한 뒤의 재방문은 그대로 통과합니다. SAML에서는 SP가 `RequestedAuthnContext`를 보내지 않아도 IdP가 강제하며, SP-initiated와 IdP-initiated 양쪽에 걸립니다.
+
+`reauth_policy=mfa_only`는 세션을 유지한 채 OTP만 받아 그 세션의 AMR/ACR을 제자리에서 승격합니다. 세션 행과 `sid`, 세션 쿠키가 모두 유지되므로 그 세션으로 이미 로그인한 다른 RP들의 매핑도 끊기지 않습니다. `require_mfa` 미충족, `prompt=login`, `max_age` 초과, `RequestedAuthnContext` 미충족, `ForceAuthn`에 적용됩니다.
+
+> [!WARNING]
+> `mfa_only`는 **"비밀번호를 최근에 다시 확인했다"는 보증을 포기합니다** — 세션에 남아 있는 1차 인증 증명을 재사용합니다. `prompt=login`이 요구하는 바를 완화하며, SAML에서는 규격(SAML Core 3.4.1.1)이 "기존 세션에 의존하지 말고 새로 인증을 확립하라"고 정의한 `ForceAuthn`을 완화합니다. 그래서 기본값이 `full`이고 서비스별 opt-in입니다. 서로 신뢰하는 서비스 사이에서만 켜세요.
+
+`id_token_hint`의 `sub`가 세션과 다른 경우는 **계정 전환** 요구이므로 OTP로 충족시킬 수 없습니다. 이 설정과 무관하게 항상 전체 로그인이 강제됩니다.
 
 ### SAML SP별 속성 필터링
 
@@ -504,7 +525,9 @@ LDAP 인증 성공 시, 동일 이메일의 기존 로컬 계정이 있는 경�
 
 ### 부트스트랩 관리자
 
-초기 관리자 계정은 `bun run setup` 실행 시 활성 DB(방언 무관)에 직접 삽입됩니다. 셋업 완료 후 가능한 빨리 비밀번호를 변경하고 MFA를 설정하는 것을 권장합니다. 관리자는 TOTP 미등록 시 콘솔 로그인이 차단됩니다.
+초기 관리자 계정은 `bun run setup` 실행 시 활성 DB(방언 무관)에 직접 삽입됩니다. 셋업 완료 후 가능한 빨리 비밀번호를 변경하고 MFA를 설정하는 것을 권장합니다.
+
+콘솔 접근은 role뿐 아니라 **세션의 ACR**로 판정합니다 — TOTP 미등록 관리자는 `/login`으로 만든 세션을 포함해 어떤 경로로도 `/admin`에 들어올 수 없습니다. 게이트가 두 곳에 있는 이유는 `+layout.server.ts`의 load가 폼 액션 POST에서는 실행되지 않기 때문입니다. 레이아웃은 OTP 승격 화면으로 리다이렉트하고, `requireAdminContext()`는 직접 호출된 관리자 액션에 403을 반환합니다. TOTP 크레덴셜이 없는 관리자는 리다이렉트 대신 등록 안내를 받으며, 관리자 권한이 필요 없는 `/account/mfa`에서 등록할 수 있습니다.
 
 ### 감사 로그 무결성
 
@@ -516,7 +539,8 @@ LDAP 인증 성공 시, 동일 이메일의 기존 로컬 계정이 있는 경�
 
 **되는 것.** OIDC(Authorization Code + PKCE, Refresh Token 회전·재사용 감지, UserInfo, JWKS,
 Introspection, Revocation, End-Session), SAML 2.0 SP-Initiated SSO 와 SLO, WebAuthn/Passkey,
-TOTP 2FA, LDAP 인증과 JIT 프로비저닝, 계정 자가 관리, 서비스 role·entitlement, 조직 계층,
+TOTP 2FA, LDAP 인증과 JIT 프로비저닝, 계정 자가 관리, 서비스 role·entitlement, 클라이언트·SP별
+재인증 정책(로그인 상태를 유지한 채 OTP 만 받는 step-up), 조직 계층,
 멀티테넌트, 관리자 UI, 커스텀 로그인 스킨, 행 단위 무결성 MAC 이 붙은 감사 로그, 한국어·영어
 i18n. 배포 타깃은 Cloudflare Workers 와 순수 Node 둘 다, DB 는 D1 · libSQL · PostgreSQL ·
 MySQL 중 하나를 배포 단위로 고른다.
