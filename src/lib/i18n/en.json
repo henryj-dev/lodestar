@@ -651,6 +651,8 @@
             "email_verification_required": "This service is only available to accounts with a verified email. Please verify your email first.",
             "token_param_required": "The token parameter is required.",
             "id_token_hint_required": "id_token_hint is required.",
+            "hint_or_client_id_required": "Either id_token_hint or client_id is required.",
+            "csrf_failed": "Request validation failed. Please try again.",
             "aud_mismatch": "aud mismatch",
             "cross_origin_post_blocked": "Cross-origin POST blocked.",
             "logging_out": "Logging out...",
@@ -660,6 +662,12 @@
             "token_aud_mismatch": "The token's aud does not match the client.",
             "issuing_client_invalid": "The issuing client is no longer valid.",
             "user_not_found": "User not found."
+        },
+        "logout_confirm": {
+            "title": "Sign out?",
+            "body": "{{client}} has requested a sign-out. Continuing will end your session in this browser.",
+            "confirm": "Sign out",
+            "cancel": "Cancel"
         }
     },
     "saml": {
