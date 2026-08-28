@@ -49,6 +49,7 @@ import { getRuntimeConfig, type RuntimeConfig } from "$lib/server/auth/runtime";
 import { hashPassword } from "$lib/server/auth/password";
 import { hashClientSecret } from "$lib/server/oidc/client";
 import { createSessionRecord } from "$lib/server/auth/session";
+import { ACR_MFA, AMR_PASSWORD, AMR_TOTP } from "$lib/server/auth/constants";
 import { CSRF_COOKIE_NAME } from "$lib/server/auth/csrf";
 import { b64uEncode, encryptSecret, getActiveSigningKey } from "$lib/server/crypto/keys";
 import { OAUTH_SECRET_CONTEXT } from "$lib/server/oauth/provider-store";
@@ -297,6 +298,8 @@ export interface SeedOidcClientOptions {
     tokenEndpointAuthMethod?: "client_secret_basic" | "client_secret_post" | "none";
     requirePkce?: boolean;
     requireVerifiedEmail?: boolean;
+    requireMfa?: boolean;
+    reauthPolicy?: "full" | "mfa_only";
     allowAllUsers?: boolean;
 }
 
@@ -314,6 +317,8 @@ export async function seedOidcClient(db: DB, opts: SeedOidcClientOptions): Promi
         tokenEndpointAuthMethod: opts.tokenEndpointAuthMethod ?? "client_secret_basic",
         requirePkce: opts.requirePkce ?? true,
         requireVerifiedEmail: opts.requireVerifiedEmail ?? false,
+        requireMfa: opts.requireMfa ?? false,
+        reauthPolicy: opts.reauthPolicy ?? "full",
         allowAllUsers: opts.allowAllUsers ?? false,
         enabled: true,
     });
@@ -368,15 +373,26 @@ export async function grantEntitlement(db: DB, args: { tenantId: string; assignm
 }
 
 /** 실제 createSessionRecord 로 세션을 만들고 raw 토큰 + Session row 를 돌려준다. */
-export async function seedSession(db: DB, args: { tenantId: string; userId: string }): Promise<{ session: Session; sessionToken: string }> {
+export async function seedSession(db: DB, args: { tenantId: string; userId: string; amr?: string[]; acr?: string }): Promise<{ session: Session; sessionToken: string }> {
     const { sessionToken, sessionId } = await createSessionRecord(db, {
         tenantId: args.tenantId,
         userId: args.userId,
-        amr: ["pwd"],
-        acr: "urn:mace:incommon:iap:silver",
+        amr: args.amr ?? ["pwd"],
+        acr: args.acr ?? "urn:mace:incommon:iap:silver",
     });
     const [session] = await db.select().from(sessions).where(eq(sessions.id, sessionId)).limit(1);
     return { session: session!, sessionToken };
+}
+
+/**
+ * MFA 를 통과한 세션(`amr = pwd totp`, `acr = refeds/mfa`)을 만든다.
+ *
+ * 관리 콘솔은 `requireAdminContext`/`admin/+layout.server.ts` 에서 MFA 수준 세션만 허용하므로,
+ * admin 액션·load 를 직접 호출하는 테스트는 이 세션을 `locals.session` 에 넣어야 한다.
+ * password-only 세션을 넣으면 게이트가 403 을 던진다 — 그게 정상 동작이다.
+ */
+export async function seedMfaSession(db: DB, args: { tenantId: string; userId: string }): Promise<{ session: Session; sessionToken: string }> {
+    return seedSession(db, { ...args, amr: [AMR_PASSWORD, AMR_TOTP], acr: ACR_MFA });
 }
 
 // ── 헬퍼: PKCE / redirect 파싱 ─────────────────────────────────────────────────────
@@ -600,6 +616,8 @@ export interface SeedSamlSpOptions {
     encryptAssertion?: boolean;
     wantAuthnRequestsSigned?: boolean;
     requireVerifiedEmail?: boolean;
+    requireMfa?: boolean;
+    reauthPolicy?: "full" | "mfa_only";
     allowedAttributes?: string[] | null;
     attributeMappingJson?: string | null;
     allowAllUsers?: boolean;
@@ -622,6 +640,8 @@ export async function seedSamlSp(db: DB, opts: SeedSamlSpOptions): Promise<SamlS
         encryptAssertion: opts.encryptAssertion ?? false,
         wantAuthnRequestsSigned: opts.wantAuthnRequestsSigned ?? false,
         requireVerifiedEmail: opts.requireVerifiedEmail ?? false,
+        requireMfa: opts.requireMfa ?? false,
+        reauthPolicy: opts.reauthPolicy ?? "full",
         allowedAttributes: opts.allowedAttributes === undefined ? null : opts.allowedAttributes ? JSON.stringify(opts.allowedAttributes) : null,
         attributeMappingJson: opts.attributeMappingJson ?? null,
         allowAllUsers: opts.allowAllUsers ?? false,

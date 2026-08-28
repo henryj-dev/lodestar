@@ -134,6 +134,8 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
             requirePkce: oidcClients.requirePkce,
             allowWildcardRedirectUri: oidcClients.allowWildcardRedirectUri,
             requireVerifiedEmail: oidcClients.requireVerifiedEmail,
+            requireMfa: oidcClients.requireMfa,
+            reauthPolicy: oidcClients.reauthPolicy,
             allowAllUsers: oidcClients.allowAllUsers,
             enabled: oidcClients.enabled,
             createdAt: oidcClients.createdAt,
@@ -174,6 +176,10 @@ export const actions: Actions = {
         const allowWildcardRedirectUri = fd.get("allowWildcardRedirectUri") === "true";
         // ctrls R6: 이 클라이언트 로그인 시 이메일 인증 요구(opt-in).
         const requireVerifiedEmail = fd.get("requireVerifiedEmail") === "true";
+        // 이 클라이언트로 SSO 하려면 MFA 수준 세션을 요구(opt-in).
+        const requireMfa = fd.get("requireMfa") === "true";
+        // 재인증을 무엇으로 충족시킬지. 인식하지 못한 값은 보수적으로 full 로 떨어뜨린다.
+        const reauthPolicy = fd.get("reauthPolicy") === "mfa_only" ? "mfa_only" : "full";
         // 서비스 권한 게이트 우회 opt-in — 사용자별 매핑 없이 전체 허용.
         const allowAllUsers = fd.get("allowAllUsers") === "true";
 
@@ -217,6 +223,8 @@ export const actions: Actions = {
             requirePkce,
             allowWildcardRedirectUri,
             requireVerifiedEmail,
+            requireMfa,
+            reauthPolicy,
             allowAllUsers,
             enabled: true,
         });
@@ -283,6 +291,10 @@ export const actions: Actions = {
         const allowWildcardRedirectUri = fd.get("allowWildcardRedirectUri") === "true";
         // ctrls R6: 이 클라이언트 로그인 시 이메일 인증 요구(opt-in).
         const requireVerifiedEmail = fd.get("requireVerifiedEmail") === "true";
+        // 이 클라이언트로 SSO 하려면 MFA 수준 세션을 요구(opt-in).
+        const requireMfa = fd.get("requireMfa") === "true";
+        // 재인증을 무엇으로 충족시킬지. 인식하지 못한 값은 보수적으로 full 로 떨어뜨린다.
+        const reauthPolicy = fd.get("reauthPolicy") === "mfa_only" ? "mfa_only" : "full";
         // 서비스 권한 게이트 우회 opt-in — 사용자별 매핑 없이 전체 허용.
         const allowAllUsers = fd.get("allowAllUsers") === "true";
 
@@ -301,6 +313,8 @@ export const actions: Actions = {
                 requirePkce,
                 allowWildcardRedirectUri,
                 requireVerifiedEmail,
+                requireMfa,
+                reauthPolicy,
                 allowAllUsers,
                 enabled,
                 updatedAt: new Date(),

@@ -61,7 +61,7 @@ const loginHref = $derived(
                             d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
                 </div>
-                <h1 class="text-2xl font-bold text-gray-900">{t("mfa_login.title")}</h1>
+                <h1 class="text-2xl font-bold text-gray-900">{data.stepUp ? t("mfa_login.step_up_title") : t("mfa_login.title")}</h1>
                 <p class="text-sm text-gray-500">
                     {#if useBackup}
                         {t("mfa_login.backup_code_hint")}
@@ -69,6 +69,9 @@ const loginHref = $derived(
                         {t("mfa_login.totp_hint")}
                     {/if}
                 </p>
+                {#if data.stepUp}
+                    <p class="text-xs text-gray-500">{t("mfa_login.step_up_notice")}</p>
+                {/if}
             </div>
 
             <FormError message={form?.error} class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" />
@@ -143,8 +146,14 @@ const loginHref = $derived(
             </div>
 
             <div class="mt-3 text-center">
-                <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-                <a href={loginHref} class="text-sm text-gray-500 hover:underline">{t("mfa_login.back_to_login")}</a>
+                {#if data.stepUp}
+                    <!-- step-up 은 이미 로그인된 상태다 — "로그인으로 돌아가기"가 아니라 취소여야 한다. -->
+                    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                    <a href="/" class="text-sm text-gray-500 hover:underline">{t("mfa_login.step_up_cancel")}</a>
+                {:else}
+                    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+                    <a href={loginHref} class="text-sm text-gray-500 hover:underline">{t("mfa_login.back_to_login")}</a>
+                {/if}
             </div>
         </div>
     </div>

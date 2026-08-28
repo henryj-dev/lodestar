@@ -242,6 +242,21 @@ const NAME_ID_OPTIONS = [
                         <input id="s-verifiedEmail" type="checkbox" name="requireVerifiedEmail" value="true" class="h-4 w-4 rounded border-gray-300" />
                         <label for="s-verifiedEmail" class="text-xs text-gray-700">{t("saml.require_verified_email")}</label>
                     </div>
+                    <div class="flex items-start gap-2">
+                        <input id="s-requireMfa" type="checkbox" name="requireMfa" value="true" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600" />
+                        <label for="s-requireMfa" class="text-xs text-gray-700">
+                            <span class="font-medium">{t("saml.require_mfa")}</span>
+                            <span class="block text-gray-500">{t("saml.require_mfa_hint")}</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label for="s-reauthPolicy" class="block text-xs font-medium text-gray-600">{t("saml.reauth_policy")}</label>
+                        <select id="s-reauthPolicy" name="reauthPolicy" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
+                            <option value="full">{t("saml.reauth_policy_full")}</option>
+                            <option value="mfa_only">{t("saml.reauth_policy_mfa_only")}</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500">{t("saml.reauth_policy_hint")}</p>
+                    </div>
                     <div class="flex items-center gap-2">
                         <input id="s-encryptAssertion" type="checkbox" name="encryptAssertion" value="true" bind:checked={createEncryptAssertion} class="h-4 w-4 rounded border-gray-300" />
                         <label for="s-encryptAssertion" class="text-xs text-gray-700">{t("saml.encrypt_assertion")}</label>
@@ -424,6 +439,21 @@ const NAME_ID_OPTIONS = [
                                                     checked={sp.requireVerifiedEmail}
                                                     class="h-4 w-4 rounded border-gray-300" />
                                                 <label for="e-verifiedEmail-{sp.id}" class="text-xs text-gray-700">{t("saml.require_verified_email")}</label>
+                                            </div>
+                                            <div class="flex items-center gap-2">
+                                                <input id="e-requireMfa-{sp.id}" type="checkbox" name="requireMfa" value="true" checked={sp.requireMfa} class="h-4 w-4 rounded border-gray-300" />
+                                                <label for="e-requireMfa-{sp.id}" class="text-xs text-gray-700">{t("saml.require_mfa")}</label>
+                                            </div>
+                                            <div>
+                                                <label for="e-reauthPolicy-{sp.id}" class="block text-xs font-medium text-gray-600">{t("saml.reauth_policy")}</label>
+                                                <select
+                                                    id="e-reauthPolicy-{sp.id}"
+                                                    name="reauthPolicy"
+                                                    class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
+                                                    <option value="full" selected={sp.reauthPolicy !== "mfa_only"}>{t("saml.reauth_policy_full")}</option>
+                                                    <option value="mfa_only" selected={sp.reauthPolicy === "mfa_only"}>{t("saml.reauth_policy_mfa_only")}</option>
+                                                </select>
+                                                <p class="mt-1 text-xs text-gray-500">{t("saml.reauth_policy_hint")}</p>
                                             </div>
                                             <div class="flex items-center gap-2">
                                                 <input

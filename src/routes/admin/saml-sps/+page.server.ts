@@ -25,6 +25,8 @@ export const load: PageServerLoad = async ({ locals }) => {
             encryptAssertion: samlSps.encryptAssertion,
             wantAuthnRequestsSigned: samlSps.wantAuthnRequestsSigned,
             requireVerifiedEmail: samlSps.requireVerifiedEmail,
+            requireMfa: samlSps.requireMfa,
+            reauthPolicy: samlSps.reauthPolicy,
             allowedAttributes: samlSps.allowedAttributes,
             allowAllUsers: samlSps.allowAllUsers,
             enabled: samlSps.enabled,
@@ -82,6 +84,10 @@ export const actions: Actions = {
         const requireVerifiedEmail = fd.get("requireVerifiedEmail") === "true";
         const encryptAssertion = fd.get("encryptAssertion") === "true";
         const allowedAttributes = parseAllowedAttributes(String(fd.get("allowedAttributes") ?? ""));
+        // 이 SP 로 SSO 하려면 MFA 수준 세션을 요구(opt-in).
+        const requireMfa = fd.get("requireMfa") === "true";
+        // 재인증을 무엇으로 충족시킬지. 인식하지 못한 값은 보수적으로 full 로 떨어뜨린다.
+        const reauthPolicy = fd.get("reauthPolicy") === "mfa_only" ? "mfa_only" : "full";
         // 서비스 권한 게이트 우회 opt-in — 사용자별 매핑 없이 전체 허용.
         const allowAllUsers = fd.get("allowAllUsers") === "true";
 
@@ -121,6 +127,8 @@ export const actions: Actions = {
             signResponse,
             wantAuthnRequestsSigned,
             requireVerifiedEmail,
+            requireMfa,
+            reauthPolicy,
             encryptAssertion,
             allowedAttributes,
             allowAllUsers,
@@ -163,6 +171,10 @@ export const actions: Actions = {
         const encryptAssertion = fd.get("encryptAssertion") === "true";
         const enabled = fd.get("enabled") === "true";
         const allowedAttributes = parseAllowedAttributes(String(fd.get("allowedAttributes") ?? ""));
+        // 이 SP 로 SSO 하려면 MFA 수준 세션을 요구(opt-in).
+        const requireMfa = fd.get("requireMfa") === "true";
+        // 재인증을 무엇으로 충족시킬지. 인식하지 못한 값은 보수적으로 full 로 떨어뜨린다.
+        const reauthPolicy = fd.get("reauthPolicy") === "mfa_only" ? "mfa_only" : "full";
         // 서비스 권한 게이트 우회 opt-in — 사용자별 매핑 없이 전체 허용.
         const allowAllUsers = fd.get("allowAllUsers") === "true";
 
@@ -201,6 +213,8 @@ export const actions: Actions = {
                 signResponse,
                 wantAuthnRequestsSigned,
                 requireVerifiedEmail,
+                requireMfa,
+                reauthPolicy,
                 encryptAssertion,
                 allowedAttributes,
                 allowAllUsers,
@@ -230,12 +244,16 @@ export const actions: Actions = {
                     signResponse: before?.signResponse !== signResponse,
                     wantAuthnRequestsSigned: before?.wantAuthnRequestsSigned !== wantAuthnRequestsSigned,
                     requireVerifiedEmail: before?.requireVerifiedEmail !== requireVerifiedEmail,
+                    requireMfa: before?.requireMfa !== requireMfa,
+                    // 재인증 강도를 낮출 수 있는 설정 — mfa_only 로의 전환은 forensics 대상이다.
+                    reauthPolicy: before?.reauthPolicy !== reauthPolicy,
                     // 권한 표면 확대 플래그 — 침해 forensics 를 위해 변경 여부 기록.
                     allowAllUsers: before?.allowAllUsers !== allowAllUsers,
                     enabled: before?.enabled !== enabled,
                 },
                 newAcsUrl: acsUrl,
                 newSloUrl: sloUrl || null,
+                newReauthPolicy: reauthPolicy,
             },
         });
 

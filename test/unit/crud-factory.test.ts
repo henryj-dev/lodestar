@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { RequestEvent } from "@sveltejs/kit";
 import { createAdminCrudRoute } from "$lib/server/admin/crud-factory";
 import { positions } from "$lib/server/db/schema";
+import { ACR_MFA } from "$lib/server/auth/constants";
 
 // ── 순수 로직 검증용 목(mock) ──────────────────────────────────────────────
 // 실제 쿼리는 실행하지 않는다. insert/update/delete 에 넘어온 값만 캡처해
@@ -44,7 +45,15 @@ function makeEvent(db: unknown, form: Record<string, string>): RequestEvent {
     const fd = new FormData();
     for (const [k, v] of Object.entries(form)) fd.set(k, v);
     return {
-        locals: { db, tenant: { id: "tenant-1" }, user: { id: "user-1", role: "admin" }, locale: "ko" },
+        // session.acr 이 필요한 이유: requireAdminContext 가 관리 콘솔을 MFA 세션으로 제한한다.
+        // 이 스위트는 CRUD 팩토리의 계약을 보는 것이므로 게이트를 통과하는 세션을 준다.
+        locals: {
+            db,
+            tenant: { id: "tenant-1" },
+            user: { id: "user-1", role: "admin" },
+            session: { id: "session-1", acr: ACR_MFA },
+            locale: "ko",
+        },
         request: { formData: async () => fd, headers: new Headers() },
     } as unknown as RequestEvent;
 }
@@ -191,7 +200,7 @@ describe("createAdminCrudRoute - load", () => {
         const { db } = makeDb();
         const route = makeRoute();
         const data = await route.load({
-            locals: { db, tenant: { id: "tenant-1" }, user: { id: "user-1", role: "admin" } },
+            locals: { db, tenant: { id: "tenant-1" }, user: { id: "user-1", role: "admin" }, session: { id: "session-1", acr: ACR_MFA } },
         } as unknown as { locals: App.Locals });
         expect(data).toEqual({ ok: true });
     });

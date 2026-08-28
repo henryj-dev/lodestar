@@ -1,5 +1,10 @@
 # stardust back-channel logout 운영 E2E 확인 요청
 
+> [!NOTE]
+> **회신 완료 (2026-08-28)** — [회신 문서](./2026-08-28-stardust-backchannel-logout-회신.md) 참고.
+> `sid` 값 불일치라는 별개의 잠재 결함을 찾아 고쳤지만, 아래 관측 실패의 원인은 아닙니다
+> (`session_required=false` 에서는 `sid` 를 보내지 않음). 남은 확인 항목은 회신 문서에 정리했습니다.
+
 작성일: 2026-08-25  
 발신: tiny-universe/stardust  
 수신: mack-erel/KeyStone 운영·개발 담당자

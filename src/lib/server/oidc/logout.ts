@@ -156,8 +156,15 @@ export async function getOidcBackchannelTargetsForUser(db: DB, tenantId: string,
  * 이 IdP 세션에 묶여 있는 활성 grant/refresh_token 이 있는 OIDC 클라이언트 중,
  * frontchannel_logout_uri 가 설정된 클라이언트의 iframe URL 목록을 반환한다.
  * frontchannelLogoutSessionRequired=true 인 클라이언트에만 sid 쿼리 파라미터를 추가한다.
+ *
+ * `sid` 는 **ID 토큰에 실린 것과 같은 값**(`sessions.id`)이어야 한다. RP 는 로그인 시 ID 토큰의
+ * `sid` 를 저장해 두고 로그아웃 통지의 `sid` 로 그 세션을 찾는다 — 두 값이 다르면 RP 는 대상
+ * 세션을 찾지 못하고 로그아웃이 조용히 실패한다. 예전에는 여기에 `sessions.idp_session_id`
+ * (세션 토큰의 SHA-256) 를 넣었는데, 그 값은 ID 토큰의 `sid`(`authorize` 가 넘기는
+ * `locals.session.id`) 와 달라 실제로 매칭이 되지 않았다. 세션 토큰 해시는 세션 조회 키이기도
+ * 해서 RP 에 내보낼 값도 아니다.
  */
-export async function getOidcFrontchannelTargets(db: DB, tenantId: string, sessionId: string, idpSessionId: string, issuerUrl: string): Promise<FrontchannelTarget[]> {
+export async function getOidcFrontchannelTargets(db: DB, tenantId: string, sessionId: string, issuerUrl: string): Promise<FrontchannelTarget[]> {
     const grantClientIds = await db
         .select({ clientId: oidcGrants.clientId })
         .from(oidcGrants)
@@ -190,7 +197,7 @@ export async function getOidcFrontchannelTargets(db: DB, tenantId: string, sessi
         const sep = base.includes("?") ? "&" : "?";
         let uri = `${base}${sep}iss=${encodeURIComponent(issuerUrl)}`;
         if (row.frontchannelLogoutSessionRequired) {
-            uri += `&sid=${encodeURIComponent(idpSessionId)}`;
+            uri += `&sid=${encodeURIComponent(sessionId)}`;
         }
         targets.push({ uri });
     }
@@ -201,11 +208,15 @@ export async function getOidcFrontchannelTargets(db: DB, tenantId: string, sessi
  * 단일 OIDC BC 타깃에 logout_token 을 POST 한다.
  * 네트워크 오류는 호출자에서 swallow 하도록 래핑하고, 여기서는 정상 경로에 대한
  * 검증만 수행한다 (비정상 상태 코드도 RP 측 문제이므로 IdP 는 재시도하지 않는다).
+ *
+ * `sid` 는 **ID 토큰에 실린 것과 같은 값**(`sessions.id`)을 넘겨야 한다.
+ * 이유는 `getOidcFrontchannelTargets` 주석 참고.
  */
 export async function sendOneBackchannelLogout(
     target: BackchannelTarget,
     userId: string,
-    idpSessionId: string,
+    /** ID 토큰의 `sid` 와 동일한 값 = `sessions.id`. 세션 토큰 해시가 아니다. */
+    sid: string,
     issuerUrl: string,
     privateKey: CryptoKey,
     kid: string,
@@ -220,7 +231,7 @@ export async function sendOneBackchannelLogout(
         events: { "http://schemas.openid.net/event/backchannel-logout": {} },
     };
     if (target.backchannelLogoutSessionRequired) {
-        payload.sid = idpSessionId;
+        payload.sid = sid;
     }
 
     // BC logout JWT 는 일반 ID Token 과 구별되어야 하므로 typ=logout+jwt (RFC: OpenID BC logout 1.0)

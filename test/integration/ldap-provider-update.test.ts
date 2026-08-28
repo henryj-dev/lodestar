@@ -3,17 +3,19 @@ import { eq } from "drizzle-orm";
 import { actions, load } from "../../src/routes/admin/ldap-providers/+page.server";
 import { auditEvents, identityProviders } from "../../src/lib/server/db/schema";
 import { decryptSecret, encryptSecret } from "../../src/lib/server/crypto/keys";
-import { openMemoryDb, makeEvent, seedIdentityProvider, seedTenantAndSigningKey, seedUser, TEST_ISSUER_URL, TEST_SIGNING_SECRET, type MemoryDb } from "./harness";
-import type { Tenant, User } from "../../src/lib/server/db/schema";
+import { openMemoryDb, makeEvent, seedIdentityProvider, seedTenantAndSigningKey, seedUser, seedMfaSession, TEST_ISSUER_URL, TEST_SIGNING_SECRET, type MemoryDb } from "./harness";
+import type { Tenant, User, Session } from "../../src/lib/server/db/schema";
 
 let mem: MemoryDb;
 let tenant: Tenant;
 let admin: User;
+let adminSession: Session;
 
 beforeEach(async () => {
     mem = await openMemoryDb();
     tenant = await seedTenantAndSigningKey(mem);
     admin = await seedUser(mem.db, { tenantId: tenant.id, email: "ldap-admin@test.example", username: "ldapadmin", role: "admin" });
+    adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
 });
 
 afterEach(() => mem.close());
@@ -23,7 +25,7 @@ function adminEvent(form: Record<string, string>) {
         method: "POST",
         url: `${TEST_ISSUER_URL}/admin/ldap-providers`,
         form,
-        locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
     });
 }
 
@@ -120,7 +122,9 @@ describe("LDAP provider update", () => {
             tenantId: tenant.id,
             config: { host: "ldap.example.test", port: 389, baseDN: "dc=example", tlsMode: "none", bindDN: "cn=reader", bindPassword: "legacy-plaintext" },
         });
-        const result = (await load(makeEvent({ method: "GET", url: `${TEST_ISSUER_URL}/admin/ldap-providers`, locals: { db: mem.db, tenant, user: admin, env: mem.env } }) as never)) as {
+        const result = (await load(
+            makeEvent({ method: "GET", url: `${TEST_ISSUER_URL}/admin/ldap-providers`, locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env } }) as never,
+        )) as {
             providers: Array<{ configJson: string; hasBindPassword: boolean }>;
         };
         const serialized = JSON.stringify(result.providers);

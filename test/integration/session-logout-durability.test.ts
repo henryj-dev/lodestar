@@ -131,7 +131,7 @@ describe("세션 단위 로그아웃 통지 내구성", () => {
         await login();
         await simulateGrantGc();
 
-        const targets = await getOidcFrontchannelTargets(mem.db, tenant.id, session.id, session.idpSessionId, TEST_ISSUER_URL);
+        const targets = await getOidcFrontchannelTargets(mem.db, tenant.id, session.id, TEST_ISSUER_URL);
         expect(targets).toHaveLength(1);
         expect(targets[0].uri).toContain("https://rp.test.example/fc-logout");
     });

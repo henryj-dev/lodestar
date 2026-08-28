@@ -13,6 +13,7 @@ import {
     seedSamlSp,
     seedServiceAssignment,
     seedSession,
+    seedMfaSession,
     makeEvent,
     makeKeyCert,
     buildAuthnRequestXml,
@@ -295,6 +296,7 @@ describe("SAML Entitlements 속성", () => {
      */
     async function submitAllowedAttrsForm(raw: string): Promise<void> {
         const admin = await seedUser(mem.db, { tenantId: tenant.id, email: `admin-${raw.length}-${Date.now()}@test.example`, role: "admin" });
+        const adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
         const [current] = await mem.db.select().from(samlSps).where(eq(samlSps.id, sp.id)).limit(1);
         const event = makeEvent({
             method: "POST",
@@ -311,7 +313,7 @@ describe("SAML Entitlements 속성", () => {
                 allowedAttributes: raw,
                 enabled: "true",
             },
-            locals: { db: mem.db, tenant, user: admin, env: mem.env },
+            locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
         });
         await spListActions.update!(event as Parameters<NonNullable<typeof spListActions.update>>[0]);
     }

@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { forceLogout } from "../../src/lib/server/admin/user-actions/security";
 import { b64uDecode } from "../../src/lib/server/crypto/keys";
 import { auditEvents, oidcClients } from "../../src/lib/server/db/schema";
-import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedOidcClient, seedServiceAssignment, seedSession, makeEvent, TEST_ISSUER_URL, type MemoryDb } from "./harness";
-import type { Tenant, User } from "../../src/lib/server/db/schema";
+import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedMfaSession, seedOidcClient, seedServiceAssignment, seedSession, makeEvent, TEST_ISSUER_URL, type MemoryDb } from "./harness";
+import type { Tenant, User, Session } from "../../src/lib/server/db/schema";
 
 // 관리자 "강제 로그아웃" 이 RP 에도 도달하는지.
 //
@@ -18,6 +18,7 @@ const BC_URI = "https://rp.test.example/backchannel-logout";
 let mem: MemoryDb;
 let tenant: Tenant;
 let admin: User;
+let adminSession: Session;
 let target: User;
 let captured: { url: string; body: string }[];
 let originalFetch: typeof globalThis.fetch;
@@ -26,6 +27,7 @@ beforeEach(async () => {
     mem = await openMemoryDb();
     tenant = await seedTenantAndSigningKey(mem);
     admin = await seedUser(mem.db, { tenantId: tenant.id, email: "admin@test.example", role: "admin" });
+    adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
     target = await seedUser(mem.db, { tenantId: tenant.id, email: "member@test.example" });
 
     captured = [];
@@ -60,7 +62,7 @@ function adminEvent() {
         method: "POST",
         url: `${TEST_ISSUER_URL}/admin/users/${target.id}`,
         form: {},
-        locals: { db: mem.db, tenant, user: admin, env: mem.env },
+        locals: { db: mem.db, tenant, user: admin, session: adminSession, env: mem.env },
     });
     (event as unknown as { params: { id: string } }).params = { id: target.id };
     return event as Parameters<typeof forceLogout>[0];
@@ -147,7 +149,9 @@ describe("관리자 강제 로그아웃 → RP 통지", () => {
 
         expect(captured).toHaveLength(2);
         const sids = captured.map((c) => decodePayload(c.body).sid).sort();
-        expect(sids).toEqual([a.session.idpSessionId, b.session.idpSessionId].sort());
+        // sid 는 ID 토큰과 같은 sessions.id 여야 한다. 예전에는 idp_session_id(세션 토큰 해시)를
+        // 보내 RP 가 ID 토큰의 sid 와 매칭할 수 없었다.
+        expect(sids).toEqual([a.session.id, b.session.id].sort());
     });
 
     it("주체 단위 클라이언트에는 sid 없이 한 건만 보낸다 (세션이 둘이어도)", async () => {

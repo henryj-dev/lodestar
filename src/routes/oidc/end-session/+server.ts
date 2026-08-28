@@ -183,13 +183,15 @@ async function executeLogout(event: Parameters<RequestHandler>[0], postLogoutRed
         const signingKeySecrets = locals.runtimeConfig.signingKeySecrets;
 
         const bcTargets = await getOidcBackchannelTargets(db, tenantId, sessionId);
-        const fcTargets = await getOidcFrontchannelTargets(db, tenantId, sessionId, idpSessionId, issuerUrl);
+        // sid 는 ID 토큰과 동일한 sessions.id 를 쓴다. idpSessionId 는 세션 조회 키이므로
+        // revokeSession 에만 넘기고 RP 로는 내보내지 않는다.
+        const fcTargets = await getOidcFrontchannelTargets(db, tenantId, sessionId, issuerUrl);
 
         if (bcTargets.length > 0 && signingKeySecrets.length > 0) {
             const signingKey = await getActiveSigningKey(db, tenantId, signingKeySecrets);
             if (signingKey) {
                 const bcPromises = bcTargets.map((t) =>
-                    sendOneBackchannelLogout(t, userId, idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid, platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
+                    sendOneBackchannelLogout(t, userId, sessionId, issuerUrl, signingKey.privateKey, signingKey.kid, platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
                 );
                 const wait = platform?.ctx?.waitUntil?.bind(platform.ctx);
                 if (wait) {

@@ -23,7 +23,9 @@ import { getRuntimeConfig } from "$lib/server/auth/runtime";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { getActiveSigningKey } from "$lib/server/crypto/keys";
-import { acrSatisfies } from "$lib/server/auth/constants";
+import { acrMeetsMfa, acrSatisfies } from "$lib/server/auth/constants";
+import { sessionAuthTime } from "$lib/server/auth/session";
+import { hasTotpCredential } from "$lib/server/auth/users";
 import { samlAuthnRequestIds } from "$lib/server/db/schema";
 import type { ParsedAuthnRequest } from "$lib/server/saml/parse-authn-request";
 import { parseAuthnRequest, parseAuthnRequestPost, verifySamlRedirectSignature, encodeRedirectBindingSamlRequest } from "$lib/server/saml/parse-authn-request";
@@ -287,6 +289,10 @@ async function gateAndIssueSamlAssertion(event: Parameters<RequestHandler>[0], p
         issuerUrl: p.issuerUrl,
         spEntityId: sp.entityId,
         authnContextClassRef: session.acr ?? undefined,
+        // 실제 인증 시각. 발급 시각을 넣으면 오래된 세션도 방금 인증한 것처럼 보여
+        // SP 가 AuthnInstant 신선도로 아무것도 판단할 수 없다. MFA step-up 으로 승격된
+        // 세션은 이 값이 갱신되므로 재인증을 실제로 했는지가 SP 에 정직하게 드러난다.
+        authnInstant: sessionAuthTime(session),
         nameId,
         nameIdFormat,
         sessionIndex,
@@ -331,6 +337,30 @@ interface ProcessAuthnRequestParams {
 }
 
 /**
+ * 재인증이 필요할 때 사용자를 보낼 곳. SP 의 `reauthPolicy` 가 결정한다.
+ *
+ * - `full`(기본): `/login?forceAuthn=true` — 1차 인증부터 다시 받는다.
+ * - `mfa_only`: `/mfa?stepUp=mfa` — 세션을 유지한 채 OTP 만 받아 세션 ACR/AMR 을 승격한다.
+ *
+ * 승격이 불가능한 경우(TOTP 미등록, 서명키 부재 등)는 `/mfa` 가 스스로
+ * `/login?forceAuthn=true` 로 되돌리므로, 이 함수에서 사용자 크레덴셜을 조회하지 않는다.
+ */
+function buildSamlReauthUrl(url: URL, sp: SamlSpRecord, loginRedirectTo: string): string {
+    if (sp.reauthPolicy === "mfa_only") {
+        const stepUpUrl = new URL("/mfa", url);
+        stepUpUrl.searchParams.set("stepUp", "mfa");
+        stepUpUrl.searchParams.set("redirectTo", loginRedirectTo);
+        stepUpUrl.searchParams.set("skinHint", `saml:${sp.id}`);
+        return stepUpUrl.toString();
+    }
+    const loginUrl = new URL("/login", url);
+    loginUrl.searchParams.set("redirectTo", loginRedirectTo);
+    loginUrl.searchParams.set("skinHint", `saml:${sp.id}`);
+    loginUrl.searchParams.set("forceAuthn", "true");
+    return loginUrl.toString();
+}
+
+/**
  * SP-initiated AuthnRequest 공통 처리부 (Redirect / POST 바인딩 공유).
  * isPassive → 로그인 → forceAuthn → RequestedAuthnContext(ACR) → 게이트 → Response 발급.
  * 파싱·서명검증·바인딩별 redirectTo 만 호출부에서 다르게 준비해 넘긴다.
@@ -361,7 +391,7 @@ async function processSpInitiatedAuthnRequest(event: Parameters<RequestHandler>[
         throw redirect(302, loginUrl.toString());
     }
 
-    // forceAuthn: SP 가 강제 재인증을 요구하면, 현재 세션 상태와 무관하게 /login 으로 보낸다.
+    // forceAuthn: SP 가 강제 재인증을 요구하면, 현재 세션 상태와 무관하게 재인증으로 보낸다.
     // 무한 루프 방지: AuthnRequest ID 를 쿠키에 기록해 두고, 동일 요청에 대한 재진입이면 통과시킨다.
     if (authnRequest.forceAuthn) {
         // ctrls LOW: AuthnRequest.id 는 공격자 제어 XML 값이라 그대로 쿠키명에 쓰면 space/;/제어문자
@@ -379,21 +409,32 @@ async function processSpInitiatedAuthnRequest(event: Parameters<RequestHandler>[
                 secure: url.protocol === "https:",
                 maxAge: 600,
             });
-            const loginUrl = new URL("/login", url);
-            loginUrl.searchParams.set("redirectTo", p.loginRedirectTo);
-            loginUrl.searchParams.set("skinHint", `saml:${sp.id}`);
-            loginUrl.searchParams.set("forceAuthn", "true");
-            throw redirect(302, loginUrl.toString());
+            // reauthPolicy=mfa_only 인 SP 는 OTP 승격으로 ForceAuthn 을 충족시킨다. SAML Core
+            // 3.4.1.1 의 "기존 세션에 의존하지 말 것"을 완화하는 선택이므로 SP 별 opt-in 이다.
+            throw redirect(302, buildSamlReauthUrl(url, sp, p.loginRedirectTo));
         }
         // 이미 재인증을 거치고 돌아온 경우 — 쿠키 삭제 후 SSO 응답 진행
         event.cookies.delete(reauthCookieName, { path: "/saml/sso" });
     }
 
-    // RequestedAuthnContext: 세션 ACR 이 SP 요구 수준을 만족하는지 검사한다.
-    if (authnRequest.requestedAuthnContext && !acrSatisfies(locals.session.acr, authnRequest.requestedAuthnContext)) {
-        // 세션이 issueInstant 이후에 생성됐다면 재인증을 이미 거쳤으나 ACR 이 여전히 부족한 것.
+    // ACR 게이트. 두 가지 요구를 함께 본다.
+    //   1. SP 가 요청에 담은 RequestedAuthnContext (comparison 문법 해석)
+    //   2. SP 등록 설정의 requireMfa — SP 가 요청에 아무것도 담지 않아도 IdP 측에서 강제한다
+    const acrUnmet = (authnRequest.requestedAuthnContext && !acrSatisfies(locals.session.acr, authnRequest.requestedAuthnContext)) || (sp.requireMfa && !acrMeetsMfa(locals.session.acr));
+    if (acrUnmet) {
+        // 세션이 issueInstant 이후에 인증됐다면 재인증을 이미 거쳤으나 ACR 이 여전히 부족한 것.
         // (예: MFA 미설정 사용자가 refeds/mfa 를 요구받은 경우) → NoAuthnContext 오류 반환.
-        const isPostReauth = locals.session.createdAt >= authnRequest.issueInstant;
+        //
+        // createdAt 이 아니라 authTime 을 보는 것이 중요하다. MFA step-up 은 세션 행을 유지하므로
+        // createdAt 이 그대로다 — createdAt 으로 비교하면 승격을 마치고 돌아와도 "재인증 안 함" 으로
+        // 판정되어 /mfa ↔ /saml/sso 를 무한 왕복한다.
+        //
+        // `+1초` 관용: AuthnRequest 의 IssueInstant 는 xs:dateTime 으로 오되 밀리초가 없는 경우가
+        // 흔해 초 단위로 절삭된다. 관용이 없으면 "로그인 직후 같은 초에 도착한 요청"에서 세션이
+        // 요청보다 나중으로 보여, 재인증을 시켜야 할 상황에 NoAuthnContext 를 반환한다.
+        // 진짜 재인증을 마치고 돌아오면 인증 시각이 요청 시각보다 수 초 뒤이므로 루프 방지는
+        // 그대로 동작한다.
+        const isPostReauth = sessionAuthTime(locals.session).getTime() >= authnRequest.issueInstant.getTime() + 1000;
         if (isPostReauth || authnRequest.isPassive) {
             return await buildAndRenderSamlError({
                 inResponseTo: authnRequest.id,
@@ -406,12 +447,8 @@ async function processSpInitiatedAuthnRequest(event: Parameters<RequestHandler>[
                 locale: event.locals.locale,
             });
         }
-        // 첫 시도: 재인증(MFA 포함)을 강제한다.
-        const loginUrl = new URL("/login", url);
-        loginUrl.searchParams.set("redirectTo", p.loginRedirectTo);
-        loginUrl.searchParams.set("skinHint", `saml:${sp.id}`);
-        loginUrl.searchParams.set("forceAuthn", "true");
-        throw redirect(302, loginUrl.toString());
+        // 첫 시도: 재인증(MFA 포함)을 강제한다. reauthPolicy 가 전체 로그인이냐 OTP 승격이냐를 정한다.
+        throw redirect(302, buildSamlReauthUrl(url, sp, p.loginRedirectTo));
     }
 
     return await gateAndIssueSamlAssertion(event, {
@@ -449,6 +486,18 @@ async function handleIdpInitiated(event: Parameters<RequestHandler>[0], ctx: { d
         loginUrl.searchParams.set("redirectTo", url.pathname + url.search);
         loginUrl.searchParams.set("skinHint", `saml:${sp.id}`);
         throw redirect(302, loginUrl.toString());
+    }
+
+    // requireMfa SP 는 IdP-initiated 경로에서도 MFA 수준 세션을 요구한다. 여기를 빠뜨리면
+    // SP-initiated 만 게이트되고 `?sp=<entityId>` 로 우회해 password-only Assertion 을 받을 수 있다.
+    if (sp.requireMfa && !acrMeetsMfa(locals.session.acr)) {
+        // AuthnRequest 가 없어 issueInstant 기준 재진입 판정(SP-initiated 의 isPostReauth)을 쓸 수
+        // 없다. TOTP 미등록 사용자를 그냥 재인증으로 보내면 로그인해도 ACR 이 올라가지 않아
+        // /saml/sso ↔ /login 을 무한 왕복하므로, 승격 가능성을 먼저 확인하고 불가하면 오류로 끝낸다.
+        if (!(await hasTotpCredential(db, locals.user.id))) {
+            throw error(403, translate(locals.locale, "saml.errors.mfa_required"));
+        }
+        throw redirect(302, buildSamlReauthUrl(url, sp, url.pathname + url.search));
     }
 
     const signingKey = await getActiveSigningKey(db, tenant.id, ctx.signingKeySecrets);

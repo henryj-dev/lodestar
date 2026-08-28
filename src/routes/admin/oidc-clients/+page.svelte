@@ -172,6 +172,21 @@ function urisToText(json: string | null): string {
                     <label for="c-verifiedEmail" class="text-xs text-gray-700">{t("oidc.require_verified_email")}</label>
                 </div>
                 <div class="flex items-start gap-2 pt-1 sm:col-span-2">
+                    <input id="c-requireMfa" type="checkbox" name="requireMfa" value="true" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600" />
+                    <label for="c-requireMfa" class="text-xs text-gray-700">
+                        <span class="font-medium">{t("oidc.require_mfa")}</span>
+                        <span class="block text-gray-500">{t("oidc.require_mfa_hint")}</span>
+                    </label>
+                </div>
+                <div class="sm:col-span-2">
+                    <label for="c-reauthPolicy" class="block text-xs font-medium text-gray-600">{t("oidc.reauth_policy")}</label>
+                    <select id="c-reauthPolicy" name="reauthPolicy" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
+                        <option value="full">{t("oidc.reauth_policy_full")}</option>
+                        <option value="mfa_only">{t("oidc.reauth_policy_mfa_only")}</option>
+                    </select>
+                    <p class="mt-1 text-xs text-gray-500">{t("oidc.reauth_policy_hint")}</p>
+                </div>
+                <div class="flex items-start gap-2 pt-1 sm:col-span-2">
                     <input id="c-wildcard" type="checkbox" name="allowWildcardRedirectUri" value="true" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-amber-600" />
                     <label for="c-wildcard" class="text-xs text-gray-700">
                         <span class="font-medium text-amber-700">{t("oidc.allow_wildcard_redirect_uri")}</span>
@@ -377,9 +392,30 @@ function urisToText(json: string | null): string {
                                                 <label for="e-verifiedEmail-{client.id}" class="text-xs text-gray-700">{t("oidc.require_verified_email")}</label>
                                             </div>
                                             <div class="flex items-center gap-2">
+                                                <input
+                                                    id="e-requireMfa-{client.id}"
+                                                    type="checkbox"
+                                                    name="requireMfa"
+                                                    value="true"
+                                                    checked={client.requireMfa}
+                                                    class="h-4 w-4 rounded border-gray-300" />
+                                                <label for="e-requireMfa-{client.id}" class="text-xs text-gray-700">{t("oidc.require_mfa")}</label>
+                                            </div>
+                                            <div class="flex items-center gap-2">
                                                 <input id="e-enabled-{client.id}" type="checkbox" name="enabled" value="true" checked={client.enabled} class="h-4 w-4 rounded border-gray-300" />
                                                 <label for="e-enabled-{client.id}" class="text-xs text-gray-700">{t("oidc.enabled")}</label>
                                             </div>
+                                        </div>
+                                        <div>
+                                            <label for="e-reauthPolicy-{client.id}" class="block text-xs font-medium text-gray-600">{t("oidc.reauth_policy")}</label>
+                                            <select
+                                                id="e-reauthPolicy-{client.id}"
+                                                name="reauthPolicy"
+                                                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
+                                                <option value="full" selected={client.reauthPolicy !== "mfa_only"}>{t("oidc.reauth_policy_full")}</option>
+                                                <option value="mfa_only" selected={client.reauthPolicy === "mfa_only"}>{t("oidc.reauth_policy_mfa_only")}</option>
+                                            </select>
+                                            <p class="mt-1 text-xs text-gray-500">{t("oidc.reauth_policy_hint")}</p>
                                         </div>
                                         <div class="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
                                             <input

@@ -321,7 +321,10 @@ describe("OIDC authorize 재인증(prompt=login / max_age)", () => {
         const url = await authorizeUrl("verifier-loop-guard-1111222233334444eeee", { prompt: "login" });
         const jar = makeCookieJar();
         // 마커 발급 시각과의 비교가 명확하도록 기존 세션은 확실히 과거로 둔다.
-        const oldSession = { ...session, createdAt: new Date(Date.now() - 3600 * 1000) };
+        // 재인증 판정의 기준은 createdAt 이 아니라 authTime 이다(step-up 은 세션 행을 유지하면서
+        // authTime 만 갱신하므로 둘이 갈라진다) — 두 값을 함께 옮겨 의도를 명확히 한다.
+        const hourAgo = new Date(Date.now() - 3600 * 1000);
+        const oldSession = { ...session, createdAt: hourAgo, authTime: hourAgo };
 
         // 1회차 — 재인증 요구로 /login 리다이렉트 + 마커 쿠키 설정
         const first = makeEvent({ method: "GET", url, locals: { db: mem.db, tenant, user, session: oldSession, env: mem.env }, cookies: jar.cookies });
@@ -333,7 +336,7 @@ describe("OIDC authorize 재인증(prompt=login / max_age)", () => {
         expect(markers).toHaveLength(1);
 
         // 2회차 — 재인증으로 새 세션이 생긴 뒤 동일 URL 로 복귀. 루프에 빠지지 않고 code 를 발급해야 한다.
-        const reauthedSession = { ...session, createdAt: new Date() };
+        const reauthedSession = { ...session, createdAt: new Date(), authTime: new Date() };
         const second = makeEvent({
             method: "GET",
             url,
@@ -353,7 +356,8 @@ describe("OIDC authorize 재인증(prompt=login / max_age)", () => {
         // prompt=login 이 소진돼 RP 의 재인증 요구를 우회할 수 있다.
         const url = await authorizeUrl("verifier-reauth-bypass-9999aaaabbbbcccc1234", { prompt: "login" });
         const jar = makeCookieJar();
-        const oldSession = { ...session, createdAt: new Date(Date.now() - 3600 * 1000) };
+        const bypassHourAgo = new Date(Date.now() - 3600 * 1000);
+        const oldSession = { ...session, createdAt: bypassHourAgo, authTime: bypassHourAgo };
 
         const first = makeEvent({ method: "GET", url, locals: { db: mem.db, tenant, user, session: oldSession, env: mem.env }, cookies: jar.cookies });
         await catchRedirect(() => authorizeGET(first));
@@ -370,8 +374,9 @@ describe("OIDC authorize 재인증(prompt=login / max_age)", () => {
     it("prompt=none + max_age 초과는 login_required 오류이며 마커 쿠키를 설정하지 않는다", async () => {
         const url = await authorizeUrl("verifier-prompt-none-maxage-5555666677778888ffff", { prompt: "none", max_age: "60" });
         const jar = makeCookieJar();
-        // 세션이 max_age(60초)보다 오래된 상태를 만든다.
-        const staleSession = { ...session, createdAt: new Date(Date.now() - 3600 * 1000) };
+        // 세션이 max_age(60초)보다 오래된 상태를 만든다. max_age 는 authTime 을 기준으로 판정한다.
+        const staleAuthTime = new Date(Date.now() - 3600 * 1000);
+        const staleSession = { ...session, createdAt: staleAuthTime, authTime: staleAuthTime };
         const event = makeEvent({
             method: "GET",
             url,

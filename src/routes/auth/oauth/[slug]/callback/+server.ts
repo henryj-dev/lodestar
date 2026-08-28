@@ -237,7 +237,7 @@ export const GET: RequestHandler = async (event) => {
         }
 
         // 1차 요소를 `fed` 로 실어 보낸다 — MFA 라우트가 이 값으로 세션 amr 을 조립한다.
-        const mfaToken = await createMfaPendingToken({ userId: user.id, tenantId: tenant.id, redirectTo, ip: meta.ip, forced, firstFactor: AMR_FEDERATED }, config.signingKeySecret);
+        const mfaToken = await createMfaPendingToken({ userId: user.id, tenantId: tenant.id, redirectTo, ip: meta.ip, forced, baseAmr: [AMR_FEDERATED] }, config.signingKeySecret);
 
         event.cookies.set(MFA_PENDING_COOKIE, mfaToken, {
             path: "/",

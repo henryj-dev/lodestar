@@ -50,7 +50,8 @@ async function performLogout(event: RequestEvent): Promise<string | null> {
             const signingKey = await getActiveSigningKey(db, tenant.id, signingKeySecrets);
             if (signingKey) {
                 const bcPromises = bcTargets.map((t) =>
-                    sendOneBackchannelLogout(t, userId, idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid, event.platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
+                    // sid 는 ID 토큰과 동일한 sessions.id. idpSessionId 는 세션 조회 키라 내보내지 않는다.
+                    sendOneBackchannelLogout(t, userId, sessionId, issuerUrl, signingKey.privateKey, signingKey.kid, event.platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
                 );
                 const wait = event.platform?.ctx?.waitUntil?.bind(event.platform.ctx);
                 if (wait) {

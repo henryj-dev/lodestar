@@ -63,7 +63,8 @@ async function fireOidcBackchannelLogout(event: RequestEvent, idpSession: typeof
 
     const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
     const bcPromises = bcTargets.map((t) =>
-        sendOneBackchannelLogout(t, idpSession.userId, idpSession.idpSessionId, issuerUrl, signingKey.privateKey, signingKey.kid, event.platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
+        // sid 는 ID 토큰과 동일한 sessions.id 를 쓴다(idpSessionId 는 세션 조회 키).
+        sendOneBackchannelLogout(t, idpSession.userId, idpSession.id, issuerUrl, signingKey.privateKey, signingKey.kid, event.platform?.env?.OIDC_WEBHOOK_QUEUE).catch(() => undefined),
     );
     const wait = platform?.ctx?.waitUntil?.bind(platform.ctx);
     if (wait) {
