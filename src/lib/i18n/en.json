@@ -881,6 +881,10 @@
         "db_not_ready": "The D1 binding \"DB\" is not ready. Please run in a Wrangler preview/dev environment."
     },
     "error_page": {
+        "not_found": "Page not found",
+        "forbidden": "You don't have access",
+        "unavailable": "Service temporarily unavailable",
+        "generic": "Something went wrong",
         "home": "Back to home",
         "csrf_title": "Request could not be processed",
         "csrf_message": "We couldn't verify where this request came from, so it was not processed. Please reload the page and try again."
