@@ -3,6 +3,7 @@ import type { RequestHandler } from "./$types";
 import { and, eq } from "drizzle-orm";
 import { oidcClients } from "$lib/server/db/schema";
 import { clearSessionCookie, revokeSession } from "$lib/server/auth/session";
+import { ensureCsrfToken, isValidCsrf } from "$lib/server/auth/csrf";
 import { getActiveSigningKey, verifyIdToken } from "$lib/server/crypto/keys";
 import { getOidcBackchannelTargets, getOidcFrontchannelTargets, sendOneBackchannelLogout } from "$lib/server/oidc/logout";
 import { matchesRedirectUri } from "$lib/server/oidc/client";
@@ -94,9 +95,19 @@ export const GET: RequestHandler = async (event) => {
     const idTokenHint = url.searchParams.get("id_token_hint");
     const state = url.searchParams.get("state");
 
-    // ctrls M-10: id_token_hint 가 없으면 거부 (CSRF / drive-by logout 방지)
-    if (!idTokenHint) {
-        return new Response(JSON.stringify({ error: "invalid_request", error_description: translate(locals.locale, "oidc.errors.id_token_hint_required") }), {
+    // RP 를 식별할 수단이 하나도 없으면 거부한다.
+    //
+    // OIDC RP-Initiated Logout 1.0 은 `id_token_hint` 를 RECOMMENDED 로 두고, §2 에서
+    // `client_id` 를 "post_logout_redirect_uri 는 쓰지만 id_token_hint 는 쓰지 않을 때
+    // 클라이언트를 지정하는 것이 가장 흔한 용도"로 규정한다. 그래서 둘 중 **하나**만
+    // 있으면 진행하고, 대신 소유 증명이 없는 쪽(client_id 전용)은 아래에서 확인 화면을
+    // 거치게 한다(§2: 사용자의 로그아웃 의사를 확인할 수 없으면 물어야 한다 — SHOULD).
+    //
+    // 예전에는 `id_token_hint` 를 필수로 요구했는데(ctrls M-10), 그것은 규격보다 엄격해서
+    // 세션에 ID 토큰을 보관하지 않는 정상적인 RP 의 로그아웃을 400 으로 막았다. drive-by
+    // 로그아웃 방어는 확인 화면 + Sec-Fetch-Dest 검사 + POST 의 CSRF 토큰이 담당한다.
+    if (!idTokenHint && !clientId) {
+        return new Response(JSON.stringify({ error: "invalid_request", error_description: translate(locals.locale, "oidc.errors.hint_or_client_id_required") }), {
             status: 400,
             headers: { "Content-Type": "application/json" },
         });
@@ -114,6 +125,27 @@ export const GET: RequestHandler = async (event) => {
     // phishing 흐름을 그려낼 수 있어 즉시 거부한다.
     if (!locals.user || !locals.session) {
         return new Response(null, { status: 204 });
+    }
+
+    // ── id_token_hint 없는 경로 — 확인 화면을 거친다 ────────────────────────────
+    // 소유 증명이 없으므로 즉시 로그아웃하지 않는다. RP 식별은 등록 정보로 한다:
+    // client_id 가 이 테넌트에 존재하고 활성이어야 하며(§3 의 "OP 가 RP 를 확인할 수
+    // 있어야 한다"), post_logout_redirect_uri 의 등록 여부는 실제 리다이렉트 시점에
+    // resolvePostLogoutRedirect 가 다시 검증해 미등록이면 `/` 로 떨어뜨린다.
+    if (!idTokenHint) {
+        const client = await findEndSessionClient(locals, clientId!);
+        if (!client) {
+            return new Response(JSON.stringify({ error: "invalid_request", error_description: translate(locals.locale, "oidc.errors.unknown_client") }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+        return renderLogoutConfirmPage(event, {
+            clientId: clientId!,
+            clientName: client.name,
+            postLogoutRedirectUri,
+            state,
+        });
     }
 
     const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);
@@ -162,6 +194,81 @@ function deriveClientIdFromAud(aud: unknown): string | null {
     if (typeof aud === "string") return aud;
     if (Array.isArray(aud) && aud.length > 0 && typeof aud[0] === "string") return aud[0];
     return null;
+}
+
+/** 이 테넌트의 활성 클라이언트를 client_id 로 찾는다. 확인 화면에 이름을 보여주기 위해 name 도 읽는다. */
+async function findEndSessionClient(locals: App.Locals, clientId: string): Promise<{ name: string } | null> {
+    if (!locals.db || !locals.tenant) return null;
+    const [row] = await locals.db
+        .select({ name: oidcClients.name })
+        .from(oidcClients)
+        .where(and(eq(oidcClients.tenantId, locals.tenant.id), eq(oidcClients.clientId, clientId), eq(oidcClients.enabled, true)))
+        .limit(1);
+    return row ?? null;
+}
+
+/**
+ * `id_token_hint` 없이 들어온 로그아웃 요청의 확인 화면.
+ *
+ * OIDC RP-Initiated Logout 1.0 §2 가 "사용자가 로그아웃을 의도했는지 확인할 수 없으면 물어라"
+ * 고 하는 지점이다. 소유 증명(`id_token_hint`)이 없으니 여기서 사용자의 명시적 클릭을 받는다.
+ * 이 화면이 drive-by 로그아웃(CSRF)의 실질 방어선이다 — 공격자가 최상위 네비게이션으로 유도해도
+ * 버튼을 누르는 것은 사용자다.
+ *
+ * 폼은 double-submit CSRF 토큰을 실어 POST 한다. 토큰은 httpOnly 쿠키에 심고 폼에 서버
+ * 렌더링으로 주입하므로 교차 출처 공격자는 쿠키도 페이지도 읽을 수 없어 위조할 수 없다.
+ *
+ * SvelteKit 라우트가 아니라 엔드포인트라서 자체 완결 HTML 을 직접 만든다(SAML auto-submit
+ * 폼과 같은 방식). 사용자 입력에서 온 값은 전부 `htmlEscape` 를 통과시킨다.
+ */
+function renderLogoutConfirmPage(event: Parameters<RequestHandler>[0], p: { clientId: string; clientName: string; postLogoutRedirectUri: string | null; state: string | null }): Response {
+    const { locals, url, cookies } = event;
+    const locale = locals.locale;
+    const csrf = ensureCsrfToken(cookies, url);
+    const t = (key: string, params?: Record<string, string>) => htmlEscape(translate(locale, key, params));
+
+    const hidden = [
+        `<input type="hidden" name="csrf" value="${htmlEscape(csrf)}" />`,
+        `<input type="hidden" name="client_id" value="${htmlEscape(p.clientId)}" />`,
+        p.postLogoutRedirectUri ? `<input type="hidden" name="post_logout_redirect_uri" value="${htmlEscape(p.postLogoutRedirectUri)}" />` : "",
+        p.state ? `<input type="hidden" name="state" value="${htmlEscape(p.state)}" />` : "",
+    ].join("");
+
+    const html =
+        `<!DOCTYPE html><html lang="${htmlEscape(locale)}"><head>` +
+        `<meta charset="utf-8" />` +
+        `<meta name="viewport" content="width=device-width, initial-scale=1" />` +
+        `<meta name="robots" content="noindex,nofollow" />` +
+        `<title>${t("oidc.logout_confirm.title")}</title>` +
+        `<style>` +
+        `:root{color-scheme:light}` +
+        `body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f9fafb;` +
+        `font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:#111827}` +
+        `.card{width:100%;max-width:26rem;margin:1rem;padding:2rem;background:#fff;border:1px solid #e5e7eb;border-radius:1rem;` +
+        `box-shadow:0 1px 2px rgba(0,0,0,.05)}` +
+        `h1{margin:0 0 .5rem;font-size:1.25rem;line-height:1.4}` +
+        `p{margin:0 0 1.5rem;font-size:.875rem;line-height:1.6;color:#4b5563}` +
+        `.rp{font-weight:600;color:#111827}` +
+        `.row{display:flex;gap:.5rem}` +
+        `button,a.btn{flex:1;display:inline-flex;align-items:center;justify-content:center;padding:.625rem 1rem;` +
+        `font-size:.875rem;font-weight:500;border-radius:.5rem;border:1px solid transparent;cursor:pointer;text-decoration:none}` +
+        `button{background:#2563eb;color:#fff}button:hover{background:#1d4ed8}` +
+        `a.btn{background:#fff;border-color:#d1d5db;color:#374151}a.btn:hover{background:#f9fafb}` +
+        `</style></head><body>` +
+        `<div class="card">` +
+        `<h1>${t("oidc.logout_confirm.title")}</h1>` +
+        `<p>${t("oidc.logout_confirm.body", { client: p.clientName })}</p>` +
+        `<form method="POST" action="${htmlEscape(url.pathname)}">` +
+        hidden +
+        `<div class="row">` +
+        `<a class="btn" href="/">${t("oidc.logout_confirm.cancel")}</a>` +
+        `<button type="submit">${t("oidc.logout_confirm.confirm")}</button>` +
+        `</div></form></div></body></html>`;
+
+    return new Response(html, {
+        status: 200,
+        headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", Pragma: "no-cache" },
+    });
 }
 
 async function executeLogout(event: Parameters<RequestHandler>[0], postLogoutRedirectUri: string | null, clientId: string | null, state: string | null): Promise<Response> {
@@ -259,11 +366,42 @@ export const POST: RequestHandler = async (event) => {
     const idTokenHint: string | null = readField("id_token_hint");
     const state: string | null = readField("state");
 
-    if (!idTokenHint || !locals.db || !locals.tenant) {
-        return new Response(JSON.stringify({ error: "invalid_request" }), {
-            status: 400,
+    if (!locals.db || !locals.tenant) {
+        return new Response(JSON.stringify({ error: "server_error" }), {
+            status: 503,
             headers: { "Content-Type": "application/json" },
         });
+    }
+
+    // ── 확인 화면에서 넘어온 제출 ────────────────────────────────────────────────
+    // `id_token_hint` 가 없는 경로는 GET 에서 확인 화면을 거쳐 이 폼으로 들어온다.
+    // 소유 증명이 없으므로 **double-submit CSRF 토큰을 반드시 요구한다** — Origin/Referer
+    // 검사(위)만으로는 공격자 페이지가 우리 origin 으로 폼을 제출하는 것을 막을 수 없는
+    // 브라우저·상황이 있고, 이 토큰은 httpOnly 쿠키와의 일치를 요구하므로 위조할 수 없다.
+    if (!idTokenHint) {
+        if (!clientId) {
+            return new Response(JSON.stringify({ error: "invalid_request", error_description: translate(locals.locale, "oidc.errors.hint_or_client_id_required") }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+        if (!formData || !isValidCsrf(event.cookies, formData)) {
+            return new Response(JSON.stringify({ error: "invalid_request", error_description: translate(locals.locale, "oidc.errors.csrf_failed") }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+        // 정리할 세션이 없으면 조용히 끝낸다(GET 의 C-7 과 같은 이유).
+        if (!locals.user || !locals.session) {
+            return new Response(null, { status: 204 });
+        }
+        if (!(await findEndSessionClient(locals, clientId))) {
+            return new Response(JSON.stringify({ error: "invalid_request", error_description: translate(locals.locale, "oidc.errors.unknown_client") }), {
+                status: 400,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
+        return executeLogout(event, postLogoutRedirectUri, clientId, state);
     }
 
     const issuer = resolveIssuerUrl(locals.runtimeConfig, url.origin, locals.tenant?.slug ?? undefined);

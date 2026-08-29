@@ -651,6 +651,8 @@
             "email_verification_required": "이 서비스는 이메일 인증이 완료된 계정만 이용할 수 있습니다. 이메일 인증을 먼저 완료해 주세요.",
             "token_param_required": "token 파라미터가 필요합니다.",
             "id_token_hint_required": "id_token_hint 가 필요합니다.",
+            "hint_or_client_id_required": "id_token_hint 또는 client_id 중 하나가 필요합니다.",
+            "csrf_failed": "요청 검증에 실패했습니다. 다시 시도해 주세요.",
             "aud_mismatch": "aud 가 일치하지 않습니다.",
             "cross_origin_post_blocked": "cross-origin POST 가 차단되었습니다.",
             "logging_out": "로그아웃 중...",
@@ -660,6 +662,12 @@
             "token_aud_mismatch": "토큰의 aud 와 client 가 일치하지 않습니다.",
             "issuing_client_invalid": "발급 client 가 더 이상 유효하지 않습니다.",
             "user_not_found": "사용자를 찾을 수 없습니다."
+        },
+        "logout_confirm": {
+            "title": "로그아웃할까요?",
+            "body": "{{client}} 이 로그아웃을 요청했습니다. 계속하면 이 브라우저의 로그인 세션이 종료됩니다.",
+            "confirm": "로그아웃",
+            "cancel": "취소"
         }
     },
     "saml": {
