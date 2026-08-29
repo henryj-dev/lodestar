@@ -710,6 +710,11 @@
         "delete_confirm": "Delete this SP?",
         "parse_error_xml": "XML parse error",
         "parse_error_generic": "Parse failed",
+        "sso_progress": {
+            "title": "Signing you in...",
+            "subtitle": "Sending the authentication result to the service. You'll be redirected in a moment.",
+            "manual_submit": "Continue"
+        },
         "errors": {
             "rate_limited": "Too many requests. Please try again shortly.",
             "issuer_not_set": "IDP_ISSUER_URL is not configured.",
@@ -726,7 +731,6 @@
             "saml_request_parse_failed": "Failed to parse SAMLRequest.",
             "sp_cert_missing_for_authn_sig": "Cannot verify the AuthnRequest signature because no SP certificate is registered.",
             "authn_signature_invalid": "AuthnRequest signature verification failed.",
-            "sso_redirecting": "Redirecting for SSO...",
             "slo_no_remaining_sp": "No SPs remaining in the chain.",
             "slo_signing_key_not_configured": "Cannot continue the SLO chain because no signing key is configured.",
             "slo_active_signing_key_missing": "No active signing key available.",

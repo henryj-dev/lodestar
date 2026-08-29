@@ -710,6 +710,11 @@
         "delete_confirm": "SP를 삭제하시겠습니까?",
         "parse_error_xml": "XML 파싱 오류",
         "parse_error_generic": "파싱 실패",
+        "sso_progress": {
+            "title": "SSO 진행 중...",
+            "subtitle": "서비스로 인증 결과를 전송하고 있습니다. 잠시 후 자동으로 이동합니다.",
+            "manual_submit": "계속하기"
+        },
         "errors": {
             "rate_limited": "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
             "issuer_not_set": "IDP_ISSUER_URL 미설정",
@@ -726,7 +731,6 @@
             "saml_request_parse_failed": "SAMLRequest 파싱에 실패했습니다.",
             "sp_cert_missing_for_authn_sig": "SP 인증서가 등록되지 않아 AuthnRequest 서명을 검증할 수 없습니다.",
             "authn_signature_invalid": "AuthnRequest 서명 검증에 실패했습니다.",
-            "sso_redirecting": "SSO 리다이렉트 중...",
             "slo_no_remaining_sp": "체인에 남은 SP 가 없습니다.",
             "slo_signing_key_not_configured": "서명 키가 설정되지 않아 SLO 체인을 계속 진행할 수 없습니다.",
             "slo_active_signing_key_missing": "활성 서명 키가 없습니다.",

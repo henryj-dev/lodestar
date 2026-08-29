@@ -34,6 +34,7 @@ import { buildSignedSamlErrorResponse, buildSignedSamlResponse } from "$lib/serv
 import { findSp, recordSamlSession, type SamlSpRecord } from "$lib/server/saml/sp";
 import { getUserMembership } from "$lib/server/org/membership";
 import { getActiveAssignment, listActiveEntitlements, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
+import { renderPageShell } from "$lib/server/html/page-shell";
 import { translate } from "$lib/i18n/server";
 import type { Locale } from "$lib/i18n/core";
 
@@ -48,16 +49,36 @@ function htmlEscape(s: string): string {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 
-/** ACS 로 SAMLResponse 를 실어 보내는 HTTP-POST auto-submit 폼 응답. */
+/**
+ * ACS 로 SAMLResponse 를 실어 보내는 HTTP-POST auto-submit 폼 응답.
+ *
+ * 정상 흐름에서는 onload 가 즉시 제출해 한순간만 보이지만, 그 한순간도 기본 UI 와 같은 카드로
+ * 보이도록 renderPageShell 을 쓴다(로그인 화면 바로 다음에 오는 화면이다).
+ *
+ * JS 가 꺼진 브라우저에서는 auto-submit 이 동작하지 않는데, 기존에는 화면에 아무것도 없어서 SSO
+ * 가 그대로 멈췄다. `<noscript>` 로 수동 제출 버튼을 노출해 사용자가 흐름을 이어갈 수 있게 한다.
+ */
 function renderAutoSubmitForm(acsUrl: string, samlResponseB64: string, relayState: string | null, locale: Locale): Response {
     const relayStateInput = relayState ? `<input type="hidden" name="RelayState" value="${htmlEscape(relayState)}">` : "";
-    const html =
-        `<!DOCTYPE html><html lang="${htmlEscape(locale)}"><head><meta charset="UTF-8"><title>${htmlEscape(translate(locale, "saml.errors.sso_redirecting"))}</title></head>` +
-        `<body onload="document.getElementById('samlForm').submit()">` +
-        `<form id="samlForm" method="POST" action="${htmlEscape(acsUrl)}">` +
-        `<input type="hidden" name="SAMLResponse" value="${samlResponseB64}">${relayStateInput}` +
-        `</form></body></html>`;
-    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+    const t = (key: string) => htmlEscape(translate(locale, key));
+    const html = renderPageShell({
+        lang: htmlEscape(locale),
+        title: t("saml.sso_progress.title"),
+        bodyAttributes: `onload="document.getElementById('samlForm').submit()"`,
+        body:
+            `<div class="card">` +
+            `<h1>${t("saml.sso_progress.title")}</h1>` +
+            `<p class="status" role="status"><span class="spinner" aria-hidden="true"></span>` +
+            `<span>${t("saml.sso_progress.subtitle")}</span></p>` +
+            `<form id="samlForm" method="POST" action="${htmlEscape(acsUrl)}">` +
+            `<input type="hidden" name="SAMLResponse" value="${samlResponseB64}">${relayStateInput}` +
+            `<noscript><div class="actions">` +
+            `<button class="btn btn-primary" type="submit">${t("saml.sso_progress.manual_submit")}</button>` +
+            `</div></noscript>` +
+            `</form></div>`,
+    });
+    // 서명된 assertion 이 실린 HTML 이므로 캐시에 남기지 않는다.
+    return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", Pragma: "no-cache" } });
 }
 
 /** 서명된 SAML 오류 Response 를 만들어 ACS 로 POST 하는 폼 응답. */
