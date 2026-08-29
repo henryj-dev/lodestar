@@ -655,7 +655,6 @@
             "csrf_failed": "Request validation failed. Please try again.",
             "aud_mismatch": "aud mismatch",
             "cross_origin_post_blocked": "Cross-origin POST blocked.",
-            "logging_out": "Logging out...",
             "signing_key_not_set": "IDP_SIGNING_KEY_SECRET is not configured.",
             "bearer_token_required": "A Bearer token is required.",
             "access_token_invalid": "Invalid or expired access token.",
@@ -668,6 +667,10 @@
             "body": "{{client}} has requested a sign-out. Continuing will end your session in this browser.",
             "confirm": "Sign out",
             "cancel": "Cancel"
+        },
+        "logout_progress": {
+            "title": "Logging out...",
+            "subtitle": "Signing you out of connected services. You'll be redirected in a moment."
         }
     },
     "saml": {

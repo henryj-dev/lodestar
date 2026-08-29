@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { GET as endSessionGET, POST as endSessionPOST } from "../../src/routes/oidc/end-session/+server";
 import { b64uEncode, getActiveSigningKey, signJwt } from "../../src/lib/server/crypto/keys";
 import { getRuntimeConfig } from "../../src/lib/server/auth/runtime";
+import { recordClientSession } from "../../src/lib/server/oidc/logout";
 import { oidcClients, sessions } from "../../src/lib/server/db/schema";
 import {
     openMemoryDb,
@@ -26,6 +27,7 @@ import type { Tenant, User, Session } from "../../src/lib/server/db/schema";
 
 const CLIENT_ID = "test-logout-client";
 const POST_LOGOUT_URI = "https://app.test.example/logged-out";
+const FC_LOGOUT_URI = "https://app.test.example/fc-logout";
 
 let mem: MemoryDb;
 let tenant: Tenant;
@@ -335,5 +337,55 @@ describe("end-session: id_token_hint 없이 client_id 만 온 경우", () => {
         const html = await ((await endSessionGET(event)) as Response).text();
         expect(html).not.toContain("<img src=x");
         expect(html).toContain("&lt;img src=x");
+    });
+});
+
+// ── 엔드포인트가 직접 렌더하는 HTML 은 기본 UI 와 같은 셸을 쓴다 ─────────────────────────────
+// end-session 의 두 화면(확인 / 프론트채널 진행)은 SvelteKit 레이아웃을 타지 않아 Tailwind 가
+// 없다. 스타일을 각자 하드코딩하면 로그인 화면 바로 뒤에서 튀어 보이므로 renderPageShell 로
+// 기본 UI 카드와 같은 값을 쓴다.
+describe("end-session: 렌더되는 HTML 이 공통 셸을 사용한다", () => {
+    it("확인 화면은 공통 카드 셸로 렌더되고 클라이언트 이름을 강조한다", async () => {
+        const jar = makeCookieJar();
+        const event = makeEvent({
+            method: "GET",
+            url: `${TEST_ISSUER_URL}/oidc/end-session?client_id=${CLIENT_ID}`,
+            locals: { db: mem.db, tenant, user, session, env: mem.env },
+            cookies: jar.cookies,
+        });
+        const html = await ((await endSessionGET(event)) as Response).text();
+
+        expect(html).toContain('<div class="card">');
+        expect(html).toContain('class="btn btn-secondary"');
+        expect(html).toContain('class="btn btn-primary"');
+        // 기본 UI 카드와 동일한 Tailwind 토큰 값 (max-w-md / rounded-2xl).
+        expect(html).toContain("max-width:28rem");
+        expect(html).toContain("border-radius:1rem");
+        // 클라이언트 이름은 어순을 지킨 채 문장 안에서 강조된다.
+        expect(html).toContain(`<span class="rp">${CLIENT_ID}</span>`);
+        // 이 페이지만의 별도 스타일(구 .row 레이아웃)은 남아 있지 않다.
+        expect(html).not.toContain(".row{");
+    });
+
+    it("프론트채널 로그아웃 화면도 같은 셸을 쓰고 iframe/자동 이동을 유지한다", async () => {
+        await mem.db.update(oidcClients).set({ frontchannelLogoutUri: FC_LOGOUT_URI }).where(eq(oidcClients.clientId, CLIENT_ID));
+        await recordClientSession(mem.db, tenant.id, session.id, CLIENT_ID);
+
+        const hint = await mintIdToken(expiredClaims());
+        const res = (await endSessionGET(makeGetEvent({ id_token_hint: hint, client_id: CLIENT_ID, post_logout_redirect_uri: POST_LOGOUT_URI }))) as Response;
+        expect(res.status).toBe(200);
+        expect(res.headers.get("content-type")).toContain("text/html");
+        const html = await res.text();
+
+        // 셸 — 확인 화면과 같은 카드 + 스피너.
+        expect(html).toContain('<div class="card">');
+        expect(html).toContain("max-width:28rem");
+        expect(html).toContain('class="spinner"');
+        // 동작 — RP 정리 iframe 과 자동 이동은 그대로다.
+        expect(html).toContain(`<iframe src="${FC_LOGOUT_URI}`);
+        expect(html).toContain('sandbox=""');
+        expect(html).toContain('http-equiv="refresh"');
+        expect(html).toContain(POST_LOGOUT_URI);
+        expect(await isSessionRevoked()).toBe(true);
     });
 });
