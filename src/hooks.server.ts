@@ -1,4 +1,4 @@
-import type { Handle } from "@sveltejs/kit";
+import type { Handle, RequestEvent } from "@sveltejs/kit";
 import { ensureAuthBaseline } from "$lib/server/auth/bootstrap";
 import { SESSION_COOKIE_NAME, SESSION_TOUCH_INTERVAL_MS } from "$lib/server/auth/constants";
 import { getRuntimeConfig } from "$lib/server/auth/runtime";
@@ -7,6 +7,8 @@ import { getDb, DB_DIALECT } from "$lib/server/db";
 import { resolveRateLimitStore } from "$lib/server/ratelimit";
 import { ensureNodeGcScheduler, maybeRunWorkersGc } from "$lib/server/db/gc";
 import { LOCALE_COOKIE_NAME, resolveLocale } from "$lib/server/locale";
+import { renderMessagePage } from "$lib/server/html/page-shell";
+import { translate } from "$lib/i18n/server";
 
 // CSRF: state-changing 요청에 대해 same-origin을 강제할 라우트
 // ctrls H-AUTH-1: /oidc/end-session 추가 — POST 가 cookie 기반 세션을 폐기하므로
@@ -53,6 +55,35 @@ const SENSITIVE = [
 // cross-origin 으로 노출되어야 하는 공개 메타데이터 (CORP 면제)
 const PUBLIC_META = [/^\/\.well-known\//, /^\/oidc\/jwks/, /^\/saml\/metadata/];
 
+/**
+ * CSRF 검사 실패 응답.
+ *
+ * 예전에는 Content-Type 도 없는 평문 `"CSRF check failed"` 를 돌려줬다. 대부분은 공격이거나 설정
+ * 오류지만 Origin/Referer 를 모두 지우는 프라이버시 확장·프록시를 쓰는 실제 사용자도 이 분기로
+ * 떨어지는데, 그 경우 브라우저에 날것의 문자열만 보였다.
+ *
+ * 그래서 문서 요청(`Accept: text/html`)에는 기본 UI 와 같은 카드로 안내하고, fetch/API 호출에는
+ * 종전처럼 짧은 평문을 준다(`/api/webauthn/*` 이 여기 해당). 어느 쪽도 **실패 사유를 구분해서
+ * 알려주지 않는다** — Origin 불일치인지 헤더 누락인지는 공격자에게 줄 필요가 없는 정보라 상태
+ * 코드와 문구를 하나로 통일한다.
+ */
+function csrfRejection(event: RequestEvent): Response {
+    const common = { "Cache-Control": "no-store", "X-Robots-Tag": "noindex" };
+
+    if (!(event.request.headers.get("accept") ?? "").includes("text/html")) {
+        return new Response("CSRF check failed", { status: 403, headers: { ...common, "Content-Type": "text/plain; charset=utf-8" } });
+    }
+
+    const locale = event.locals.locale;
+    const html = renderMessagePage({
+        lang: locale,
+        title: translate(locale, "error_page.csrf_title"),
+        message: translate(locale, "error_page.csrf_message"),
+        link: { href: "/", label: translate(locale, "error_page.home") },
+    });
+    return new Response(html, { status: 403, headers: { ...common, "Content-Type": "text/html; charset=utf-8" } });
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
     event.locals.db = undefined;
     event.locals.rateLimitStore = undefined;
@@ -77,24 +108,24 @@ export const handle: Handle = async ({ event, resolve }) => {
             if (origin) {
                 try {
                     if (new URL(origin).host !== event.url.host) {
-                        return new Response("CSRF check failed", { status: 403 });
+                        return csrfRejection(event);
                     }
                 } catch {
-                    return new Response("CSRF check failed", { status: 403 });
+                    return csrfRejection(event);
                 }
             } else {
                 const referer = event.request.headers.get("referer");
                 if (referer) {
                     try {
                         if (new URL(referer).host !== event.url.host) {
-                            return new Response("CSRF check failed", { status: 403 });
+                            return csrfRejection(event);
                         }
                     } catch {
-                        return new Response("CSRF check failed", { status: 403 });
+                        return csrfRejection(event);
                     }
                 } else {
                     // Origin/Referer 모두 없는 state-changing 요청은 보호 라우트에서 거부
-                    return new Response("CSRF check failed: missing origin", { status: 403 });
+                    return csrfRejection(event);
                 }
             }
         }

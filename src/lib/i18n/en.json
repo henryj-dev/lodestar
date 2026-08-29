@@ -880,6 +880,11 @@
         "password_too_long": "Password must be at most {{max}} characters.",
         "db_not_ready": "The D1 binding \"DB\" is not ready. Please run in a Wrangler preview/dev environment."
     },
+    "error_page": {
+        "home": "Back to home",
+        "csrf_title": "Request could not be processed",
+        "csrf_message": "We couldn't verify where this request came from, so it was not processed. Please reload the page and try again."
+    },
     "email": {
         "footer": "If you did not request this, please ignore this email.",
         "find_id": {

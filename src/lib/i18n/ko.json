@@ -880,6 +880,11 @@
         "password_too_long": "비밀번호는 최대 {{max}}자까지 가능합니다.",
         "db_not_ready": "D1 binding \"DB\" 가 준비되지 않았습니다. Wrangler preview/dev 환경에서 실행해 주세요."
     },
+    "error_page": {
+        "home": "홈으로 돌아가기",
+        "csrf_title": "요청을 처리할 수 없습니다",
+        "csrf_message": "요청의 출처를 확인할 수 없어 처리하지 않았습니다. 페이지를 새로 불러온 뒤 다시 시도해 주세요."
+    },
     "email": {
         "footer": "본인이 요청하지 않았다면 이 이메일을 무시해 주세요.",
         "find_id": {
