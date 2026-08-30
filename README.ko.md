@@ -80,7 +80,7 @@ Event Token 으로 RP 에 통지됩니다. SAML SP 는 이름으로 허용받은
 | **조직 관리**          | 부서 → 팀 → 파트 계층, 직급/직책, 복수 소속                                                                                   |
 | **멀티테넌트**         | 테넌트별 독립 사용자/클라이언트/키 관리                                                                                       |
 | **관리자 UI**          | 사용자, 조직(부서·팀·파트·직급), OIDC 클라이언트, SAML SP, LDAP 프로바이더, 서명 키, 서비스 토큰, 로그인 스킨, 감사 로그 CRUD |
-| **커스텀 로그인 스킨** | OIDC 클라이언트별 커스텀 CSS/스크립트, R2 또는 S3 호환 캐시로 배포                                                            |
+| **커스텀 로그인 스킨** | 인증 화면 10종(로그인·가입·MFA·로그아웃 등)의 HTML/CSS 를 클라이언트별로 교체, 서버측 정화 후 R2 또는 S3 호환 캐시 사용       |
 | **감사 로그**          | 로그인, SSO, 토큰 발급 등 주요 이벤트 자동 기록, 행 단위 무결성 MAC, 관리자 UI에서 조회 가능                                  |
 | **국제화**             | 메시지 카탈로그 기반 i18n — 한국어·영어(`ko`/`en`) 제공                                                                       |
 
@@ -465,26 +465,30 @@ bun run db:migrate:preview  # D1 프리뷰
 
 ## 개발
 
-| 명령                         | 설명                                               |
-| ---------------------------- | -------------------------------------------------- |
-| `bun run dev`                | Vite 개발 서버 실행                                |
-| `bun run build`              | 프로덕션 빌드                                      |
-| `bun run preview`            | Wrangler로 빌드 산출물 미리보기 (`localhost:4173`) |
-| `bun run check`              | `wrangler types` + `svelte-check` 타입 검사        |
-| `bun run lint`               | Prettier + ESLint 검사                             |
-| `bun run format`             | Prettier 자동 포맷                                 |
-| `bun run test`               | vitest 실행 (`test:watch` / `test:coverage`)       |
-| `bun run gen`                | Wrangler 환경 타입 재생성                          |
-| `bun run db:generate`        | Drizzle 마이그레이션 SQL 생성 (D1)                 |
-| `bun run db:generate:sqlite` | Drizzle 마이그레이션 SQL 생성 (libSQL/SQLite)      |
-| `bun run db:generate:pg`     | Drizzle 마이그레이션 SQL 생성 (PostgreSQL)         |
-| `bun run db:generate:mysql`  | Drizzle 마이그레이션 SQL 생성 (MySQL)              |
-| `bun run db:migrate`         | 마이그레이션 적용 + seed 마이그레이션 (D1)         |
-| `bun run db:migrate:pg`      | 마이그레이션 적용 + seed 마이그레이션 (PostgreSQL) |
-| `bun run db:seed`            | 기본 데이터 시드 — 테넌트/관리자/서비스 role (D1)  |
-| `bun run db:seed:pg`         | 기본 데이터 시드 (PostgreSQL)                      |
-| `bun run db:studio`          | Drizzle Studio 실행 (스키마/데이터 GUI)            |
-| `bun run deploy`             | Cloudflare Workers 배포                            |
+| 명령                         | 설명                                                     |
+| ---------------------------- | -------------------------------------------------------- |
+| `bun run dev`                | Vite 개발 서버 실행                                      |
+| `bun run build`              | 프로덕션 빌드                                            |
+| `bun run preview`            | Wrangler로 빌드 산출물 미리보기 (`localhost:4173`)       |
+| `bun run check`              | `wrangler types` + `svelte-check` 타입 검사              |
+| `bun run lint`               | Prettier + ESLint 검사                                   |
+| `bun run format`             | Prettier 자동 포맷                                       |
+| `bun run test`               | vitest + `bun test` (아래 참고)                          |
+| `bun run test:node`          | vitest 만 (`test:watch` / `test:coverage`)               |
+| `bun run test:workers`       | `bun test test/workers` — Workers 의 `HTMLRewriter` 필요 |
+| `bun run gen`                | Wrangler 환경 타입 재생성                                |
+| `bun run db:generate`        | Drizzle 마이그레이션 SQL 생성 (D1)                       |
+| `bun run db:generate:sqlite` | Drizzle 마이그레이션 SQL 생성 (libSQL/SQLite)            |
+| `bun run db:generate:pg`     | Drizzle 마이그레이션 SQL 생성 (PostgreSQL)               |
+| `bun run db:generate:mysql`  | Drizzle 마이그레이션 SQL 생성 (MySQL)                    |
+| `bun run db:migrate`         | 마이그레이션 적용 + seed 마이그레이션 (D1)               |
+| `bun run db:migrate:pg`      | 마이그레이션 적용 + seed 마이그레이션 (PostgreSQL)       |
+| `bun run db:seed`            | 기본 데이터 시드 — 테넌트/관리자/서비스 role (D1)        |
+| `bun run db:seed:pg`         | 기본 데이터 시드 (PostgreSQL)                            |
+| `bun run db:studio`          | Drizzle Studio 실행 (스키마/데이터 GUI)                  |
+| `bun run deploy`             | Cloudflare Workers 배포                                  |
+
+`bun run test` 는 vitest 를 먼저 돌리고 이어서 `bun test test/workers` 를 실행합니다. 커스텀 로그인 스킨의 `sanitizeSkinHtml` 이 Workers 전역 `HTMLRewriter` 를 쓰는데 vitest 의 node 프로세스에는 그 전역이 없기 때문입니다 — Bun 이 같은 API 를 네이티브로 제공하므로 해당 테스트만 거기서 돌립니다. CI 는 `bun run test` 하나로 양쪽을 모두 실행합니다. vitest 파일 하나만 돌릴 때는 `bun run test:node -- <파일>` 을 쓰세요.
 
 > `db:migrate` / `db:seed` / `db:push` / `db:studio` 는 `:pg` / `:mysql` / `:sqlite` 접미사로 방언별 실행이 가능합니다. postgres/mysql/sqlite 는 `DATABASE_URL`, D1 은 `CLOUDFLARE_*` 환경변수를 사용합니다. `scripts/seed.ts` 와 `scripts/seed-migrate.ts` 는 방언 무관(공용 헬퍼 `scripts/lib/db.ts`)이며, D1 은 REST API 로 접근합니다.
 

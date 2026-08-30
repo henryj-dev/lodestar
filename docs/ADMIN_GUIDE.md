@@ -299,40 +299,122 @@ role 과 직교하는 권한 축입니다. role 이 "이 사람이 이 서비스
 
 ## 7. 스킨(커스텀 로그인 UI) 등록 (`/admin/skins`)
 
-외부에 호스팅한 HTML 을 가져와 로그인/가입 등 인증 화면을 클라이언트별로 커스터마이즈합니다. 사용법 안내는 **`/admin/skins/guide`** 에서 확인할 수 있습니다.
+외부에 호스팅한 HTML 을 가져와 인증 화면을 클라이언트별로 커스터마이즈합니다. 사용법과 예제는 **`/admin/skins/guide`** 에 있습니다.
 
 ### 등록 필드
 
-- **대상 클라이언트**: `clientType`(oidc/saml) + `clientRefId`.
-- **스킨 타입(`skinType`)**: `login` / `signup` / `find_id` / `find_password` / `mfa` / `reset_password`.
-- **Fetch URL**: 스킨 HTML 을 가져올 URL. **https 필수**, loopback/내부주소(127.x, link-local) 금지(SSRF 방지).
-- **Fetch Secret**: 스킨 서버 인증용 시크릿. IdP 가 스킨 HTML 을 가져올 때 **`X-IDP-Token`** 헤더로 이 값을 전송하므로, 스킨 서버는 이 헤더를 검증해 접근을 통제할 수 있습니다(선택).
+- **대상 클라이언트**: `clientType` + `clientRefId`.
+    - `oidc` / `saml` — 해당 클라이언트에만 적용.
+    - `tenant` — **테넌트 기본 스킨**. `clientRefId` 는 예약값 `*` 이며, 관리 화면에서는 클라이언트 목록의 [테넌트 기본] 항목을 고르면 됩니다.
+- **스킨 타입(`skinType`)**: 총 **10종**.
+
+    | 스킨 타입              | 화면                            |
+    | ---------------------- | ------------------------------- |
+    | `login`                | `/login`                        |
+    | `signup`               | `/signup`                       |
+    | `find_id`              | `/find-id`                      |
+    | `find_password`        | `/find-password`                |
+    | `mfa`                  | `/mfa`                          |
+    | `reset_password`       | `/reset-password`               |
+    | `verify_email`         | `/verify-email`                 |
+    | `accept_invite`        | `/accept-invite`                |
+    | `confirm_email_change` | `/account/confirm-email-change` |
+    | `logout`               | `/logout`                       |
+
+- **Fetch URL**: 스킨 HTML 을 가져올 URL. **https 필수**, loopback/내부주소(127.x, 10.x, 192.168.x, 172.16–31.x, link-local, 클라우드 메타데이터, 점 없는 단일 라벨, IPv6 리터럴) 금지(SSRF 방지). 실호스트를 해석한 결과가 내부 주소여도 건너뜁니다(DNS 리바인딩 완화).
+- **Fetch Secret**: 스킨 서버 인증용 시크릿. IdP 가 스킨 HTML 을 가져올 때 **`X-IDP-Token`** 헤더로 전송하므로, 스킨 서버는 이 헤더를 검증해 접근을 통제할 수 있습니다(선택).
 - **캐시 TTL(`cacheTtlSeconds`)**: 기본 3600초, 0 이상, **최대 86400초(1일)**.
+
+### 해석 순서
+
+**클라이언트 전용 스킨 → 테넌트 기본 스킨 → 기본 내장 UI** 순으로 찾습니다.
+
+- 전용 스킨이 없는 클라이언트는 테넌트 기본 스킨으로 떨어집니다.
+- `accept_invite` · `confirm_email_change` 는 링크에 클라이언트 정보가 없어(초대는 관리자가, 이메일 변경은 계정 화면에서 시작) **테넌트 기본 스킨만** 적용됩니다.
+- `logout` 은 RP 가 `/logout?skinHint=oidc:<클라이언트 id>` 로 보내면 그 클라이언트의 스킨을 씁니다.
+- `verify_email` 은 가입 흐름에서 발송된 인증 메일 링크가 `skinHint` 를 실어 나릅니다. 계정 화면에서 재발송한 경우에는 클라이언트 컨텍스트가 없어 테넌트 기본으로 떨어집니다.
+
+### HTML 제약 (정화)
+
+가져온 HTML 은 그대로 쓰이지 않고 **정화(sanitize)된 뒤** 렌더됩니다. 스킨 호스트가 침해되어도 임의 스크립트나 외부 폼 전송이 사용자 브라우저에 닿지 않게 하는 장치입니다.
+
+| 구분                                     | 대상                                                                                             |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 제거되는 태그(내용까지)                  | `script` `iframe` `object` `embed` `base` `meta` `link`                                          |
+| 제거되는 속성                            | `on*` 전체, `action` `formaction` `srcdoc` `sandbox` `background`                                |
+| 인라인 `style` 과 `<style>` 에서 제거    | `position` `top/left/right/bottom` `inset*` `z-index` `transform*` `perspective` `float` `clip*` |
+| `href`/`src`/`data`/`poster` 허용 scheme | `https:` `http:` `data:image/` `data:font/` `mailto:` `tel:` `/` `#`                             |
+
+- **`<style>` 은 허용됩니다.** 내용은 위 위치·레이어링 속성만 제거되고 색·글꼴·여백·테두리·크기는 보존되므로 미디어 쿼리와 `:hover`·`:focus` 를 쓸 수 있습니다. `@import` 는 제거됩니다(외부 CSS 로딩 차단).
+- `data:image/svg+xml` 은 `<img>`·`<source>` 의 `src` 에서만 허용되고 `href` 에서는 제거됩니다.
+- `form` 의 `action` 이 제거되면 현재 URL(=IdP)로 POST 되므로 정상 로그인 흐름은 유지됩니다.
+- 외부 스타일시트·웹폰트·이미지는 CSP 가 차단하므로 폰트와 이미지는 `data:` URI 로 인라인해야 합니다.
+- 그 밖에 **응답 5초 타임아웃 / 512KB 크기 상한 / `Content-Type: text/html` 필수 / 3xx 리다이렉트 거부**가 적용되며, 어느 하나라도 어긋나면 조용히 기본 UI 로 폴백합니다.
+
+> 위치 속성 필터는 CSS 이스케이프(`p\osition` 등)까지 막는 완전한 필터가 아닙니다. JS 와 외부 요청이 CSP 로 이미 차단된 상태에서 주된 리드레싱 수단을 걷어내는 심층 방어로 이해하세요.
 
 ### 운영
 
 - **수정 / 삭제 / 활성화 토글 / 캐시 무효화(`invalidateCache`)** 지원. URL·TTL 변경이나 삭제 시 캐시가 자동 무효화됩니다.
-- 같은 (클라이언트, 스킨타입) 조합 중복 등록 시 409.
+- 같은 (클라이언트, 스킨 타입) 조합 중복 등록 시 409. 테넌트 기본 스킨도 스킨 타입당 하나입니다.
+- 스킨 수정은 감사 로그(`client_skin_updated`)에 남고, detail 에는 시크릿 평문이 들어가지 않습니다.
 
 ### 치환자(placeholder)
 
-스킨 HTML 안에서 `{{...}}` 형태로 사용하며, IdP 가 렌더링 시 값을 채웁니다. **총 7개**이고, 스킨 타입별 적용 범위가 다릅니다.
+스킨 HTML 안에서 `{{...}}` 형태로 쓰며 IdP 가 값을 채웁니다. 총 **13개**이고 스킨 타입별 적용 범위가 다릅니다. 값은 HTML 이스케이프되며, `javascript:`·`data:text/html` 처럼 위험한 URL scheme 이 섞이면 빈 문자열로 대체됩니다. 서버가 채우지 않는 치환자도 빈 문자열로 지워지므로 화면에 `{{...}}` 가 남지 않습니다.
 
-| 치환자                   | 채워지는 값                                                                                                                                          | 적용 스킨                                                                          |
-| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `{{IDP_FORM_ACTION}}`    | 항상 빈 문자열 `""`(비어 있으면 폼이 **현재 URL로 POST**)                                                                                            | 모든 스킨 공통                                                                     |
-| `{{IDP_REDIRECT_TO}}`    | `escapeHtml(redirectTo ?? "")` — hidden input 용                                                                                                     | **login / signup / reset_password** 에서 채워짐. find_id·find_password·mfa 는 `""` |
-| `{{IDP_SKIN_HINT}}`      | `escapeHtml(skinHint)` — hidden input 용(어떤 스킨을 쓸지 서버에 되전달)                                                                             | 모든 스킨 공통                                                                     |
-| `{{IDP_REGISTERED}}`     | 회원가입 완료 직후 `"1"`, 그 외 `""`(가입 완료 안내 노출용)                                                                                          | **login 전용**                                                                     |
-| `{{IDP_PASSWORD_RESET}}` | 비밀번호 재설정 완료 직후 `"1"`, 그 외 `""`(재설정 완료 안내 노출용)                                                                                 | **login 전용**                                                                     |
-| `{{IDP_FLASH_MSG}}`      | `escapeHtml(flashMsg)` — 서버가 채우는 플래시/오류 메시지(이미 HTML 이스케이프됨). 없으면 `""`                                                       | 모든 스킨 공통(폼 재제출 오류 표시)                                                |
-| `{{IDP_SOCIAL_BUTTONS}}` | 활성 소셜 로그인 버튼 HTML(`<div class="idp-social-buttons">` 안에 `<a class="idp-social-btn idp-social-<종류>">` 목록). 등록된 제공자가 없으면 `""` | **login 전용**                                                                     |
+| 치환자                       | 채워지는 값                                                                                             | 적용 스킨                                                            |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `{{IDP_FORM_ACTION}}`        | 항상 빈 문자열(비어 있으면 폼이 **현재 URL로 POST**)                                                    | 전체 공통                                                            |
+| `{{IDP_REDIRECT_TO}}`        | 로그인 후 되돌아갈 경로 — hidden input 용                                                               | login / signup / reset_password 에서 채워지고 나머지는 빈 값         |
+| `{{IDP_SKIN_HINT}}`          | 스킨 힌트 — hidden input 으로 되전달                                                                    | 전체 공통                                                            |
+| `{{IDP_FLASH_MSG}}`          | 서버가 채우는 플래시/오류 메시지. 없으면 빈 값                                                          | 전체 공통(폼 재제출 오류 표시)                                       |
+| `{{IDP_REGISTERED}}`         | 회원가입 완료 직후 `"1"`, 그 외 빈 값                                                                   | login                                                                |
+| `{{IDP_PASSWORD_RESET}}`     | 비밀번호 재설정 완료 직후 `"1"`, 그 외 빈 값                                                            | login                                                                |
+| `{{IDP_SOCIAL_BUTTONS}}`     | 활성 소셜 로그인 버튼 HTML(`<div class="idp-social-buttons">` 안의 `<a class="idp-social-btn …">` 목록) | login                                                                |
+| `{{IDP_FIND_ID_SENT}}`       | 아이디 찾기 메일 발송 직후 `"1"`, 그 외 빈 값                                                           | find_id                                                              |
+| `{{IDP_MASKED_USERNAME}}`    | 찾은 아이디의 마스킹된 형태. 계정이 없으면 빈 값                                                        | find_id                                                              |
+| `{{IDP_FIND_PASSWORD_SENT}}` | 재설정 메일 발송 직후 `"1"`, 그 외 빈 값                                                                | find_password                                                        |
+| `{{IDP_SUBMITTED_EMAIL}}`    | 사용자가 입력한 이메일(발송 완료 안내에 되짚어 표시)                                                    | find_password                                                        |
+| `{{IDP_TOKEN}}`              | 토큰. hidden input(`name="token"`)에 넣어 그대로 돌려보내야 함                                          | reset_password / verify_email / accept_invite / confirm_email_change |
+| `{{IDP_VERIFIED}}`           | 이미 인증이 끝난 상태면 `"1"`, 그 외 빈 값                                                              | verify_email                                                         |
 
-> **필수 hidden input**: `login` 스킨의 `<form>` 에는 최소한 `redirectTo`(값 `{{IDP_REDIRECT_TO}}`)와 `skinHint`(값 `{{IDP_SKIN_HINT}}`) hidden input 및 `username`/`password` 입력이 있어야 정상 동작합니다. 폼 `action` 은 `{{IDP_FORM_ACTION}}`(빈 값=현재 URL POST)으로 둡니다.
+### 폼 필드 이름
+
+서버 액션이 읽는 `name` 과 정확히 일치해야 합니다. 하나라도 다르면 그 페이지의 제출이 실패합니다.
+
+| 스킨 타입              | 필수 필드                                                        |
+| ---------------------- | ---------------------------------------------------------------- |
+| `login`                | `username`, `password`, `redirectTo`                             |
+| `signup`               | `username`, `email`, `password`, `confirmPassword`               |
+| `find_id`              | `email`                                                          |
+| `find_password`        | `username`, `email`                                              |
+| `mfa`                  | `code`                                                           |
+| `reset_password`       | `token`, `password`, `confirmPassword`, `redirectTo`, `skinHint` |
+| `verify_email`         | `token`                                                          |
+| `accept_invite`        | `token`, `password`, `confirmPassword`                           |
+| `confirm_email_change` | `token`                                                          |
+| `logout`               | (없음 — 폼 제출만)                                               |
+
+### 스크립트 훅
+
+스킨은 자체 `<script>` 를 쓸 수 없습니다. 대신 IdP 가 공통 스크립트(`/api/skin-scripts`)와 패스키 클라이언트를 주입하며, 이 스크립트는 아래 선택자를 찾아 동작합니다. 맞추면 입력 검증·OTP 자동 이동·플래시 자동 숨김·패스키 로그인·로그아웃 자동 제출이 그대로 붙고, 맞추지 않으면 해당 기능만 조용히 빠집니다.
+
+| 선택자                                             | 역할                                                                                                                                                         |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.auth-shell[data-skin-type]`                      | 최상위 컨테이너. `data-skin-type` 값으로 어떤 초기화를 돌릴지 결정                                                                                           |
+| `#flash` · `#flash-msg`                            | 플래시 영역과 메시지 노드. 내용이 있으면 표시하고 4초 후 자동 숨김                                                                                           |
+| `#skin-meta[data-*]`                               | 서버 상태 전달용 빈 노드(`data-registered`, `data-pw-reset`, `data-find-id-sent`, `data-masked-username`, `data-find-password-sent`, `data-submitted-email`) |
+| `#username` · `#password` · `#confirm` · `#submit` | 입력란과 제출 버튼. 오류 문구는 각 필드 래퍼 안의 `[data-err]`, 힌트는 `[data-hint]`                                                                         |
+| `#passkey`                                         | 패스키 로그인 버튼(login 전용)                                                                                                                               |
+| `.otp input` · `#otp-value`                        | OTP 입력 6칸과 hidden input(mfa 전용)                                                                                                                        |
+| `#r-len` · `#r-mix` · `#r-special` · `#strength`   | 비밀번호 규칙 표시와 강도 미터(reset_password 전용)                                                                                                          |
 
 ### 캐시 동작
 
-- 가져온 스킨 HTML 은 TTL 동안 캐시됩니다. 스킨을 갱신했는데 즉시 반영이 필요하면 콘솔의 **캐시 무효화** 버튼을 사용하세요.
+- 정화된 결과가 캐시(R2 바인딩 또는 S3 호환 스토리지)에 저장되고 TTL 동안 재사용됩니다. 캐시 스토리지가 설정되지 않았으면 매 요청마다 원본을 가져옵니다.
+- 캐시 키는 **실제로 매칭된 행** 기준이라, 테넌트 기본 스킨으로 폴백한 여러 클라이언트가 캐시를 공유합니다.
+- 스킨을 갱신했는데 즉시 반영이 필요하면 콘솔의 **캐시 무효화** 버튼을 쓰세요.
 
 ---
 
