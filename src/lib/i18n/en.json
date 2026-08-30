@@ -830,6 +830,7 @@
         "result_found": "This is the username registered with that email.",
         "result_email_sent": "Your full username has been sent to your email.",
         "result_not_found": "No account is registered with the email you entered.",
+        "err_missing_email": "Please enter your email address.",
         "not_available": "Finding your username is not currently supported. Please contact your administrator."
     },
     "find_password": {
@@ -839,6 +840,7 @@
         "email_label": "Email",
         "submit": "Send Reset Link",
         "result_sent": "If the information matches, a password reset link will be sent to your email.",
+        "err_missing_fields": "Please enter both your username and email.",
         "not_available": "Password recovery is not currently supported. Please contact your administrator."
     },
     "reset_password": {
@@ -847,6 +849,10 @@
         "password_label": "New Password",
         "password_placeholder": "At least 8 characters",
         "confirm_label": "Confirm Password",
+        "err_invalid_request": "The reset link information is missing. Please open the link from your email again.",
+        "err_password_short": "Password must be at least 8 characters.",
+        "err_password_mismatch": "Passwords do not match.",
+        "err_expired_link": "This link has expired or has already been used. Please request a new reset link.",
         "submit": "Change Password",
         "err_password_breached": "This password appears in a known data breach and cannot be used. Please choose a different one.",
         "invalid_link": "This link has expired or is invalid."
