@@ -54,7 +54,9 @@
         "db:studio:sqlite": "DB_DIALECT=sqlite drizzle-kit studio",
         "setup": "bun run scripts/setup.ts",
         "verify:saml-encryption": "bun scripts/verify-saml-encryption.ts",
-        "test": "vitest run",
+        "test": "bun run test:node && bun run test:workers",
+        "test:node": "vitest run",
+        "test:workers": "bun test test/workers",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage"
     },
