@@ -2,6 +2,7 @@ import { fail } from "@sveltejs/kit";
 import { and, eq, isNull, ne } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { requireDbContext } from "$lib/server/auth/guards";
+import { escapeHtml, replacePlaceholders, resolveSkinByHint } from "$lib/server/skin/resolver";
 import { users, emailChangeTokens } from "$lib/server/db/schema";
 import { hashToken } from "$lib/server/email";
 import { runAtomic } from "$lib/server/db/atomic";
@@ -30,14 +31,29 @@ async function lookupToken(db: App.Locals["db"], tenantId: string, token: string
     return record;
 }
 
-export const load: PageServerLoad = async ({ locals, url }) => {
+/** 계정 화면에서 시작되는 흐름이라 클라이언트 정보가 없다 — 테넌트 기본 스킨으로 폴백한다. */
+async function resolveSkin(locals: App.Locals, platform: App.Platform | undefined, skinHint: string | null, vars: { token: string | null; flashMsg?: string }): Promise<string | null> {
+    if (!locals.db || !locals.tenant) return null;
+    const raw = await resolveSkinByHint(locals.db, platform, locals.tenant.id, skinHint, "confirm_email_change");
+    if (!raw) return null;
+    return replacePlaceholders(raw, {
+        IDP_FORM_ACTION: "",
+        IDP_REDIRECT_TO: "",
+        IDP_SKIN_HINT: escapeHtml(skinHint ?? ""),
+        IDP_TOKEN: escapeHtml(vars.token ?? ""),
+        IDP_FLASH_MSG: escapeHtml(vars.flashMsg ?? ""),
+    });
+}
+
+export const load: PageServerLoad = async ({ locals, url, platform }) => {
     const token = url.searchParams.get("token");
+    const skinHint = url.searchParams.get("skinHint");
     if (!token || !locals.db || !locals.tenant) {
-        return { valid: false, token: null as string | null };
+        return { valid: false, token: null as string | null, skinHint, skinHtml: await resolveSkin(locals, platform, skinHint, { token: null }) };
     }
     const record = await lookupToken(locals.db, locals.tenant.id, token);
-    if (!record) return { valid: false, token: null as string | null };
-    return { valid: true, token: token as string | null };
+    if (!record) return { valid: false, token: null as string | null, skinHint, skinHtml: await resolveSkin(locals, platform, skinHint, { token: null }) };
+    return { valid: true, token: token as string | null, skinHint, skinHtml: await resolveSkin(locals, platform, skinHint, { token }) };
 };
 
 export const actions: Actions = {
