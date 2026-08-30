@@ -29,7 +29,13 @@ export function escapeHtml(str: string): string {
 // XSS 를 막을 수 없다 (HTML escape 는 < > " ' & 만 변환).
 // 본 함수는 보수적으로 위험 패턴이 들어간 값을 통째 비워 skin 컨텍스트와 무관하게
 // 안전하게 만든다. 정상 텍스트/이메일/짧은 식별자에는 영향 없음.
-const DANGEROUS_URI_SCHEME_RE = /(?:^|\s)(?:javascript|vbscript|data\s*:\s*text\/html|data\s*:\s*application)\s*:/i;
+//
+// 주의: 트레일링 `\s*:` 는 **스킴 이름만 적힌 대안**(javascript/vbscript)에만 붙인다. 예전 패턴은
+// `(?:javascript|vbscript|data\s*:\s*text\/html|data\s*:\s*application)\s*:` 였는데, data 대안은
+// 이미 자기 콜론을 포함하므로 뒤에 콜론이 **하나 더** 있어야 매칭됐다. 그래서 실제 공격 문자열인
+// `data:text/html,<script>…` 는 통과하고 무의미한 `data:text/html:x` 만 걸렸다.
+// `data:image/…`(정상 인라인 이미지)는 계속 통과해야 하므로 image 는 대상에 넣지 않는다.
+const DANGEROUS_URI_SCHEME_RE = /(?:^|\s)(?:(?:javascript|vbscript)\s*:|data\s*:\s*(?:text\/html|application\/))/i;
 function stripDangerousScheme(value: string): string {
     return DANGEROUS_URI_SCHEME_RE.test(value) ? "" : value;
 }
