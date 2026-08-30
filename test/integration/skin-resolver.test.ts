@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { eq } from "drizzle-orm";
 import { invalidateSkinCache, parseSkinHint, resolveSkinByHint, resolveSkinHtml, TENANT_DEFAULT_CLIENT_REF, TENANT_DEFAULT_CLIENT_TYPE, type SkinType } from "../../src/lib/server/skin/resolver";
 import { clientSkins } from "../../src/lib/server/db/schema";
-import { openMemoryDb, seedTenantAndSigningKey, TEST_ISSUER_URL, type MemoryDb } from "./harness";
+import { makeEvent, openMemoryDb, seedTenantAndSigningKey, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant } from "../../src/lib/server/db/schema";
 
 // 커스텀 스킨 해석기. 관리자가 등록한 **외부 호스트**의 HTML 을 서버가 가져와 로그인 화면으로
@@ -469,5 +469,59 @@ describe("parseSkinHint / resolveSkinByHint", () => {
         });
 
         expect(await resolveSkinByHint(mem.db, undefined, tenant.id, null, "logout")).toBe(`${SANITIZE_MARK}<p>skin</p>`);
+    });
+});
+
+// 스킨이 걸린 페이지는 **폼 제출 실패 응답에도** 스킨을 실어야 한다. 그러지 않으면 사용자가
+// 비밀번호를 잘못 입력한 순간 화면이 기본 UI 로 튀고, 재제출 폼의 hidden 토큰도 사라진다.
+describe("스킨 페이지의 실패 응답", () => {
+    it("초대 수락 액션이 실패해도 스킨과 토큰을 되돌려준다", async () => {
+        const { actions } = await import("../../src/routes/(auth)/accept-invite/+page.server");
+        await mem.db.insert(clientSkins).values({
+            tenantId: tenant.id,
+            clientType: TENANT_DEFAULT_CLIENT_TYPE,
+            clientRefId: TENANT_DEFAULT_CLIENT_REF,
+            skinType: "accept_invite",
+            fetchUrl: "https://skin.test.example/invite.html",
+        });
+        nextResponse = () => htmlResponse(`<input name="token" value="{{IDP_TOKEN}}">`);
+
+        // 비밀번호 확인 불일치 → 400
+        const result = (await actions.default!(
+            makeEvent({
+                method: "POST",
+                url: `${TEST_ISSUER_URL}/accept-invite`,
+                form: { token: "tok-123", password: "correct horse battery", confirmPassword: "mismatch" },
+                locals: { db: mem.db, tenant, env: mem.env },
+            }) as never,
+        )) as { status: number; data: { error: string; skinHtml: string | null } };
+
+        expect(result.status).toBe(400);
+        expect(result.data.skinHtml).not.toBeNull();
+        // 재제출을 위해 토큰이 살아 있어야 한다.
+        expect(result.data.skinHtml).toContain(`value="tok-123"`);
+    });
+
+    it("이메일 변경 확인 액션이 실패해도 스킨을 되돌려준다", async () => {
+        const { actions } = await import("../../src/routes/account/confirm-email-change/+page.server");
+        await mem.db.insert(clientSkins).values({
+            tenantId: tenant.id,
+            clientType: TENANT_DEFAULT_CLIENT_TYPE,
+            clientRefId: TENANT_DEFAULT_CLIENT_REF,
+            skinType: "confirm_email_change",
+            fetchUrl: "https://skin.test.example/confirm.html",
+        });
+
+        const result = (await actions.default!(
+            makeEvent({
+                method: "POST",
+                url: `${TEST_ISSUER_URL}/account/confirm-email-change`,
+                form: { token: "" },
+                locals: { db: mem.db, tenant, env: mem.env },
+            }) as never,
+        )) as { status: number; data: { skinHtml: string | null } };
+
+        expect(result.status).toBe(400);
+        expect(result.data.skinHtml).not.toBeNull();
     });
 });

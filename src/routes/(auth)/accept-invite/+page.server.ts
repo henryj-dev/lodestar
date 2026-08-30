@@ -62,29 +62,36 @@ export const actions: Actions = {
     default: async (event) => {
         const { db, tenant, rateLimitStore } = requireDbContext(event.locals);
         const locale = event.locals.locale;
-
+        const skinHint = event.url.searchParams.get("skinHint");
         const formData = await event.request.formData();
         const token = String(formData.get("token") ?? "");
         const password = String(formData.get("password") ?? "");
         const confirmPassword = String(formData.get("confirmPassword") ?? "");
 
+        /**
+         * 실패 응답에도 스킨을 실어 준다 — 스킨이 걸린 페이지가 제출 후 기본 UI 로 튀지 않게.
+         * 토큰을 그대로 되돌려줘야 재제출 폼의 hidden input 이 살아 있어 다시 시도할 수 있다.
+         */
+        const failWithSkin = async (status: number, message: string) =>
+            fail(status, { error: message, skinHtml: await resolveSkin(event.locals, event.platform, skinHint, { token: token || null, flashMsg: message }) });
+
         // 토큰 제출 브루트포스 방어 — 형제 인증 라우트와 동일하게 IP 당 제한.
         const meta = getRequestMetadata(event);
         const rl = await checkRateLimit(rateLimitStore, `accept-invite:${meta.ipKey}`, { windowMs: 15 * 60 * 1000, limit: 10 });
         if (!rl.allowed) {
-            return fail(429, { error: translate(locale, "errors.rate_limit", { minutes: Math.ceil(rl.retryAfterMs / 60000) }) });
+            return failWithSkin(429, translate(locale, "errors.rate_limit", { minutes: Math.ceil(rl.retryAfterMs / 60000) }));
         }
 
-        if (!token) return fail(400, { error: translate(locale, "accept_invite.invalid_link") });
+        if (!token) return failWithSkin(400, translate(locale, "accept_invite.invalid_link"));
         // 비밀번호 정책 재사용 — reset_password 와 동일(8자 이상, 확인 일치).
-        if (password.length < 8) return fail(400, { error: translate(locale, "accept_invite.err_password_short") });
-        if (password.length > MAX_PASSWORD_LENGTH) return fail(400, { error: translate(locale, "errors.password_too_long", { max: MAX_PASSWORD_LENGTH }) });
+        if (password.length < 8) return failWithSkin(400, translate(locale, "accept_invite.err_password_short"));
+        if (password.length > MAX_PASSWORD_LENGTH) return failWithSkin(400, translate(locale, "errors.password_too_long", { max: MAX_PASSWORD_LENGTH }));
         // ctrls R5: HIBP 유출 비밀번호 차단(운영자 opt-in). 오류 시 fail-open.
-        if (isBreachCheckEnabled() && (await isPasswordBreached(password))) return fail(400, { error: translate(locale, "accept_invite.err_password_breached") });
-        if (password !== confirmPassword) return fail(400, { error: translate(locale, "accept_invite.err_password_mismatch") });
+        if (isBreachCheckEnabled() && (await isPasswordBreached(password))) return failWithSkin(400, translate(locale, "accept_invite.err_password_breached"));
+        if (password !== confirmPassword) return failWithSkin(400, translate(locale, "accept_invite.err_password_mismatch"));
 
         const record = await lookupToken(db, tenant.id, token);
-        if (!record) return fail(400, { error: translate(locale, "accept_invite.invalid_link") });
+        if (!record) return failWithSkin(400, translate(locale, "accept_invite.invalid_link"));
 
         const now = new Date();
         const hashedPw = await hashPassword(password);

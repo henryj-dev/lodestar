@@ -60,21 +60,28 @@ export const actions: Actions = {
     default: async (event) => {
         const { db, tenant, rateLimitStore } = requireDbContext(event.locals);
         const locale = event.locals.locale;
-
+        const skinHint = event.url.searchParams.get("skinHint");
         const formData = await event.request.formData();
         const token = String(formData.get("token") ?? "");
+
+        /**
+         * 실패 응답에도 스킨을 실어 준다 — 스킨이 걸린 페이지가 제출 후 기본 UI 로 튀지 않게.
+         * 토큰을 그대로 되돌려줘야 재제출 폼의 hidden input 이 살아 있어 다시 시도할 수 있다.
+         */
+        const failWithSkin = async (status: number, message: string) =>
+            fail(status, { error: message, skinHtml: await resolveSkin(event.locals, event.platform, skinHint, { token: token || null, flashMsg: message }) });
 
         // 토큰 제출 브루트포스 방어 — 형제 인증 라우트와 동일하게 IP 당 제한.
         const meta = getRequestMetadata(event);
         const rl = await checkRateLimit(rateLimitStore, `confirm-email-change:${meta.ipKey}`, { windowMs: 15 * 60 * 1000, limit: 10 });
         if (!rl.allowed) {
-            return fail(429, { error: translate(locale, "errors.rate_limit", { minutes: Math.ceil(rl.retryAfterMs / 60000) }) });
+            return failWithSkin(429, translate(locale, "errors.rate_limit", { minutes: Math.ceil(rl.retryAfterMs / 60000) }));
         }
 
-        if (!token) return fail(400, { error: translate(locale, "confirm_email_change.invalid_link") });
+        if (!token) return failWithSkin(400, translate(locale, "confirm_email_change.invalid_link"));
 
         const record = await lookupToken(db, tenant.id, token);
-        if (!record) return fail(400, { error: translate(locale, "confirm_email_change.invalid_link") });
+        if (!record) return failWithSkin(400, translate(locale, "confirm_email_change.invalid_link"));
 
         // 확인 시점 중복 재검사 — 요청 이후 다른 계정이 같은 주소를 선점했을 수 있다.
         // (users_tenant_email_uidx 가 최종 방어이지만 사용자 친화적 에러를 위해 선검사한다.)
@@ -83,7 +90,7 @@ export const actions: Actions = {
             .from(users)
             .where(and(eq(users.tenantId, tenant.id), eq(users.email, record.targetEmail), ne(users.id, record.userId)))
             .limit(1);
-        if (taken) return fail(409, { error: translate(locale, "confirm_email_change.invalid_link") });
+        if (taken) return failWithSkin(409, translate(locale, "confirm_email_change.invalid_link"));
 
         const now = new Date();
         // 1회용 소진 + email 교체 + pending 클리어 + emailVerifiedAt 세팅을 원자적으로.
