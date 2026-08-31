@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq, and } from "drizzle-orm";
 import { actions as loginActions } from "../../src/routes/(auth)/login/+page.server";
 import { actions as mfaActions } from "../../src/routes/(auth)/mfa/+page.server";
@@ -170,15 +170,35 @@ describe("로그인 → MFA 체이닝", () => {
         expect(results.filter((result) => !("status" in result && result.status === 303))).toHaveLength(1);
     });
 
-    // 11회 순차 로그인은 시도마다 scrypt 검증 + 실패 타이밍 균등화 지연이 누적되므로 기본 5s 로는 부족하다.
-    it("로그인 IP 레이트리밋: 임계(10회/15분) 초과 시 429 로 차단한다", { timeout: 30_000 }, async () => {
-        const jar = makeCookieJar();
-        // 잘못된 비밀번호로 10회 시도(모두 400), 11회째는 IP 레이트리밋으로 429.
-        for (let i = 0; i < 10; i++) {
-            const r = (await loginActions.default(loginEvent(jar.cookies, { username: "mfauser", password: "wrong-password" }))) as { status?: number };
-            expect(r.status).toBe(400);
+    // 11회 순차 로그인은 시도마다 scrypt 검증이 누적된다. `equalizeAuthTiming` 이 틀린 비밀번호와
+    // 미존재 계정에도 scrypt 를 한 번 태워 타이밍 오라클을 막기 때문에, 이 테스트 하나가
+    // scrypt(N=2^15, 약 32MiB)를 11번 돌린다. 단독 3.7초, 전체 스위트 경합에서는 20~50초까지 간다.
+    //
+    // **버킷 경계를 고정한다.** 레이트리밋은 15분 버킷 두 개로 슬라이딩 윈도우를 근사한다
+    // (`floor(prev × (1 - elapsed/window)) + current`). 경계가 이 루프 중간에 걸리면 앞선 시도가
+    // prev 로 밀려나 감쇠하는데, 하필 10회째 직후에 걸리면 `floor(10 × 0.97) + 1 = 10` 이 되어
+    // `> 10` 을 만족하지 못하고 11회째가 **통과해 버린다**(429 대신 400). 루프가 길어질수록 경계를
+    // 밟을 확률이 올라가므로 부하가 큰 날에만 터지는 시간 의존 플레이크였다 — 실제로 5회 중 1회.
+    //
+    // Date 만 고정하고(setTimeout 등 타이머는 실제로 둔다) 버킷 중앙에 세워 11회가 한 버킷에
+    // 들어가게 한다. 프로덕션의 감쇠 동작을 바꾸는 것이 아니라, 테스트가 절대 시각 정렬에
+    // 의존하지 않게 만드는 것이다.
+    it("로그인 IP 레이트리밋: 임계(10회/15분) 초과 시 429 로 차단한다", { timeout: 120_000 }, async () => {
+        const WINDOW_MS = 15 * 60 * 1000;
+        const bucketMiddle = Math.floor(Date.now() / WINDOW_MS) * WINDOW_MS + WINDOW_MS / 2;
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(bucketMiddle);
+        try {
+            const jar = makeCookieJar();
+            // 잘못된 비밀번호로 10회 시도(모두 400), 11회째는 IP 레이트리밋으로 429.
+            for (let i = 0; i < 10; i++) {
+                const r = (await loginActions.default(loginEvent(jar.cookies, { username: "mfauser", password: "wrong-password" }))) as { status?: number };
+                expect(r.status).toBe(400);
+            }
+            const over = (await loginActions.default(loginEvent(jar.cookies, { username: "mfauser", password: "wrong-password" }))) as { status?: number };
+            expect(over.status).toBe(429);
+        } finally {
+            vi.useRealTimers();
         }
-        const over = (await loginActions.default(loginEvent(jar.cookies, { username: "mfauser", password: "wrong-password" }))) as { status?: number };
-        expect(over.status).toBe(429);
     });
 });

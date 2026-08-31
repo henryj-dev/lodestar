@@ -34,8 +34,11 @@ export default defineConfig({
         // 코어 수만큼 워커를 띄우면 메모리 대역폭이 포화돼, 순차 로그인을 11회 돌리는 레이트리밋
         // 테스트처럼 무거운 케이스가 굶어 죽었다(어서션 실패가 아니라 시간 초과). 워커를 절반으로
         // 제한해 무거운 테스트가 CPU 를 확보하게 하고, 타임아웃에도 여유를 준다.
-        testTimeout: 20_000,
-        hookTimeout: 20_000,
+        // 개별 테스트가 경합에서 20초를 넘긴 것을 확인했다(레이트리밋 테스트 20.7초). beforeEach 도
+        // 매번 마이그레이션 전체를 새 메모리 DB 에 적용하므로 같은 압력을 받는다. 실패 모드가
+        // "틀렸다" 가 아니라 "굶었다" 이므로 한도를 넉넉히 두고, 정말 멈추는 회귀만 걸리게 한다.
+        testTimeout: 60_000,
+        hookTimeout: 60_000,
         poolOptions: { threads: { maxThreads: 5 } },
         coverage: {
             // @vitest/coverage-v8 기반. 게이트(threshold)는 강제하지 않고 리포트만 산출한다.
