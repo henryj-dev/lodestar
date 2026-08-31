@@ -9,6 +9,7 @@ import {
     seedTenantAndSigningKey,
     seedUser,
     seedOidcClient,
+    seedConsent,
     seedServiceAssignment,
     seedSession,
     makeEvent,
@@ -58,6 +59,7 @@ beforeEach(async () => {
         .set({ backchannelLogoutUri: "https://rp.test.example/bc-logout", frontchannelLogoutUri: "https://rp.test.example/fc-logout" })
         .where(eq(oidcClients.id, client.id));
     await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "oidc", serviceRefId: clientDbId });
+    await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientRefId: clientDbId });
     const seeded = await seedSession(mem.db, { tenantId: tenant.id, userId: user.id });
     session = seeded.session;
 });

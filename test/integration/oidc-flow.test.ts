@@ -8,6 +8,7 @@ import {
     seedTenantAndSigningKey,
     seedUser,
     seedOidcClient,
+    seedConsent,
     seedServiceAssignment,
     seedSession,
     makeEvent,
@@ -51,6 +52,7 @@ beforeEach(async () => {
     });
     clientDbId = client.id;
     await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "oidc", serviceRefId: clientDbId });
+    await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientRefId: clientDbId });
     const seeded = await seedSession(mem.db, { tenantId: tenant.id, userId: user.id });
     session = seeded.session;
 });
@@ -193,7 +195,7 @@ describe("OIDC 풀플로우 (authorize → token → userinfo)", () => {
     });
 
     it("allowAllUsers 클라이언트는 서비스 매핑 없는 사용자도 SSO 를 허용한다", async () => {
-        await seedOidcClient(mem.db, {
+        const openClient = await seedOidcClient(mem.db, {
             tenantId: tenant.id,
             clientId: "open-client",
             secret: CLIENT_SECRET,
@@ -202,6 +204,8 @@ describe("OIDC 풀플로우 (authorize → token → userinfo)", () => {
         });
         // 매핑 없는 별도 유저 + 세션으로 authorize → allowAllUsers 게이트 통과, code 발급.
         const other = await seedUser(mem.db, { tenantId: tenant.id, email: "bob@test.example", username: "bob", password: "pw" });
+        // 동의 게이트는 서비스 매핑과 별개다 — allowAllUsers 여도 동의는 필요하다(C2-B).
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: other.id, clientRefId: openClient.id });
         const otherSession = (await seedSession(mem.db, { tenantId: tenant.id, userId: other.id })).session;
         const challenge = await pkceChallengeS256("verifier-allow-all-users-2222333344445555bbbb");
         const params = new URLSearchParams({
@@ -256,7 +260,7 @@ describe("OIDC 풀플로우 (authorize → token → userinfo)", () => {
     });
 
     it("requireVerifiedEmail 클라이언트도 이메일 인증된 사용자는 허용한다(R6)", async () => {
-        await seedOidcClient(mem.db, {
+        const verifiedClient = await seedOidcClient(mem.db, {
             tenantId: tenant.id,
             clientId: "verified-email-client-ok",
             secret: CLIENT_SECRET,
@@ -266,6 +270,7 @@ describe("OIDC 풀플로우 (authorize → token → userinfo)", () => {
         });
         // seedUser 는 emailVerifiedAt 를 기본 now(=인증됨)로 설정한다.
         const verified = await seedUser(mem.db, { tenantId: tenant.id, email: "verified@test.example", username: "verifieduser", password: "pw" });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: verified.id, clientRefId: verifiedClient.id });
         const sess = (await seedSession(mem.db, { tenantId: tenant.id, userId: verified.id })).session;
         const challenge = await pkceChallengeS256("verifier-verified-email-7777888899990000dddd");
         const params = new URLSearchParams({
