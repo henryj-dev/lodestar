@@ -1261,5 +1261,17 @@
         "scope_Role": "Service role",
         "scope_RoleLabel": "Service role name",
         "scope_Entitlements": "Service entitlements"
+    },
+    "terms": {
+        "title": "Please review the terms",
+        "subtitle": "To use the service you need to review and agree to the terms below.",
+        "required_mark": "(required)",
+        "optional_mark": "(optional)",
+        "expand": "Read full text",
+        "collapse": "Collapse",
+        "agree_all": "Agree to all",
+        "submit": "Agree and continue",
+        "required_hint": "You must agree to all required terms to continue.",
+        "err_required_missing": "Please agree to the required terms."
     }
 }

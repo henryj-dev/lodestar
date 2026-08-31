@@ -34,6 +34,9 @@ import { buildSignedSamlErrorResponse, buildSignedSamlResponse } from "$lib/serv
 import { findSp, recordSamlSession, type SamlSpRecord } from "$lib/server/saml/sp";
 import { getUserMembership } from "$lib/server/org/membership";
 import { getActiveAssignment, listActiveEntitlements, parseAssignmentAttributes } from "$lib/server/access/service-permissions";
+import { evaluateConsent, redirectToConsent } from "$lib/server/consent/gate";
+import { evaluateTermsGate, redirectToTerms } from "$lib/server/terms/gate";
+import { normalizeLocale } from "$lib/i18n/core";
 import { renderPageShell } from "$lib/server/html/page-shell";
 import { translate } from "$lib/i18n/server";
 import type { Locale } from "$lib/i18n/core";
@@ -81,6 +84,27 @@ function renderAutoSubmitForm(acsUrl: string, samlResponseB64: string, relayStat
     return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", Pragma: "no-cache" } });
 }
 
+/**
+ * 이 SP 에 실제로 나가는 속성 목록 — 동의 대상이다.
+ *
+ * allowedAttributes 가 없으면 email/username/displayName 만 나가므로(README 의 per-SP 속성 필터)
+ * 그 기본값을 쓴다. 깨진 JSON 은 조용히 넓히지 않고 기본값으로 취급한다.
+ */
+function resolveConsentAttributes(sp: SamlSpRecord): string[] {
+    const DEFAULTS = ["email", "username", "displayName"];
+    if (!sp.allowedAttributes) return DEFAULTS;
+    try {
+        const parsed = JSON.parse(sp.allowedAttributes) as unknown;
+        if (Array.isArray(parsed)) {
+            const names = parsed.filter((a): a is string => typeof a === "string");
+            return names.length > 0 ? names : DEFAULTS;
+        }
+    } catch {
+        // 무시 — 기본값
+    }
+    return DEFAULTS;
+}
+
 /** 서명된 SAML 오류 Response 를 만들어 ACS 로 POST 하는 폼 응답. */
 async function buildAndRenderSamlError(params: {
     inResponseTo: string | null;
@@ -116,6 +140,12 @@ interface GateAndIssueParams {
     relayState: string | null;
     certPem: string;
     privateKey: CryptoKey;
+    /**
+     * 동의 화면에서 승인 후 되돌아올 곳(path+query). SP-initiated 는 로그인 왕복용으로 이미
+     * 만들어 둔 loginRedirectTo(POST 바인딩은 Redirect 바인딩으로 재인코딩한 URL)를 그대로 쓰고,
+     * IdP-initiated 는 현재 URL 이 곧 재개 지점이다.
+     */
+    consentResumeUrl: string;
 }
 
 /**
@@ -172,6 +202,81 @@ async function gateAndIssueSamlAssertion(event: Parameters<RequestHandler>[0], p
             detail: { error: "access_denied", reason: "email_verification_required" },
         });
         throw error(403, translate(event.locals.locale, "saml.errors.email_verification_required"));
+    }
+
+    // ── 약관 (T1-B) ───────────────────────────────────────────────────────────
+    // 동의보다 앞에 둔다(이용 조건 → 정보 제공 범위). SAML 에는 prompt 개념이 없으므로
+    // 막히면 그냥 약관 화면으로 보내고, 동의 후 loginRedirectTo 로 재개한다.
+    {
+        const termsGate = await evaluateTermsGate({
+            db,
+            tenantId: tenant.id,
+            userId: user.id,
+            locale: normalizeLocale(user.locale ?? event.locals.locale),
+            client: { clientType: "saml", clientRefId: sp.id },
+        });
+        if (termsGate.blocked) {
+            redirectToTerms({
+                origin: event.url.origin,
+                resumeUrl: p.consentResumeUrl,
+                client: { clientType: "saml", clientRefId: sp.id },
+                skinHint: `saml:${sp.id}`,
+            });
+        }
+    }
+
+    // ── 첫 사용 동의 (C5-B: SAML 도 대상) ──────────────────────────────────────
+    //
+    // SAML 에는 스코프가 없다 — SP 에 실제로 나가는 속성 목록(allowedAttributes, 미지정 시 기본
+    // 3종)이 동의 대상이다. SP 가 속성을 추가하면 늘어난 항목 때문에 다시 묻는다.
+    //
+    // SAML 에는 `prompt` 개념이 없어 강제 재동의 수단은 사용자의 철회뿐이다. 부분 제공도 두지
+    // 않는다 — SP 가 요구하는 속성을 골라 빼면 SP 쪽이 깨지기 때문이다(선택 항목 없음).
+    {
+        const attributes = resolveConsentAttributes(sp);
+        if (event.url.searchParams.get("consent") === "denied") {
+            const meta = getRequestMetadata(event);
+            await recordAuditEvent(db, {
+                tenantId: tenant.id,
+                userId: user.id,
+                actorId: user.id,
+                spOrClientId: sp.entityId,
+                kind: "saml_sso",
+                outcome: "failure",
+                ip: meta.ip,
+                userAgent: meta.userAgent,
+                detail: { error: "access_denied", reason: "consent_denied" },
+            });
+            return await buildAndRenderSamlError({
+                inResponseTo: p.inResponseTo,
+                acsUrl: p.acsUrl,
+                issuerUrl: p.issuerUrl,
+                subStatusCode: "urn:oasis:names:tc:SAML:2.0:status:RequestDenied",
+                certPem: p.certPem,
+                privateKey: p.privateKey,
+                relayState: p.relayState,
+                locale: event.locals.locale,
+            });
+        }
+
+        const consent = await evaluateConsent({
+            db,
+            tenantId: tenant.id,
+            userId: user.id,
+            clientType: "saml",
+            clientRefId: sp.id,
+            requested: attributes,
+            optional: [],
+        });
+        if (consent.needsConsent) {
+            redirectToConsent({
+                origin: event.url.origin,
+                clientType: "saml",
+                clientRefId: sp.id,
+                resumeUrl: p.consentResumeUrl,
+                skinHint: `saml:${sp.id}`,
+            });
+        }
     }
 
     // Replay 가드 (SP-initiated 한정). Assertion 발급 직전에 동일 AuthnRequest ID 의
@@ -484,6 +589,7 @@ async function processSpInitiatedAuthnRequest(event: Parameters<RequestHandler>[
         relayState: authnRequest.relayState,
         certPem: p.certPem,
         privateKey: p.privateKey,
+        consentResumeUrl: p.loginRedirectTo,
     });
 }
 
@@ -538,6 +644,7 @@ async function handleIdpInitiated(event: Parameters<RequestHandler>[0], ctx: { d
         acsUrl: sp.acsUrl, // 요청에 ACS 가 없으므로 등록된 SP ACS 사용
         inResponseTo: null, // unsolicited — InResponseTo 생략
         relayState,
+        consentResumeUrl: url.pathname + url.search,
         certPem: signingKey.certPem,
         privateKey: signingKey.privateKey,
     });
