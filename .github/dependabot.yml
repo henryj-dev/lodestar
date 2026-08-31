@@ -39,3 +39,20 @@ updates:
       labels:
           - "dependencies"
           - "github-actions"
+      groups:
+          # **codeql-action 의 하위 액션은 반드시 같은 버전이어야 한다.**
+          #
+          # init / autobuild / analyze 는 같은 실행 안에서 설정 파일을 주고받는데, 버전이
+          # 섞이면 analyze 가 이렇게 죽는다:
+          #
+          #     Loaded a configuration file for version '4.37.8', but running version '4.37.9'
+          #
+          # 그룹을 지정하지 않으면 dependabot 이 하위 액션마다 PR 을 따로 연다. 각 PR 은
+          # 워크플로의 한 줄만 올리므로 **그 PR 안에서는 항상 버전이 섞이고**, 넷을 다
+          # 머지하기 전까지 CodeQL 게이트가 빨갛다. 실제로 4.37.9 에서 그렇게 됐다.
+          #
+          # 한 PR 로 묶으면 네 줄이 함께 올라가 섞이는 구간이 없다. upload-sarif 는
+          # scorecard.yml 이 쓰는데, 같은 저장소에서 나오므로 버전을 함께 맞춰 둔다.
+          codeql-action:
+              patterns:
+                  - "github/codeql-action*"
