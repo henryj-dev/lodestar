@@ -29,7 +29,13 @@ export function escapeHtml(str: string): string {
 // XSS 를 막을 수 없다 (HTML escape 는 < > " ' & 만 변환).
 // 본 함수는 보수적으로 위험 패턴이 들어간 값을 통째 비워 skin 컨텍스트와 무관하게
 // 안전하게 만든다. 정상 텍스트/이메일/짧은 식별자에는 영향 없음.
-const DANGEROUS_URI_SCHEME_RE = /(?:^|\s)(?:javascript|vbscript|data\s*:\s*text\/html|data\s*:\s*application)\s*:/i;
+//
+// 주의: 트레일링 `\s*:` 는 **스킴 이름만 적힌 대안**(javascript/vbscript)에만 붙인다. 예전 패턴은
+// `(?:javascript|vbscript|data\s*:\s*text\/html|data\s*:\s*application)\s*:` 였는데, data 대안은
+// 이미 자기 콜론을 포함하므로 뒤에 콜론이 **하나 더** 있어야 매칭됐다. 그래서 실제 공격 문자열인
+// `data:text/html,<script>…` 는 통과하고 무의미한 `data:text/html:x` 만 걸렸다.
+// `data:image/…`(정상 인라인 이미지)는 계속 통과해야 하므로 image 는 대상에 넣지 않는다.
+const DANGEROUS_URI_SCHEME_RE = /(?:^|\s)(?:(?:javascript|vbscript)\s*:|data\s*:\s*(?:text\/html|application\/))/i;
 function stripDangerousScheme(value: string): string {
     return DANGEROUS_URI_SCHEME_RE.test(value) ? "" : value;
 }
@@ -84,32 +90,94 @@ function isFetchUrlAllowed(rawUrl: string): URL | null {
     return url;
 }
 
+/**
+ * 테넌트 기본 스킨을 가리키는 예약값.
+ *
+ * 클라이언트가 특정되지 않는 흐름(관리자 초대 수락, 계정의 이메일 변경 확인 등)에도 스킨을
+ * 적용하려면 "이 테넌트의 기본" 이라는 슬롯이 필요하다. `clientType`/`skin_type` 은 드리즐의
+ * TS 전용 enum(컬럼은 text)이라 값을 늘려도 마이그레이션이 필요 없고, 기존 유니크 인덱스
+ * (tenantId, clientType, clientRefId, skinType) 가 중복 등록을 그대로 막아준다.
+ *
+ * `clientRefId` 를 nullable 로 바꾸는 쪽이 의미상 깔끔하지만, 세 방언 모두 유니크 인덱스에서
+ * NULL 을 서로 다른 값으로 취급해 기본 스킨이 중복 등록된다. 부분 유니크 인덱스는 MySQL 이
+ * 지원하지 않으므로 예약값이 방언 간 가장 견고하다.
+ */
+export const TENANT_DEFAULT_CLIENT_TYPE = "tenant" as const;
+export const TENANT_DEFAULT_CLIENT_REF = "*";
+
+export type SkinType = "login" | "signup" | "find_id" | "find_password" | "mfa" | "reset_password" | "verify_email" | "accept_invite" | "confirm_email_change" | "logout";
+
+type SkinRow = typeof clientSkins.$inferSelect;
+
+/**
+ * 클라이언트 전용 스킨 → 테넌트 기본 스킨 순으로 찾는다.
+ * clientType/clientRefId 가 없으면(클라이언트 컨텍스트가 없는 페이지) 곧바로 기본 스킨을 본다.
+ */
+async function findSkinRow(db: DB, tenantId: string, clientType: "oidc" | "saml" | null, clientRefId: string | null, skinType: SkinType): Promise<SkinRow | null> {
+    const pick = async (type: string, refId: string): Promise<SkinRow | null> => {
+        const [row] = await db
+            .select()
+            .from(clientSkins)
+            .where(
+                and(
+                    eq(clientSkins.tenantId, tenantId),
+                    eq(clientSkins.clientType, type as SkinRow["clientType"]),
+                    eq(clientSkins.clientRefId, refId),
+                    eq(clientSkins.skinType, skinType),
+                    eq(clientSkins.enabled, true),
+                ),
+            )
+            .limit(1);
+        return row ?? null;
+    };
+
+    if (clientType && clientRefId) {
+        const own = await pick(clientType, clientRefId);
+        if (own) return own;
+    }
+    return pick(TENANT_DEFAULT_CLIENT_TYPE, TENANT_DEFAULT_CLIENT_REF);
+}
+
+/**
+ * `skinHint`("oidc:<id>" / "saml:<id>")를 클라이언트 참조로 분해한다.
+ * 값이 없거나 형식이 어긋나면 둘 다 null — 호출부는 그대로 테넌트 기본 스킨으로 폴백한다.
+ */
+export function parseSkinHint(skinHint: string | null | undefined): { clientType: "oidc" | "saml" | null; clientRefId: string | null } {
+    const none = { clientType: null, clientRefId: null } as const;
+    if (!skinHint) return none;
+    const colonIdx = skinHint.indexOf(":");
+    if (colonIdx <= 0) return none;
+    const clientType = skinHint.slice(0, colonIdx);
+    const clientRefId = skinHint.slice(colonIdx + 1);
+    if ((clientType !== "oidc" && clientType !== "saml") || !clientRefId) return none;
+    return { clientType, clientRefId };
+}
+
+/**
+ * skinHint 로 스킨을 해석한다. 힌트가 없으면 테넌트 기본 스킨을 본다 — 클라이언트가 특정되지
+ * 않는 흐름(초대 수락, 이메일 변경 확인)이 쓰는 진입점이다.
+ */
+export async function resolveSkinByHint(db: DB, platform: App.Platform | undefined, tenantId: string, skinHint: string | null | undefined, skinType: SkinType): Promise<string | null> {
+    const { clientType, clientRefId } = parseSkinHint(skinHint);
+    return resolveSkinHtml(db, platform, tenantId, clientType, clientRefId, skinType);
+}
+
 export async function resolveSkinHtml(
     db: DB,
     platform: App.Platform | undefined,
     tenantId: string,
-    clientType: "oidc" | "saml",
-    clientRefId: string,
-    skinType: "login" | "signup" | "find_id" | "find_password" | "mfa" | "reset_password" = "login",
+    clientType: "oidc" | "saml" | null,
+    clientRefId: string | null,
+    skinType: SkinType = "login",
 ): Promise<string | null> {
-    const [skin] = await db
-        .select()
-        .from(clientSkins)
-        .where(
-            and(
-                eq(clientSkins.tenantId, tenantId),
-                eq(clientSkins.clientType, clientType),
-                eq(clientSkins.clientRefId, clientRefId),
-                eq(clientSkins.skinType, skinType),
-                eq(clientSkins.enabled, true),
-            ),
-        )
-        .limit(1);
+    const skin = await findSkinRow(db, tenantId, clientType, clientRefId, skinType);
 
     if (!skin) return null;
 
     const cache = getSkinCacheStore(platform);
-    const cacheKey = `${CACHE_PREFIX}${tenantId}/${clientType}/${await hashKey(clientRefId)}/${skinType}`;
+    // 캐시 키는 **실제로 매칭된 행** 기준이다. 요청한 클라이언트 기준으로 만들면 기본 스킨으로
+    // 폴백한 클라이언트마다 같은 HTML 이 따로 캐시되고, 무효화도 서로 어긋난다.
+    const cacheKey = `${CACHE_PREFIX}${tenantId}/${skin.clientType}/${await hashKey(skin.clientRefId)}/${skinType}`;
 
     if (cache) {
         try {
@@ -187,9 +255,9 @@ export async function resolveSkinHtml(
 export async function invalidateSkinCache(
     platform: App.Platform | undefined,
     tenantId: string,
-    clientType: "oidc" | "saml",
+    clientType: "oidc" | "saml" | typeof TENANT_DEFAULT_CLIENT_TYPE,
     clientRefId: string,
-    skinType: "login" | "signup" | "find_id" | "find_password" | "mfa" | "reset_password" = "login",
+    skinType: SkinType = "login",
 ): Promise<void> {
     const cache = getSkinCacheStore(platform);
     if (!cache) return;

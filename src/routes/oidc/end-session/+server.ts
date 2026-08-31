@@ -8,6 +8,7 @@ import { getActiveSigningKey, verifyIdToken } from "$lib/server/crypto/keys";
 import { getOidcBackchannelTargets, getOidcFrontchannelTargets, sendOneBackchannelLogout } from "$lib/server/oidc/logout";
 import { matchesRedirectUri } from "$lib/server/oidc/client";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
+import { renderPageShell } from "$lib/server/html/page-shell";
 import { translate } from "$lib/i18n/server";
 import type { Locale } from "$lib/i18n/core";
 
@@ -38,16 +39,22 @@ function renderFrontchannelLogoutHtml(iframeUris: string[], redirectTo: string, 
     // - loading="eager" — 즉시 로드 (별도 throttle 없음).
     const iframes = iframeUris.map((u) => `<iframe src="${htmlEscape(u)}" style="display:none" sandbox="" referrerpolicy="no-referrer" loading="eager"></iframe>`).join("");
     const safeRedirect = isSafeRedirectScheme(redirectTo) ? redirectTo : "/";
+    const t = (key: string) => htmlEscape(translate(locale, key));
     // CSP 는 hash 모드이므로 inline JS 를 피하고 meta refresh 를 사용한다.
-    return (
-        `<!DOCTYPE html><html lang="${htmlEscape(locale)}"><head><meta charset="utf-8">` +
-        `<title>Logging out...</title>` +
-        `<meta http-equiv="refresh" content="3;url=${htmlEscape(safeRedirect)}">` +
-        `</head><body>` +
-        `<p>${htmlEscape(translate(locale, "oidc.errors.logging_out"))}</p>` +
-        iframes +
-        `</body></html>`
-    );
+    // 화면은 기본 UI 와 같은 카드로 렌더한다(renderPageShell) — 로그인 직후 흐름에서 이 페이지만
+    // 브라우저 기본 스타일로 튀어나오지 않도록.
+    return renderPageShell({
+        lang: htmlEscape(locale),
+        title: t("oidc.logout_progress.title"),
+        head: `<meta http-equiv="refresh" content="3;url=${htmlEscape(safeRedirect)}">`,
+        body:
+            `<div class="card">` +
+            `<h1>${t("oidc.logout_progress.title")}</h1>` +
+            `<p class="status" role="status"><span class="spinner" aria-hidden="true"></span>` +
+            `<span>${t("oidc.logout_progress.subtitle")}</span></p>` +
+            `</div>` +
+            iframes,
+    });
 }
 
 async function resolvePostLogoutRedirect(locals: App.Locals, postLogoutRedirectUri: string | null, clientId: string | null, state: string | null): Promise<string> {
@@ -234,36 +241,29 @@ function renderLogoutConfirmPage(event: Parameters<RequestHandler>[0], p: { clie
         p.state ? `<input type="hidden" name="state" value="${htmlEscape(p.state)}" />` : "",
     ].join("");
 
-    const html =
-        `<!DOCTYPE html><html lang="${htmlEscape(locale)}"><head>` +
-        `<meta charset="utf-8" />` +
-        `<meta name="viewport" content="width=device-width, initial-scale=1" />` +
-        `<meta name="robots" content="noindex,nofollow" />` +
-        `<title>${t("oidc.logout_confirm.title")}</title>` +
-        `<style>` +
-        `:root{color-scheme:light}` +
-        `body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f9fafb;` +
-        `font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;color:#111827}` +
-        `.card{width:100%;max-width:26rem;margin:1rem;padding:2rem;background:#fff;border:1px solid #e5e7eb;border-radius:1rem;` +
-        `box-shadow:0 1px 2px rgba(0,0,0,.05)}` +
-        `h1{margin:0 0 .5rem;font-size:1.25rem;line-height:1.4}` +
-        `p{margin:0 0 1.5rem;font-size:.875rem;line-height:1.6;color:#4b5563}` +
-        `.rp{font-weight:600;color:#111827}` +
-        `.row{display:flex;gap:.5rem}` +
-        `button,a.btn{flex:1;display:inline-flex;align-items:center;justify-content:center;padding:.625rem 1rem;` +
-        `font-size:.875rem;font-weight:500;border-radius:.5rem;border:1px solid transparent;cursor:pointer;text-decoration:none}` +
-        `button{background:#2563eb;color:#fff}button:hover{background:#1d4ed8}` +
-        `a.btn{background:#fff;border-color:#d1d5db;color:#374151}a.btn:hover{background:#f9fafb}` +
-        `</style></head><body>` +
-        `<div class="card">` +
-        `<h1>${t("oidc.logout_confirm.title")}</h1>` +
-        `<p>${t("oidc.logout_confirm.body", { client: p.clientName })}</p>` +
-        `<form method="POST" action="${htmlEscape(url.pathname)}">` +
-        hidden +
-        `<div class="row">` +
-        `<a class="btn" href="/">${t("oidc.logout_confirm.cancel")}</a>` +
-        `<button type="submit">${t("oidc.logout_confirm.confirm")}</button>` +
-        `</div></form></div></body></html>`;
+    // 클라이언트 이름만 강조하려면 문장 안에서의 위치를 알아야 하는데, 어순이 로케일마다 달라
+    // 문자열을 쪼갤 수 없다. 제어문자 sentinel 로 자리를 잡아두고 이스케이프한 뒤 치환하면 어순과
+    // 이스케이프를 모두 지킬 수 있다 (U+0001 은 메시지 카탈로그에도 클라이언트 이름에도 나타날 수
+    // 없고 htmlEscape 도 건드리지 않는다).
+    const CLIENT_SLOT = "\u0001";
+    const bodyText = t("oidc.logout_confirm.body", { client: CLIENT_SLOT })
+        .split(CLIENT_SLOT)
+        .join(`<span class="rp">${htmlEscape(p.clientName)}</span>`);
+
+    const html = renderPageShell({
+        lang: htmlEscape(locale),
+        title: t("oidc.logout_confirm.title"),
+        body:
+            `<div class="card">` +
+            `<h1>${t("oidc.logout_confirm.title")}</h1>` +
+            `<p class="sub">${bodyText}</p>` +
+            `<form method="POST" action="${htmlEscape(url.pathname)}">` +
+            hidden +
+            `<div class="actions">` +
+            `<a class="btn btn-secondary" href="/">${t("oidc.logout_confirm.cancel")}</a>` +
+            `<button class="btn btn-primary" type="submit">${t("oidc.logout_confirm.confirm")}</button>` +
+            `</div></form></div>`,
+    });
 
     return new Response(html, {
         status: 200,

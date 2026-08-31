@@ -337,6 +337,17 @@ const JS = `(function(){
     if(c)c.addEventListener('input',upd);
   }
 
+  // ── Logout ────────────────────────────────────────────────────────────
+  // 로그아웃 스킨은 화면을 보여주는 것이 목적이 아니라 POST 를 일으키는 것이 목적이다.
+  // 기본 UI 와 같게 폼을 자동 제출하고, 폼이 없으면 아무것도 하지 않는다.
+  function initLogout(){
+    initFlash();
+    var form=document.getElementById('form')||document.querySelector('form');
+    if(!form)return;
+    if(typeof form.requestSubmit==='function')form.requestSubmit();
+    else form.submit();
+  }
+
   // ── Dispatch ──────────────────────────────────────────────────────────
   function run(){
     initTheme();
@@ -348,6 +359,7 @@ const JS = `(function(){
     else if(skinType==='find_password')initFindPassword();
     else if(skinType==='mfa')initMfa();
     else if(skinType==='reset_password')initResetPassword();
+    else if(skinType==='logout')initLogout();
     else initFlash();
   }
 

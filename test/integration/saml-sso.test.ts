@@ -356,3 +356,56 @@ describe("SAML Entitlements 속성", () => {
         expect(xml).toContain(">kept<"); // 예약되지 않은 키는 그대로
     });
 });
+
+// ── ACS auto-submit 페이지도 기본 UI 와 같은 셸을 쓴다 ──────────────────────────────────────
+// SvelteKit 라우트가 아니라 엔드포인트가 직접 만드는 HTML 이라 Tailwind 가 없다. 한순간만 보이지만
+// 로그인 화면 바로 다음 화면이므로 renderPageShell 로 같은 카드를 쓰고, JS 가 꺼진 경우에도 SSO 가
+// 멈추지 않도록 <noscript> 수동 제출 버튼을 둔다.
+describe("SAML auto-submit 페이지", () => {
+    it("공통 셸로 렌더되면서 auto-submit·hidden input 은 그대로 유지한다", async () => {
+        await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        const res = await postAuthnRequest({ id: "_authnreq_shell", loggedIn: true, assignUser: true });
+        expect(res.status).toBe(200);
+        const html = await res.text();
+
+        // 셸 — 기본 UI 카드와 동일한 Tailwind 토큰 값 (max-w-md / rounded-2xl) + 스피너.
+        expect(html).toContain('<div class="card">');
+        expect(html).toContain("max-width:28rem");
+        expect(html).toContain("border-radius:1rem");
+        expect(html).toContain('class="spinner"');
+
+        // 동작 — ACS 로의 auto-submit 과 SAMLResponse 전달은 바뀌지 않는다.
+        expect(html).toContain(`onload="document.getElementById('samlForm').submit()"`);
+        expect(html).toContain(`<form id="samlForm" method="POST" action="${SP_ACS_URL}">`);
+        expect(html).toMatch(/name="SAMLResponse" value="[^"]+"/);
+
+        // JS 가 꺼진 브라우저용 수동 제출 버튼.
+        expect(html).toContain("<noscript>");
+        expect(html).toContain('class="btn btn-primary" type="submit"');
+
+        // 서명된 assertion 이 실려 있으므로 캐시에 남기지 않는다.
+        expect(res.headers.get("cache-control")).toContain("no-store");
+    });
+
+    it("RelayState 가 있으면 hidden input 으로 함께 실린다", async () => {
+        await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        const xml = await buildAuthnRequestXml({
+            id: "_authnreq_relay",
+            kc: spKc,
+            issuer: SP_ENTITY_ID,
+            destination: SSO_DESTINATION,
+            acsUrl: SP_ACS_URL,
+            sign: true,
+        });
+        const event = makeEvent({
+            method: "POST",
+            url: SSO_DESTINATION,
+            form: { SAMLRequest: encodePostBindingSamlRequest(xml), RelayState: "deep/link?a=1&b=2" },
+            locals: { db: mem.db, tenant, user, session, env: mem.env },
+        });
+        const html = await ((await ssoPOST(event)) as Response).text();
+
+        // 이스케이프된 형태로 실려야 한다(&  → &amp;).
+        expect(html).toContain('name="RelayState" value="deep/link?a=1&amp;b=2"');
+    });
+});

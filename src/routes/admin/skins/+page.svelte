@@ -12,7 +12,10 @@ const dateFormatter = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" });
 let showCreate = $state(false);
 const firstClientId = untrack(() => data.oidcList[0]?.id ?? data.samlList[0]?.id ?? "");
 let selectedClientRefId = $state(firstClientId);
-const derivedClientType = $derived(data.oidcList.some((c: { id: string }) => c.id === selectedClientRefId) ? "oidc" : "saml");
+// "*" 는 테넌트 기본 스킨 슬롯(TENANT_DEFAULT_CLIENT_REF). 클라이언트가 특정되지 않는
+// 흐름(초대 수락·이메일 변경 확인 등)과, 전용 스킨이 없는 클라이언트의 폴백으로 쓰인다.
+const TENANT_DEFAULT_REF = "*";
+const derivedClientType = $derived(selectedClientRefId === TENANT_DEFAULT_REF ? "tenant" : data.oidcList.some((c: { id: string }) => c.id === selectedClientRefId) ? "oidc" : "saml");
 
 let editingId = $state<string | null>(null);
 
@@ -20,9 +23,10 @@ const createErr = $derived((form as { create?: boolean; error?: string } | null)
 const updateErr = $derived((form as { update?: boolean; updateId?: string; error?: string } | null)?.update ? ((form as { error?: string } | null)?.error ?? null) : null);
 const globalErr = $derived(createErr || updateErr ? null : ((form as { error?: string } | null)?.error ?? null));
 
-const CLIENT_TYPE_LABEL: Record<string, string> = { oidc: "OIDC", saml: "SAML" };
+const CLIENT_TYPE_LABEL: Record<string, string> = { oidc: "OIDC", saml: "SAML", tenant: "—" };
 
 function clientLabel(clientType: string, clientRefId: string): string {
+    if (clientType === "tenant") return t("skins.tenant_default");
     if (clientType === "oidc") {
         const c = data.oidcList.find((o: { id: string }) => o.id === clientRefId);
         return c ? `${c.name} (${c.clientId})` : clientRefId;
@@ -84,6 +88,10 @@ function clientLabel(clientType: string, clientRefId: string): string {
                         <option value="find_password">{t("skins.skin_type_find_password")}</option>
                         <option value="mfa">{t("skins.skin_type_mfa")}</option>
                         <option value="reset_password">{t("skins.skin_type_reset_password")}</option>
+                        <option value="verify_email">{t("skins.skin_type_verify_email")}</option>
+                        <option value="accept_invite">{t("skins.skin_type_accept_invite")}</option>
+                        <option value="confirm_email_change">{t("skins.skin_type_confirm_email_change")}</option>
+                        <option value="logout">{t("skins.skin_type_logout")}</option>
                     </select>
                 </div>
                 <div>
@@ -93,6 +101,7 @@ function clientLabel(clientType: string, clientRefId: string): string {
                         name="clientRefId"
                         bind:value={selectedClientRefId}
                         class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none">
+                        <option value={TENANT_DEFAULT_REF}>{t("skins.tenant_default")}</option>
                         {#if data.oidcList.length > 0}
                             <optgroup label="OIDC">
                                 {#each data.oidcList as c (c.id)}

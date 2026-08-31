@@ -1055,9 +1055,12 @@ export const clientSkins = mysqlTable(
         tenantId: varchar("tenant_id", { length: 64 })
             .notNull()
             .references(() => tenants.id, { onDelete: "cascade" }),
-        clientType: varchar("client_type", { length: 64, enum: ["oidc", "saml"] }).notNull(),
+        clientType: varchar("client_type", { length: 64, enum: ["oidc", "saml", "tenant"] }).notNull(),
         clientRefId: varchar("client_ref_id", { length: 64 }).notNull(),
-        skinType: varchar("skin_type", { length: 64, enum: ["login", "signup", "find_id", "find_password", "mfa", "reset_password"] })
+        skinType: varchar("skin_type", {
+            length: 64,
+            enum: ["login", "signup", "find_id", "find_password", "mfa", "reset_password", "verify_email", "accept_invite", "confirm_email_change", "logout"],
+        })
             .notNull()
             .default("login"),
         fetchUrl: text("fetch_url").notNull(),

@@ -35,12 +35,12 @@ export const actions: Actions = {
         const formData = await event.request.formData();
         const sessionId = String(formData.get("id") ?? "").trim();
         if (!sessionId) {
-            return fail(400, { error: translate(locals.locale, "sessions.err_select_session") });
+            return fail(400, { error: translate(locals.locale, "account.sessions.err_select_session") });
         }
 
         const revoked = await revokeSessionById(db, sessionId, locals.user.id);
         if (!revoked) {
-            return fail(404, { error: translate(locals.locale, "sessions.err_not_found") });
+            return fail(404, { error: translate(locals.locale, "account.sessions.err_not_found") });
         }
 
         // 세션 폐기와 세트로 refresh token 연쇄 폐기.
