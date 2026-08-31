@@ -1040,6 +1040,8 @@
         "skin_type_accept_invite": "Invitation acceptance",
         "skin_type_confirm_email_change": "Email change confirmation",
         "skin_type_logout": "Logout",
+        "skin_type_consent": "Consent",
+        "skin_type_terms": "Terms agreement",
         "col_client": "Client",
         "col_skin_type": "Skin Type",
         "col_fetch_url": "Skin URL",

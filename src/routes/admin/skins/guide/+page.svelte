@@ -15,6 +15,8 @@ const skinTypes = [
     { type: "accept_invite", path: "/accept-invite" },
     { type: "confirm_email_change", path: "/account/confirm-email-change" },
     { type: "logout", path: "/logout" },
+    { type: "consent", path: "/consent" },
+    { type: "terms", path: "/terms" },
 ] as const;
 
 // 치환자와 그것을 채우는 페이지. 서버가 채우지 않는 치환자는 빈 문자열로 지워진다.
@@ -51,6 +53,8 @@ const formFields = [
     { type: "accept_invite", fields: "token, password, confirmPassword" },
     { type: "confirm_email_change", fields: "token" },
     { type: "logout", fields: "—" },
+    { type: "consent", fields: "optionalScope (선택 항목마다 반복)" },
+    { type: "terms", fields: "termsKey (항목마다 반복)" },
 ] as const;
 
 const exampleHtml = `<!DOCTYPE html>

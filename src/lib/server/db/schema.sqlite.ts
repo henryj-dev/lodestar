@@ -300,6 +300,9 @@ export const oidcClients = sqliteTable(
         // null 이면 이 클라이언트는 role-change SET 을 받지 않는다 (back-channel logout 과 동일한 서명/봉투).
         roleChangeUri: text("role_change_uri"),
         scopes: text("scopes").notNull().default("openid"),
+        // C1-C: 이 중 사용자가 거부할 수 있는 스코프(공백 구분). 비어 있으면 요청 스코프
+        // 전부가 필수 — 즉 전체 승인/거부와 동일하게 동작한다.
+        optionalScopes: text("optional_scopes"),
         grantTypes: text("grant_types").notNull().default("authorization_code,refresh_token"),
         responseTypes: text("response_types").notNull().default("code"),
         tokenEndpointAuthMethod: text("token_endpoint_auth_method", {
@@ -1056,7 +1059,9 @@ export const clientSkins = sqliteTable(
             .references(() => tenants.id, { onDelete: "cascade" }),
         clientType: text("client_type", { enum: ["oidc", "saml", "tenant"] }).notNull(),
         clientRefId: text("client_ref_id").notNull(),
-        skinType: text("skin_type", { enum: ["login", "signup", "find_id", "find_password", "mfa", "reset_password", "verify_email", "accept_invite", "confirm_email_change", "logout"] })
+        skinType: text("skin_type", {
+            enum: ["login", "signup", "find_id", "find_password", "mfa", "reset_password", "verify_email", "accept_invite", "confirm_email_change", "logout", "consent", "terms"],
+        })
             .notNull()
             .default("login"),
         fetchUrl: text("fetch_url").notNull(),
@@ -1243,9 +1248,151 @@ export const serviceApiTokens = sqliteTable(
     (t) => [uniqueIndex("service_api_tokens_token_hash_uidx").on(t.tokenHash), index("service_api_tokens_tenant_idx").on(t.tenantId)],
 );
 
+// ---------- Consent (OIDC/SAML 첫 사용 동의) ----------
+
+/**
+ * 사용자가 특정 서비스(OIDC 클라이언트 / SAML SP)에 정보 제공을 동의한 기록.
+ *
+ * `grantedScopes` 는 동의 시점에 승인된 목록의 스냅샷이다. 요청이 이 집합에 포함되면 통과,
+ * 아니면 늘어난 항목만 다시 묻는다(증분 동의).
+ *
+ * OIDC 는 스코프 목록, SAML 은 SP 의 allowedAttributes 목록을 같은 컬럼에 담는다 —
+ * "이 서비스에 무엇을 내보내는가" 라는 축이 같기 때문이다.
+ *
+ * 철회는 행을 지우지 않고 revokedAt 을 채운다(감사 흔적 보존). 재동의 시 새 행을 만든다.
+ */
+export const userClientConsents = sqliteTable(
+    "user_client_consents",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        clientType: text("client_type", { enum: ["oidc", "saml"] }).notNull(),
+        /** oidcClients.id 또는 samlSps.id */
+        clientRefId: text("client_ref_id").notNull(),
+        /** 공백 구분 목록. OIDC=스코프, SAML=속성명. */
+        grantedScopes: text("granted_scopes").notNull().default(""),
+        grantedAt: integer("granted_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+        revokedAt: integer("revoked_at", { mode: "timestamp_ms" }),
+    },
+    (t) => [index("user_client_consents_lookup_idx").on(t.tenantId, t.userId, t.clientType, t.clientRefId), index("user_client_consents_user_idx").on(t.userId)],
+);
+
+// ---------- Terms (약관) ----------
+
+/**
+ * 약관 문서. (key, version, locale) 로 식별한다.
+ *
+ * 본문을 DB 에 담는다(마크다운) — 동의 기록의 목적이 "언제 무엇에 동의했는가" 의 증빙이므로
+ * 외부 URL 처럼 사후 변조 가능한 형태를 피한다. 개정은 새 version 행을 만드는 것이고, 이전 버전
+ * 행이 남아 있어 과거 동의가 가리키는 본문이 보존된다.
+ */
+export const termsDocuments = sqliteTable(
+    "terms_documents",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        /** 개정을 가로지르는 안정 식별자 (예: "service", "privacy", "marketing"). */
+        key: text("key").notNull(),
+        /** 단조 증가. 올라가면 기존 동의자에게 재동의를 요구한다. */
+        version: integer("version").notNull().default(1),
+        locale: text("locale", { enum: ["ko", "en"] })
+            .notNull()
+            .default("ko"),
+        title: text("title").notNull(),
+        /** 마크다운 본문. 렌더 시 정화한다. */
+        body: text("body").notNull(),
+        /** 필수 약관은 거부하면 진행할 수 없다. 선택(마케팅 수신 등)은 거부해도 통과. */
+        required: integer("required", { mode: "boolean" }).notNull().default(true),
+        /** null 이면 초안 — 사용자에게 노출되지 않는다. */
+        publishedAt: integer("published_at", { mode: "timestamp_ms" }),
+        displayOrder: integer("display_order").notNull().default(0),
+        createdAt: integer("created_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+    },
+    (t) => [uniqueIndex("terms_documents_unique").on(t.tenantId, t.key, t.version, t.locale), index("terms_documents_tenant_idx").on(t.tenantId)],
+);
+
+/**
+ * 앱(OIDC 클라이언트 / SAML SP)별 약관 노출 매핑.
+ *
+ * **문서 id 가 아니라 key 로 매핑한다.** 개정으로 version 이 올라갈 때마다 매핑을 다시 걸지 않아도
+ * 되고, 로케일별 행이 여러 개인 문서를 하나로 가리킬 수 있다.
+ *
+ * 매핑이 없는 문서는 전역 약관 — 로그인 직후 모든 사용자에게 요구한다(T1-A).
+ * 매핑이 있는 문서는 그 앱으로 SSO 할 때 요구한다(T1-B).
+ */
+export const clientTerms = sqliteTable(
+    "client_terms",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        clientType: text("client_type", { enum: ["oidc", "saml"] }).notNull(),
+        clientRefId: text("client_ref_id").notNull(),
+        termsKey: text("terms_key").notNull(),
+        createdAt: integer("created_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+    },
+    (t) => [uniqueIndex("client_terms_unique").on(t.tenantId, t.clientType, t.clientRefId, t.termsKey), index("client_terms_lookup_idx").on(t.tenantId, t.clientType, t.clientRefId)],
+);
+
+/**
+ * 약관 동의 기록. 항목 단위로 남긴다(T3-A).
+ *
+ * 선택 약관은 거부도 기록해야 "물어봤지만 거부했다" 와 "아직 안 물어봤다" 를 구분할 수 있으므로
+ * agreed 플래그를 둔다. 재동의 판정은 (key, agreed=true) 의 version 이 현재 발행 version 보다
+ * 낮은지로 한다.
+ */
+export const userTermAgreements = sqliteTable(
+    "user_term_agreements",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        termsKey: text("terms_key").notNull(),
+        version: integer("version").notNull(),
+        /** 동의한 문서의 로케일 — 어떤 언어의 본문을 보고 동의했는지 남긴다. */
+        locale: text("locale", { enum: ["ko", "en"] }).notNull(),
+        agreed: integer("agreed", { mode: "boolean" }).notNull().default(true),
+        agreedAt: integer("agreed_at", { mode: "timestamp_ms" })
+            .notNull()
+            .$defaultFn(() => new Date()),
+    },
+    (t) => [uniqueIndex("user_term_agreements_unique").on(t.userId, t.termsKey, t.version), index("user_term_agreements_user_idx").on(t.tenantId, t.userId)],
+);
+
 export type OidcClientSession = typeof oidcClientSessions.$inferSelect;
 export type ServiceApiToken = typeof serviceApiTokens.$inferSelect;
 export type ServiceRole = typeof serviceRoles.$inferSelect;
 export type UserServiceAssignment = typeof userServiceAssignments.$inferSelect;
 export type ServiceEntitlement = typeof serviceEntitlements.$inferSelect;
 export type UserServiceEntitlement = typeof userServiceEntitlements.$inferSelect;
+
+export type UserClientConsent = typeof userClientConsents.$inferSelect;
+export type TermsDocument = typeof termsDocuments.$inferSelect;
+export type ClientTerm = typeof clientTerms.$inferSelect;
+export type UserTermAgreement = typeof userTermAgreements.$inferSelect;

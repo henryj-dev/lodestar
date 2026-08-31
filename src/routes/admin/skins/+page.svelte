@@ -92,6 +92,8 @@ function clientLabel(clientType: string, clientRefId: string): string {
                         <option value="accept_invite">{t("skins.skin_type_accept_invite")}</option>
                         <option value="confirm_email_change">{t("skins.skin_type_confirm_email_change")}</option>
                         <option value="logout">{t("skins.skin_type_logout")}</option>
+                        <option value="consent">{t("skins.skin_type_consent")}</option>
+                        <option value="terms">{t("skins.skin_type_terms")}</option>
                     </select>
                 </div>
                 <div>

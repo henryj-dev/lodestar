@@ -1040,6 +1040,8 @@
         "skin_type_accept_invite": "초대 수락",
         "skin_type_confirm_email_change": "이메일 변경 확인",
         "skin_type_logout": "로그아웃",
+        "skin_type_consent": "정보 제공 동의",
+        "skin_type_terms": "약관 동의",
         "col_client": "클라이언트",
         "col_skin_type": "스킨 타입",
         "col_fetch_url": "스킨 URL",
