@@ -84,7 +84,7 @@ them by name.
 | **Organization**          | Department → team → part hierarchy, grades and titles, multiple memberships                                                                                                    |
 | **Multi-tenant**          | Users, clients and keys are managed independently per tenant                                                                                                                   |
 | **Admin UI**              | CRUD for users, organization (departments, teams, parts, grades), OIDC clients, SAML SPs, LDAP providers, signing keys, service tokens, login skins and audit logs             |
-| **Custom login skins**    | Per-client CSS and scripts, served through an R2 or S3-compatible cache                                                                                                        |
+| **Custom login skins**    | Per-client HTML and CSS for 10 auth screens (login, signup, MFA, logout …), sanitized server-side, cached in R2 or S3-compatible storage                                       |
 | **Audit log**             | Logins, SSO and token issuance recorded automatically, each row carrying an integrity MAC, browsable from the admin UI                                                         |
 | **i18n**                  | Message-catalog internationalization — Korean and English (`ko` / `en`)                                                                                                        |
 
@@ -575,7 +575,9 @@ Changing the schema, generating a migration and applying it goes like this.
 | `bun run check`              | `wrangler types` + `svelte-check`                              |
 | `bun run lint`               | Prettier + ESLint                                              |
 | `bun run format`             | Prettier, writing                                              |
-| `bun run test`               | vitest (`test:watch`, `test:coverage`)                         |
+| `bun run test`               | vitest + `bun test` (see below)                                |
+| `bun run test:node`          | vitest only (`test:watch`, `test:coverage`)                    |
+| `bun run test:workers`       | `bun test test/workers` — needs Workers' `HTMLRewriter`        |
 | `bun run gen`                | Regenerate Wrangler environment types                          |
 | `bun run db:generate`        | Generate Drizzle migration SQL (D1)                            |
 | `bun run db:generate:sqlite` | Generate migration SQL (libSQL/SQLite)                         |
@@ -587,6 +589,11 @@ Changing the schema, generating a migration and applying it goes like this.
 | `bun run db:seed:pg`         | Seed baseline data (PostgreSQL)                                |
 | `bun run db:studio`          | Drizzle Studio                                                 |
 | `bun run deploy`             | Deploy to Cloudflare Workers                                   |
+
+`bun run test` runs the vitest suite and then `bun test test/workers`. The split exists because
+`sanitizeSkinHtml` (custom login skins) uses the Workers global `HTMLRewriter`, which vitest's node
+process does not have — Bun provides the same API natively, so those tests run there instead. CI
+calls `bun run test` and covers both. Use `bun run test:node -- <file>` to run a single vitest file.
 
 `db:migrate`, `db:seed`, `db:push` and `db:studio` all take `:pg`, `:mysql` and `:sqlite` suffixes
 for the other dialects. postgres, mysql and sqlite use `DATABASE_URL`; D1 uses the `CLOUDFLARE_*`

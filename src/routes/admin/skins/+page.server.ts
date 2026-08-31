@@ -4,7 +4,7 @@ import type { Actions, PageServerLoad } from "./$types";
 import { requireAdminContext } from "$lib/server/auth/guards";
 import { adminError } from "$lib/server/admin/errors";
 import { clientSkins, oidcClients, samlSps } from "$lib/server/db/schema";
-import { invalidateSkinCache } from "$lib/server/skin/resolver";
+import { invalidateSkinCache, TENANT_DEFAULT_CLIENT_REF, TENANT_DEFAULT_CLIENT_TYPE, type SkinType } from "$lib/server/skin/resolver";
 import { isLinkLocalHost, isLoopbackHost } from "$lib/server/validation";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 
@@ -48,9 +48,9 @@ export const actions: Actions = {
         const locale = locals.locale;
         const fd = await request.formData();
 
-        const clientType = fd.get("clientType") as "oidc" | "saml";
+        const clientType = fd.get("clientType") as "oidc" | "saml" | typeof TENANT_DEFAULT_CLIENT_TYPE;
         const clientRefId = String(fd.get("clientRefId") ?? "").trim();
-        const skinType = (fd.get("skinType") ?? "login") as "login" | "signup" | "find_id" | "find_password" | "mfa" | "reset_password";
+        const skinType = (fd.get("skinType") ?? "login") as SkinType;
         const fetchUrl = String(fd.get("fetchUrl") ?? "").trim();
         const fetchSecret = String(fd.get("fetchSecret") ?? "").trim() || null;
         const cacheTtlSeconds = Number(fd.get("cacheTtlSeconds") ?? 3600);
@@ -58,7 +58,12 @@ export const actions: Actions = {
         if (!clientType || !clientRefId || !fetchUrl) {
             return fail(400, { create: true, error: adminError(locale, "required_fields") });
         }
-        if (clientType !== "oidc" && clientType !== "saml") {
+        if (clientType !== "oidc" && clientType !== "saml" && clientType !== TENANT_DEFAULT_CLIENT_TYPE) {
+            return fail(400, { create: true, error: adminError(locale, "invalid_client_type") });
+        }
+        // 테넌트 기본 스킨은 참조할 클라이언트가 없다 — 예약값으로 고정해 유니크 인덱스가
+        // 테넌트·스킨 타입당 하나만 허용하게 한다.
+        if (clientType === TENANT_DEFAULT_CLIENT_TYPE && clientRefId !== TENANT_DEFAULT_CLIENT_REF) {
             return fail(400, { create: true, error: adminError(locale, "invalid_client_type") });
         }
 

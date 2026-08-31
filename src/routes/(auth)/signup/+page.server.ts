@@ -237,7 +237,8 @@ export const actions: Actions = {
         await db.insert(identities).values({ tenantId: tenant.id, userId, provider: "local", subject: email, email, linkedAt: now });
 
         // 이메일 인증 메일 발송 — 실패해도 가입은 성공 처리(격리).
-        await issueEmailVerification(db, userId, email, locale, event.platform);
+        // skinHint 를 함께 넘겨 인증 화면도 가입을 시작한 클라이언트의 스킨으로 렌더되게 한다.
+        await issueEmailVerification(db, userId, email, locale, event.platform, event.url.searchParams.get("skinHint"));
 
         const redirectTo = sanitizeRedirectTarget(event.url.searchParams.get("redirectTo"));
         const skinHint = event.url.searchParams.get("skinHint") ?? "";

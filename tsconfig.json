@@ -16,6 +16,7 @@
     "files": ["src/routes/.well-known/openid-configuration/+server.ts", ".svelte-kit/types/src/routes/.well-known/openid-configuration/$types.d.ts"],
     "exclude": [
         "scripts/**",
+        "test/workers/**",
         "node_modules/**",
         ".svelte-kit/output/**",
         ".svelte-kit/cloudflare/**",

@@ -11,6 +11,7 @@ import { revokeRefreshTokensForSession } from "$lib/server/oidc/refresh";
 import { samlSloStates } from "$lib/server/db/schema";
 import { collectPendingSpData } from "$lib/server/saml/slo";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
+import { escapeHtml, replacePlaceholders, resolveSkinByHint } from "$lib/server/skin/resolver";
 
 const SLO_STATE_TTL_MS = 10 * 60 * 1000; // 10 분
 
@@ -114,9 +115,25 @@ async function performLogout(event: RequestEvent): Promise<string | null> {
     return null;
 }
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url, platform }) => {
     if (!locals.user) throw redirect(303, "/login");
-    return {};
+
+    // 3-E: RP 가 /logout?skinHint=oidc:<id> 로 보내면 그 클라이언트의 스킨을 쓴다.
+    // 힌트가 없으면 테넌트 기본 스킨으로 폴백하고, 그것도 없으면 기본 UI 다.
+    const skinHint = url.searchParams.get("skinHint");
+    let skinHtml: string | null = null;
+    if (locals.db && locals.tenant) {
+        const raw = await resolveSkinByHint(locals.db, platform, locals.tenant.id, skinHint, "logout");
+        if (raw) {
+            skinHtml = replacePlaceholders(raw, {
+                IDP_FORM_ACTION: "",
+                IDP_REDIRECT_TO: "",
+                IDP_SKIN_HINT: escapeHtml(skinHint ?? ""),
+                IDP_FLASH_MSG: "",
+            });
+        }
+    }
+    return { skinHint, skinHtml };
 };
 
 export const actions: Actions = {
