@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import * as x509 from "@peculiar/x509";
 import { X509Certificate } from "@peculiar/x509";
 import type { RequestEvent } from "@sveltejs/kit";
@@ -367,10 +367,25 @@ const CONSENT_DEFAULT_SCOPES = [
 ];
 
 export async function seedConsent(db: DB, args: { tenantId: string; userId: string; clientType?: "oidc" | "saml"; clientRefId: string; scopes?: string[] }): Promise<void> {
+    const clientType = args.clientType ?? "oidc";
+    // **덮어쓴다.** 프로덕션의 recordConsent 는 기존 활성 행을 철회하고 새 행을 만들어 활성 행이
+    // 항상 하나인데, 여기서 그냥 insert 하면 같은 대상에 활성 행이 둘 생긴다. grantedAt 이 같은
+    // 밀리초면 getActiveConsent 의 정렬이 비기고 어느 행이 뽑힐지 비결정적이 된다 —
+    // 실제로 그 조합에서 테스트가 절반쯤 실패했다. "seed" 는 상태를 만드는 것이지 쌓는 것이 아니다.
+    await db
+        .delete(userClientConsents)
+        .where(
+            and(
+                eq(userClientConsents.tenantId, args.tenantId),
+                eq(userClientConsents.userId, args.userId),
+                eq(userClientConsents.clientType, clientType),
+                eq(userClientConsents.clientRefId, args.clientRefId),
+            ),
+        );
     await db.insert(userClientConsents).values({
         tenantId: args.tenantId,
         userId: args.userId,
-        clientType: args.clientType ?? "oidc",
+        clientType,
         clientRefId: args.clientRefId,
         grantedScopes: (args.scopes ?? CONSENT_DEFAULT_SCOPES).join(" "),
         grantedAt: new Date(),
