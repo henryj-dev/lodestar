@@ -77,6 +77,23 @@ export async function revokeRefreshTokensForSession(db: DB, sessionId: string): 
         .where(and(eq(oidcRefreshTokens.sessionId, sessionId), isNull(oidcRefreshTokens.revokedAt)));
 }
 
+/**
+ * 한 사용자의 **특정 클라이언트** 활성 refresh token 을 폐기 (동의 철회 시).
+ *
+ * 철회가 실질적 효과를 가지려면 갱신 경로를 끊어야 한다(C4-A). 이미 발급된 access token 은
+ * 만료까지 유효하다 — 즉시 무효화하려면 introspection 을 쓰는 RP 여야 하고, 그건 RP 선택이다.
+ * 세션까지 끊지는 않는다: 다른 RP 로 이미 로그인한 세션을 함께 날리는 것은 과하다.
+ *
+ * `clientId` 는 **공개 client_id 문자열**이다(refresh token 이 그 값으로 저장된다) — 동의 기록의
+ * `clientRefId`(행 id)와 다르므로 호출부가 변환해서 넘긴다.
+ */
+export async function revokeRefreshTokensForUserClient(db: DB, tenantId: string, userId: string, clientId: string): Promise<void> {
+    await db
+        .update(oidcRefreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(and(eq(oidcRefreshTokens.tenantId, tenantId), eq(oidcRefreshTokens.userId, userId), eq(oidcRefreshTokens.clientId, clientId), isNull(oidcRefreshTokens.revokedAt)));
+}
+
 /** 사용자의 활성 refresh token 을 전부 폐기 (비밀번호 재설정·권한 변경 등 전역 무효화 시). */
 export async function revokeAllUserRefreshTokens(db: DB, userId: string): Promise<void> {
     await db

@@ -15,7 +15,9 @@ import { requireDbContext } from "$lib/server/auth/guards";
 import { ensureCsrfToken, isValidCsrf } from "$lib/server/auth/csrf";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { dispatchSecurityAlert } from "$lib/server/security-notify";
-import { credentials, identities } from "$lib/server/db/schema";
+import { credentials, identities, oidcClients, samlSps } from "$lib/server/db/schema";
+import { listActiveConsents, parseScopeList, revokeConsentRows } from "$lib/server/consent";
+import { revokeRefreshTokensForUserClient } from "$lib/server/oidc/refresh";
 import { listEnabledProviderButtons } from "$lib/server/oauth/provider-store";
 import { LOCAL_IDENTITY_PROVIDER } from "$lib/server/auth/constants";
 import { translate } from "$lib/i18n/server";
@@ -40,11 +42,31 @@ export const load: PageServerLoad = async ({ locals, url, cookies }) => {
 
     const available = await listEnabledProviderButtons(db, tenant.id);
 
+    // 동의한 서비스 목록. 이름을 보여주기 위해 클라이언트/SP 를 함께 읽는다 — 삭제된 앱의
+    // 동의 기록이 남아 있을 수 있으므로(감사 흔적 보존) 이름이 없으면 식별자를 그대로 쓴다.
+    const consents = await listActiveConsents(db, tenant.id, locals.user.id);
+    const [oidcRows, samlRows] = await Promise.all([
+        consents.some((c) => c.clientType === "oidc")
+            ? db.select({ id: oidcClients.id, name: oidcClients.name }).from(oidcClients).where(eq(oidcClients.tenantId, tenant.id))
+            : Promise.resolve([] as Array<{ id: string; name: string }>),
+        consents.some((c) => c.clientType === "saml")
+            ? db.select({ id: samlSps.id, name: samlSps.name }).from(samlSps).where(eq(samlSps.tenantId, tenant.id))
+            : Promise.resolve([] as Array<{ id: string; name: string }>),
+    ]);
+
     // 이미 연결된 프로바이더는 "연결하기" 목록에서 뺀다.
     const linkedProviders = new Set(linked.map((l) => l.provider));
 
     return {
         csrf: ensureCsrfToken(cookies, url),
+        consents: consents.map((c) => ({
+            id: c.id,
+            clientType: c.clientType,
+            clientRefId: c.clientRefId,
+            name: (c.clientType === "oidc" ? oidcRows : samlRows).find((r) => r.id === c.clientRefId)?.name ?? c.clientRefId,
+            scopes: parseScopeList(c.grantedScopes),
+            grantedAt: c.grantedAt,
+        })),
         // 콜백이 연결 결과를 쿼리로 알려준다.
         justLinked: url.searchParams.get("linked") === "1",
         linkError: url.searchParams.get("linkError") === "already_linked_elsewhere" ? "already_linked_elsewhere" : null,
@@ -139,5 +161,59 @@ export const actions: Actions = {
         });
 
         return { unlinked: true };
+    },
+
+    /**
+     * 동의 철회 (C4-A).
+     *
+     * 활성 동의 행에 철회 표시를 하고(행은 남긴다 — 감사 흔적), 그 클라이언트의 refresh token 을
+     * 폐기해 갱신 경로를 끊는다. 이미 발급된 access token 은 만료까지 유효하고, 세션은 건드리지
+     * 않는다 — 다른 RP 로 이미 로그인한 세션을 함께 날리는 것은 과하다.
+     *
+     * 다음에 그 앱으로 SSO 하면 동의 화면이 다시 뜨므로, 사용자가 선택 항목을 다시 고를 기회도 된다.
+     */
+    revokeConsent: async (event) => {
+        const { locals, request, cookies } = event;
+        if (!locals.user) throw redirect(303, "/login");
+        const { db, tenant } = requireDbContext(locals);
+        const locale = locals.locale;
+
+        const fd = await request.formData();
+        if (!isValidCsrf(cookies, fd)) return fail(403, { error: translate(locale, "errors.rate_limit", { minutes: 0 }) });
+
+        const rawType = fd.get("clientType");
+        const clientRefId = String(fd.get("clientRefId") ?? "").trim();
+        const clientType: "oidc" | "saml" | null = rawType === "oidc" || rawType === "saml" ? rawType : null;
+        if (!clientType || !clientRefId) {
+            return fail(400, { error: translate(locale, "connections.err_invalid_request") });
+        }
+
+        const target = { tenantId: tenant.id, userId: locals.user.id, clientType, clientRefId } as const;
+        await revokeConsentRows(db, target);
+
+        // OIDC 는 refresh token 갱신 경로를 끊는다. SAML 에는 갱신 개념이 없다(Assertion 단발).
+        if (clientType === "oidc") {
+            const [client] = await db
+                .select({ clientId: oidcClients.clientId })
+                .from(oidcClients)
+                .where(and(eq(oidcClients.tenantId, tenant.id), eq(oidcClients.id, clientRefId)))
+                .limit(1);
+            if (client) await revokeRefreshTokensForUserClient(db, tenant.id, locals.user.id, client.clientId);
+        }
+
+        const meta = getRequestMetadata(event);
+        await recordAuditEvent(db, {
+            tenantId: tenant.id,
+            userId: locals.user.id,
+            actorId: locals.user.id,
+            spOrClientId: clientRefId,
+            kind: "consent_revoked",
+            outcome: "success",
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            detail: { clientType, clientRefId },
+        });
+
+        return { consentRevoked: true };
     },
 };
