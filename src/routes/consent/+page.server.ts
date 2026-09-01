@@ -78,12 +78,23 @@ async function loadClientInfo(db: DB, tenantId: string, clientType: ConsentClien
     return { name: sp.name, requested: attributes, optional: [] };
 }
 
-function readTarget(url: URL): { clientType: ConsentClientType; clientRefId: string; resumeUrl: string; skinHint: string | null } | null {
-    const clientType = url.searchParams.get(CONSENT_PARAM.clientType);
-    const clientRefId = url.searchParams.get(CONSENT_PARAM.clientRefId);
-    const resumeUrl = sanitizeRedirectTarget(url.searchParams.get(CONSENT_PARAM.redirectTo));
+/**
+ * 동의 대상을 읽는다. **URL 우선, 폼 본문 보조.**
+ *
+ * URL 을 우선하는 이유: 화면에 보여준 대상과 기록되는 동의가 같은 출처에서 나와야
+ * 어긋날 수 없다. 폼 본문을 보조로 두는 이유: 폼 액션이 쿼리스트링을 잃는 실수 하나로
+ * 전체 흐름이 조용히 `/` 로 새기 때문이다(승인은 되는데 서비스로 돌아가지 못한다).
+ * 어느 쪽에서 읽든 `resumeUrl` 은 sanitize 를 통과해야 하고, 승인 범위는 그 URL 이
+ * 요청한 scope 로 한정되므로 보조 경로가 권한을 넓히지는 못한다.
+ */
+function readTarget(url: URL, form?: FormData): { clientType: ConsentClientType; clientRefId: string; resumeUrl: string; skinHint: string | null } | null {
+    const pick = (key: string): string | null => url.searchParams.get(key) ?? (form ? (form.get(key) as string | null) : null);
+
+    const clientType = pick(CONSENT_PARAM.clientType);
+    const clientRefId = pick(CONSENT_PARAM.clientRefId);
+    const resumeUrl = sanitizeRedirectTarget(pick(CONSENT_PARAM.redirectTo));
     if ((clientType !== "oidc" && clientType !== "saml") || !clientRefId || !resumeUrl) return null;
-    return { clientType, clientRefId, resumeUrl, skinHint: url.searchParams.get(CONSENT_PARAM.skinHint) };
+    return { clientType, clientRefId, resumeUrl, skinHint: pick(CONSENT_PARAM.skinHint) };
 }
 
 async function resolveSkin(
@@ -138,6 +149,7 @@ export const load: PageServerLoad = async ({ locals, url, platform }) => {
     return {
         clientName: info.name,
         clientType: target.clientType,
+        clientRefId: target.clientRefId,
         redirectTo: target.resumeUrl,
         skinHint: target.skinHint,
         // C3-A: 새로 묻는 것과 이미 승인된 것을 나눠 넘긴다.
@@ -158,13 +170,14 @@ export const actions: Actions = {
         const { db, tenant } = requireDbContext(locals);
         const locale = locals.locale;
 
-        const target = readTarget(url);
+        // 폼을 먼저 읽는다 — 쿼리스트링이 없을 때 대상을 본문에서 찾기 위해서다.
+        const formData = await request.formData();
+        const target = readTarget(url, formData);
         if (!target) throw redirect(303, "/");
 
         const info = await loadClientInfo(db, tenant.id, target.clientType, target.clientRefId, target.resumeUrl);
         if (!info) throw redirect(303, "/");
 
-        const formData = await request.formData();
         const checkedOptional = formData.getAll("optionalScope").map(String);
 
         const consentTarget = { tenantId: tenant.id, userId: locals.user.id, clientType: target.clientType, clientRefId: target.clientRefId };
@@ -208,11 +221,11 @@ export const actions: Actions = {
      * redirect_uri / ACS URL 검증이 이미 그쪽에 있으므로 검증을 두 곳에 두지 않는다.
      */
     deny: async (event) => {
-        const { locals, url } = event;
+        const { locals, url, request } = event;
         if (!locals.user) throw redirect(303, "/login");
         const { db, tenant } = requireDbContext(locals);
 
-        const target = readTarget(url);
+        const target = readTarget(url, await request.formData());
         if (!target) throw redirect(303, "/");
 
         const meta = getRequestMetadata(event);
