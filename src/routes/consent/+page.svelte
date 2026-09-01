@@ -1,5 +1,6 @@
 <script lang="ts">
 import { enhance } from "$app/forms";
+import { page } from "$app/state";
 import { onMount } from "svelte";
 import type { SubmitFunction } from "@sveltejs/kit";
 import { t } from "$lib/i18n.svelte";
@@ -21,6 +22,19 @@ onMount(() => {
         if (el.parentNode) el.parentNode.removeChild(el);
     };
 });
+
+/**
+ * 폼 액션에 **현재 쿼리스트링을 유지**한다.
+ *
+ * `action="?/approve"` 로 두면 브라우저가 상대 URL 을 해석할 때 쿼리스트링을 통째로
+ * 교체해서 대상 파라미터(client_type / client_ref / redirectTo)가 사라진다. 그러면 서버가
+ * 대상을 못 읽고 `/` 로 돌려보내, 승인해도 서비스로 못 돌아간다.
+ *
+ * SvelteKit 은 **이름이 `/` 로 시작하는 파라미터**로 named action 을 찾으므로, 기존 쿼리
+ * 뒤에 붙이면 둘 다 성립한다. 대상을 hidden input 으로 옮기지 않은 것은, 화면에 보여준
+ * 대상과 기록되는 동의가 같은 출처(URL)에서 나와야 어긋날 수 없기 때문이다.
+ */
+const actionPrefix = $derived(page.url.search ? `${page.url.search}&` : "?");
 
 let submitting = $state(false);
 const enhanceSubmit: SubmitFunction = () => {
@@ -64,7 +78,11 @@ function label(scope: string): string {
 
             <FormError message={err} />
 
-            <form method="POST" action="?/approve" use:enhance={enhanceSubmit} class="space-y-5">
+            <form method="POST" action="{actionPrefix}/approve" use:enhance={enhanceSubmit} class="space-y-5">
+                <!-- 쿼리스트링이 유실되어도 서버가 대상을 찾을 수 있게 본문에도 싣는다. -->
+                <input type="hidden" name="clientType" value={data.clientType} />
+                <input type="hidden" name="clientRefId" value={data.clientRefId} />
+                <input type="hidden" name="redirectTo" value={data.redirectTo} />
                 {#if data.requiredScopes.length > 0}
                     <div>
                         <h2 class="text-xs font-semibold tracking-wide text-gray-700 uppercase">{t("consent.required_label")}</h2>
@@ -121,7 +139,7 @@ function label(scope: string): string {
                 <div class="flex gap-2 pt-1">
                     <button
                         type="submit"
-                        formaction="?/deny"
+                        formaction="{actionPrefix}/deny"
                         disabled={submitting}
                         class="flex-1 rounded-lg border border-gray-300 bg-white py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-60">
                         {t("consent.deny")}

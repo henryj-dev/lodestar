@@ -91,14 +91,24 @@ async function authorize(): Promise<{ code: string | null; location: string }> {
 }
 
 /** /consent 의 승인 액션. checkedOptional 에 넣은 선택 항목만 승인한다. */
-async function approveConsent(resumeUrl: string, checkedOptional: string[]) {
+/**
+ * /consent 의 승인 액션.
+ *
+ * `withQuery: false` 는 **브라우저가 실제로 하는 일**을 재현한다 — `action="?/approve"` 는
+ * 상대 URL 해석 시 쿼리스트링을 통째로 교체하므로, POST 는 대상 파라미터 없이 도착한다.
+ * 그 경우에도 본문의 hidden input 으로 대상을 찾아 서비스로 돌아가야 한다.
+ */
+async function approveConsent(resumeUrl: string, checkedOptional: string[], opts: { withQuery?: boolean } = {}) {
+    const withQuery = opts.withQuery ?? true;
+    const query = withQuery ? `?${CONSENT_PARAM.clientType}=oidc&${CONSENT_PARAM.clientRefId}=${clientDbId}&${CONSENT_PARAM.redirectTo}=${encodeURIComponent(resumeUrl)}` : "?/approve";
+
     return catchRedirect(() =>
         consentActions.approve!(
             makeEvent({
                 method: "POST",
-                url: `${TEST_ISSUER_URL}/consent?${CONSENT_PARAM.clientType}=oidc&${CONSENT_PARAM.clientRefId}=${clientDbId}&${CONSENT_PARAM.redirectTo}=${encodeURIComponent(resumeUrl)}`,
+                url: `${TEST_ISSUER_URL}/consent${query}`,
                 headers: { Origin: TEST_ISSUER_URL },
-                form: { redirectTo: resumeUrl, optionalScope: checkedOptional },
+                form: { clientType: "oidc", clientRefId: clientDbId, redirectTo: resumeUrl, optionalScope: checkedOptional },
                 locals: { db: mem.db, tenant, user, session, env: mem.env, locale: "ko" },
             }),
         ),
@@ -164,6 +174,48 @@ describe("시나리오: 처음 이용 → 동의 → 토큰", () => {
         expect(claims.sub).toBe(user.id);
         expect(claims.email).toBeUndefined();
         expect(claims.email_verified).toBeUndefined();
+    });
+
+    it("승인하면 원래 요청으로 돌아간다 (IdP 메인이 아니라)", async () => {
+        const first = await authorize();
+        const resumeUrl = new URL(first.location, TEST_ISSUER_URL).searchParams.get(CONSENT_PARAM.redirectTo)!;
+
+        const back = await approveConsent(resumeUrl, []);
+
+        expect(back.location).toBe(resumeUrl);
+        expect(back.location).toContain("/oidc/authorize");
+        expect(back.location).not.toBe("/");
+    });
+
+    it("POST 에 쿼리스트링이 없어도 서비스로 돌아간다", async () => {
+        // 폼 액션이 쿼리를 잃는 것은 실제로 났던 버그다 — 승인은 기록되는데 사용자는 `/` 로 갔다.
+        const first = await authorize();
+        const resumeUrl = new URL(first.location, TEST_ISSUER_URL).searchParams.get(CONSENT_PARAM.redirectTo)!;
+
+        const back = await approveConsent(resumeUrl, [], { withQuery: false });
+
+        expect(back.location).toBe(resumeUrl);
+        expect((await authorize()).code).toBeTruthy(); // 동의도 제대로 기록됐다
+    });
+
+    it("거부도 원래 요청으로 돌아간다 (consent=denied 를 실어서)", async () => {
+        const first = await authorize();
+        const resumeUrl = new URL(first.location, TEST_ISSUER_URL).searchParams.get(CONSENT_PARAM.redirectTo)!;
+
+        const back = await catchRedirect(() =>
+            consentActions.deny!(
+                makeEvent({
+                    method: "POST",
+                    url: `${TEST_ISSUER_URL}/consent?/deny`,
+                    headers: { Origin: TEST_ISSUER_URL },
+                    form: { clientType: "oidc", clientRefId: clientDbId, redirectTo: resumeUrl },
+                    locals: { db: mem.db, tenant, user, session, env: mem.env, locale: "ko" },
+                }),
+            ),
+        );
+
+        expect(back.location).toContain("/oidc/authorize");
+        expect(back.location).toContain("consent=denied");
     });
 
     it("선택 항목을 승인하면 UserInfo 에 실린다", async () => {
