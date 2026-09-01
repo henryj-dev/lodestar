@@ -3,6 +3,10 @@ import type { RequestHandler } from "./$types";
 import { requireDbContext } from "$lib/server/auth/guards";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit";
 import { findOidcClient, isAllowedRedirectUri, parseGrantedScopes } from "$lib/server/oidc/client";
+import { parseScopeList } from "$lib/server/consent";
+import { evaluateConsent, redirectToConsent } from "$lib/server/consent/gate";
+import { evaluateTermsGate, redirectToTerms } from "$lib/server/terms/gate";
+import { normalizeLocale } from "$lib/i18n/core";
 import { createGrant } from "$lib/server/oidc/grant";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { hasServiceAccess } from "$lib/server/access/service-permissions";
@@ -306,6 +310,81 @@ export const GET: RequestHandler = async (event) => {
         authRedirectError(redirectUri, "access_denied", translate(locals.locale, "oidc.errors.email_verification_required"), state);
     }
 
+    // ── 약관 (T1-B: 이 앱에 매핑된 약관) ───────────────────────────────────────
+    //
+    // 전역 필수 약관은 루트 레이아웃에서 이미 걸리지만, 레이아웃은 이 엔드포인트를 타지 않고
+    // 앱별 약관은 그 앱으로 SSO 할 때만 대상이므로 여기서 판정한다. 동의보다 앞에 둔다 —
+    // 이용 조건에 동의하지 않은 사용자에게 정보 제공 범위를 묻는 것은 순서가 뒤바뀐 것이다.
+    {
+        const termsGate = await evaluateTermsGate({
+            db,
+            tenantId: tenant.id,
+            userId: locals.user.id,
+            locale: normalizeLocale(locals.user.locale ?? locals.locale),
+            client: { clientType: "oidc", clientRefId: client.id },
+        });
+        if (termsGate.blocked) {
+            if (promptNone) {
+                authRedirectError(redirectUri, "interaction_required", translate(locals.locale, "oidc.errors.consent_required"), state);
+            }
+            redirectToTerms({
+                origin: url.origin,
+                resumeUrl: url.pathname + url.search,
+                client: { clientType: "oidc", clientRefId: client.id },
+                skinHint: `oidc:${client.id}`,
+            });
+        }
+    }
+
+    // ── 첫 사용 동의 (C1-C: 필수/선택 2단) ─────────────────────────────────────
+    //
+    // 게이트 체인의 마지막이다. 앞의 게이트들과 같은 방식으로 못 미치면 `/consent` 로 보내고,
+    // 승인하면 이 URL 로 되돌아와 체인을 처음부터 다시 통과한다.
+    //
+    // 발급 범위는 요청 ∩ 동의다 — 거부된 선택 스코프는 토큰과 UserInfo 에 실리지 않는다.
+    // 여기가 실제 강제 지점이고, 화면은 그 결정을 받는 곳일 뿐이다.
+    if (url.searchParams.get("consent") === "denied") {
+        await recordAuditEvent(db, {
+            tenantId: tenant.id,
+            userId: locals.user.id,
+            spOrClientId: clientId,
+            kind: "oidc_authorize",
+            outcome: "failure",
+            ip,
+            userAgent: getRequestMetadata(event).userAgent,
+            detail: { error: "access_denied", reason: "consent_denied" },
+        });
+        authRedirectError(redirectUri, "access_denied", translate(locals.locale, "consent.denied_notice"), state);
+    }
+
+    const consent = await evaluateConsent({
+        db,
+        tenantId: tenant.id,
+        userId: locals.user.id,
+        clientType: "oidc",
+        clientRefId: client.id,
+        requested: grantedScopes,
+        optional: parseScopeList(client.optionalScopes),
+        forceConsent: prompts.has("consent"),
+    });
+
+    if (consent.needsConsent) {
+        // prompt=none 은 사용자 인터랙션을 금지한다 — 동의가 필요하면 규격대로 오류를 돌려준다.
+        if (promptNone) {
+            authRedirectError(redirectUri, "interaction_required", translate(locals.locale, "oidc.errors.consent_required"), state);
+        }
+        redirectToConsent({
+            origin: url.origin,
+            clientType: "oidc",
+            clientRefId: client.id,
+            resumeUrl: url.pathname + url.search,
+            skinHint: `oidc:${client.id}`,
+        });
+    }
+
+    // 동의된 범위로 좁힌다. openid 는 스코프 검증에서 이미 필수로 확인했다.
+    const consentedScope = consent.decision.effectiveScopes.join(" ");
+
     // authorization code 발급
     const code = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
 
@@ -318,7 +397,7 @@ export const GET: RequestHandler = async (event) => {
         codeChallenge: codeChallenge ?? null,
         codeChallengeMethod: (codeChallengeMethod as "S256" | "plain" | null) ?? null,
         redirectUri,
-        scope: grantedScope,
+        scope: consentedScope,
         nonce: nonce ?? null,
         state: state ?? null,
         acr: locals.session.acr ?? null,
@@ -334,7 +413,7 @@ export const GET: RequestHandler = async (event) => {
         outcome: "success",
         ip,
         userAgent,
-        detail: { clientId, scope: grantedScope },
+        detail: { clientId, scope: consentedScope, requestedScope: grantedScope },
     });
 
     const callbackUrl = new URL(redirectUri);

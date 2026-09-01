@@ -22,12 +22,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createClient, type Client } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import * as x509 from "@peculiar/x509";
 import { X509Certificate } from "@peculiar/x509";
 import type { RequestEvent } from "@sveltejs/kit";
 import type { DB } from "$lib/server/db";
 import {
+    userClientConsents,
     credentials,
     identityProviders,
     oidcClients,
@@ -324,6 +325,71 @@ export async function seedOidcClient(db: DB, opts: SeedOidcClientOptions): Promi
     });
     const [row] = await db.select().from(oidcClients).where(eq(oidcClients.id, id)).limit(1);
     return row!;
+}
+
+/**
+ * 첫 사용 동의를 미리 승인해 둔다.
+ *
+ * 모든 클라이언트가 동의를 요구하므로(C2-B), `/oidc/authorize` 나 `/saml/sso` 의 **다른** 기능을
+ * 검증하는 테스트는 이걸 먼저 불러야 게이트를 지나간다. 동의 게이트 자체를 검증하는 테스트는
+ * 부르지 않는다 — 통과하지 못하는 것이 정상 동작이다.
+ *
+ * `scopes` 는 그 요청이 내보내려는 항목 전체여야 한다. 좁게 주면 늘어난 항목 때문에 재동의로
+ * 떨어진다(그 성질을 검증하려면 일부러 좁게 주면 된다).
+ */
+/**
+ * 테스트 편의 기본값 — 어떤 요청이든 덮는 넓은 집합. 좁게 검증하려면 scopes 를 명시한다.
+ *
+ * OIDC 스코프와 SAML 속성명을 **함께** 담는다. 동의는 두 프로토콜을 한 테이블로 다루고
+ * (clientType 으로 구분), SAML 쪽 동의 대상은 SP 의 allowedAttributes — 즉 다른 어휘다.
+ * 어느 쪽 게이트를 지나갈지 테스트마다 신경 쓰지 않아도 되게 둘 다 넣는다.
+ */
+const CONSENT_DEFAULT_SCOPES = [
+    // OIDC 스코프
+    "openid",
+    "profile",
+    "email",
+    "phone",
+    "address",
+    "organization",
+    "groups",
+    "offline_access",
+    // SAML 속성명 (allowedAttributes 미지정 시 기본 3종 + 조직·권한 속성)
+    "username",
+    "displayName",
+    "department",
+    "team",
+    "jobTitle",
+    "position",
+    "Role",
+    "RoleLabel",
+    "Entitlements",
+];
+
+export async function seedConsent(db: DB, args: { tenantId: string; userId: string; clientType?: "oidc" | "saml"; clientRefId: string; scopes?: string[] }): Promise<void> {
+    const clientType = args.clientType ?? "oidc";
+    // **덮어쓴다.** 프로덕션의 recordConsent 는 기존 활성 행을 철회하고 새 행을 만들어 활성 행이
+    // 항상 하나인데, 여기서 그냥 insert 하면 같은 대상에 활성 행이 둘 생긴다. grantedAt 이 같은
+    // 밀리초면 getActiveConsent 의 정렬이 비기고 어느 행이 뽑힐지 비결정적이 된다 —
+    // 실제로 그 조합에서 테스트가 절반쯤 실패했다. "seed" 는 상태를 만드는 것이지 쌓는 것이 아니다.
+    await db
+        .delete(userClientConsents)
+        .where(
+            and(
+                eq(userClientConsents.tenantId, args.tenantId),
+                eq(userClientConsents.userId, args.userId),
+                eq(userClientConsents.clientType, clientType),
+                eq(userClientConsents.clientRefId, args.clientRefId),
+            ),
+        );
+    await db.insert(userClientConsents).values({
+        tenantId: args.tenantId,
+        userId: args.userId,
+        clientType,
+        clientRefId: args.clientRefId,
+        grantedScopes: (args.scopes ?? CONSENT_DEFAULT_SCOPES).join(" "),
+        grantedAt: new Date(),
+    });
 }
 
 /**

@@ -12,6 +12,7 @@ import {
     seedUser,
     seedSamlSp,
     seedServiceAssignment,
+    seedConsent,
     seedSession,
     seedMfaSession,
     makeEvent,
@@ -105,6 +106,7 @@ function extractSamlResponseFromForm(html: string): string {
 describe("SAML SP-initiated POST 바인딩", () => {
     it("로그인+권한 부여 상태에서 서명된 AuthnRequest 는 서명·audience·ACS 가 일치하는 SAML Response 를 ACS 로 발급한다", async () => {
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
 
         const res = await postAuthnRequest({ id: "_authnreq_ok", loggedIn: true, assignUser: true });
         expect(res.status).toBe(200);
@@ -137,6 +139,7 @@ describe("SAML SP-initiated POST 바인딩", () => {
 
     it("Assertion 서명 후 NameID 를 변조하면 서명 검증이 실패한다(서명이 실제로 내용을 커버)", async () => {
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         const res = await postAuthnRequest({ id: "_authnreq_tamper", loggedIn: true, assignUser: true });
         const responseXml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
         const tampered = responseXml.replace(`>${user.email}</saml:NameID>`, `>attacker@evil.example</saml:NameID>`);
@@ -159,6 +162,7 @@ describe("SAML SP-initiated POST 바인딩", () => {
     it("requireVerifiedEmail SP 는 이메일 미인증 사용자를 403 으로 거부한다(R6)", async () => {
         await mem.db.update(samlSps).set({ requireVerifiedEmail: true }).where(eq(samlSps.id, sp.id));
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         // 강제 로직은 locals.user.emailVerifiedAt 를 본다 — 미인증 사용자로 요청.
         const unverifiedUser = { ...user, emailVerifiedAt: null };
         const { status } = await catchError(() => postAuthnRequest({ id: "_authnreq_unverified", loggedIn: true, assignUser: true, requestUser: unverifiedUser }));
@@ -170,6 +174,7 @@ describe("SAML SP-initiated POST 바인딩", () => {
     it("requireVerifiedEmail SP 도 이메일 인증된 사용자는 Assertion 을 발급한다(R6)", async () => {
         await mem.db.update(samlSps).set({ requireVerifiedEmail: true }).where(eq(samlSps.id, sp.id));
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         // 기본 seedUser 는 emailVerifiedAt=now(인증됨).
         const res = await postAuthnRequest({ id: "_authnreq_verified_ok", loggedIn: true, assignUser: true });
         expect(res.status).toBe(200);
@@ -177,6 +182,8 @@ describe("SAML SP-initiated POST 바인딩", () => {
 
     it("allowAllUsers SP 는 서비스 매핑 없이도 Assertion 을 발급한다(Role 속성은 미포함)", async () => {
         await mem.db.update(samlSps).set({ allowAllUsers: true }).where(eq(samlSps.id, sp.id));
+        // 동의 게이트는 서비스 매핑과 별개다 — allowAllUsers 여도 동의는 필요하다(C2-B).
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
 
         // seedServiceAssignment 없이 접근 → allowAllUsers 게이트 통과.
         const res = await postAuthnRequest({ id: "_authnreq_allow_all", loggedIn: true, assignUser: false });
@@ -194,6 +201,7 @@ describe("SAML SP-initiated POST 바인딩", () => {
 
     it("동일 AuthnRequest ID 로 두 번째 Assertion 발급을 시도하면 replay 가드가 400 으로 거부한다", async () => {
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
 
         const first = await postAuthnRequest({ id: "_authnreq_replay", loggedIn: true, assignUser: true });
         expect(first.status).toBe(200);
@@ -209,6 +217,7 @@ describe("SAML SP-initiated POST 바인딩", () => {
 
     it("미로그인 상태의 SP-initiated 요청은 /login 으로 리다이렉트한다(Assertion 미발급)", async () => {
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         // processSpInitiatedAuthnRequest 는 미로그인 시 redirect(302, /login...) 를 throw 한다.
         let redirected: { status?: number; location?: string } | null = null;
         try {
@@ -236,6 +245,7 @@ describe("SAML Entitlements 속성", () => {
             serviceRefId: sp.id,
             attributesJson: opts.attributesJson,
         });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         for (const [i, key] of keys.entries()) {
             const entId = await seedServiceEntitlement(mem.db, { tenantId: tenant.id, serviceType: "saml", serviceRefId: sp.id, key, displayOrder: i * 10 });
             await grantEntitlement(mem.db, { tenantId: tenant.id, assignmentId, serviceEntitlementId: entId });
@@ -346,6 +356,8 @@ describe("SAML Entitlements 속성", () => {
     it("attributesJson 으로 Entitlements/Role 을 위조할 수 없다", async () => {
         await allowAttrs(["email", "Entitlements", "Role", "harmless"]);
         await grantEnts(["site.read"], { attributesJson: JSON.stringify({ Entitlements: "plan.approve_own", Role: "admin", harmless: "kept" }) });
+        // SP 가 허용한 속성 목록이 동의 대상이다 — 커스텀 속성(harmless)까지 포함해 동의해 둔다.
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id, scopes: ["email", "Entitlements", "Role", "harmless"] });
 
         const res = await postAuthnRequest({ id: "_ent_forge", loggedIn: true, assignUser: true });
         const xml = decodeSamlResponse(extractSamlResponseFromForm(await res.text()));
@@ -364,6 +376,7 @@ describe("SAML Entitlements 속성", () => {
 describe("SAML auto-submit 페이지", () => {
     it("공통 셸로 렌더되면서 auto-submit·hidden input 은 그대로 유지한다", async () => {
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         const res = await postAuthnRequest({ id: "_authnreq_shell", loggedIn: true, assignUser: true });
         expect(res.status).toBe(200);
         const html = await res.text();
@@ -389,6 +402,7 @@ describe("SAML auto-submit 페이지", () => {
 
     it("RelayState 가 있으면 hidden input 으로 함께 실린다", async () => {
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         const xml = await buildAuthnRequestXml({
             id: "_authnreq_relay",
             kc: spKc,

@@ -15,6 +15,8 @@ const skinTypes = [
     { type: "accept_invite", path: "/accept-invite" },
     { type: "confirm_email_change", path: "/account/confirm-email-change" },
     { type: "logout", path: "/logout" },
+    { type: "consent", path: "/consent" },
+    { type: "terms", path: "/terms" },
 ] as const;
 
 // 치환자와 그것을 채우는 페이지. 서버가 채우지 않는 치환자는 빈 문자열로 지워진다.
@@ -32,6 +34,9 @@ const placeholders = [
     { key: "IDP_SUBMITTED_EMAIL", pages: ["find_password"], desc: () => t("skins.placeholder_submitted_email") },
     { key: "IDP_TOKEN", pages: ["reset_password", "verify_email"], desc: () => t("skins.placeholder_token") },
     { key: "IDP_VERIFIED", pages: ["verify_email"], desc: () => t("skins.placeholder_verified") },
+    { key: "IDP_CLIENT_NAME", pages: ["consent"], desc: () => t("skins.placeholder_client_name") },
+    { key: "IDP_REQUIRED_SCOPES", pages: ["consent"], desc: () => t("skins.placeholder_required_scopes") },
+    { key: "IDP_OPTIONAL_SCOPES", pages: ["consent"], desc: () => t("skins.placeholder_optional_scopes") },
 ] as const;
 
 /** 빈 배열은 전체 페이지 공통을 뜻한다. */
@@ -51,6 +56,8 @@ const formFields = [
     { type: "accept_invite", fields: "token, password, confirmPassword" },
     { type: "confirm_email_change", fields: "token" },
     { type: "logout", fields: "—" },
+    { type: "consent", fields: "optionalScope (선택 항목마다 반복)" },
+    { type: "terms", fields: "termsKey (항목마다 반복)" },
 ] as const;
 
 const exampleHtml = `<!DOCTYPE html>

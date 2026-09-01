@@ -15,6 +15,7 @@ import {
     seedTenantAndSigningKey,
     seedUser,
     seedOidcClient,
+    seedConsent,
     seedServiceAssignment,
     seedSession,
     makeEvent,
@@ -52,6 +53,7 @@ describe("B2 — organization scope 조직 클레임 (id_token ↔ userinfo 동�
             grantTypes: "authorization_code",
         });
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "oidc", serviceRefId: client.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientRefId: client.id });
         const session = (await seedSession(mem.db, { tenantId: tenant.id, userId: user.id })).session;
 
         // 주소속 부서 시드.

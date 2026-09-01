@@ -11,6 +11,7 @@ import {
     seedTenantAndSigningKey,
     seedUser,
     seedOidcClient,
+    seedConsent,
     seedSamlSp,
     seedServiceAssignment,
     seedSession,
@@ -59,6 +60,7 @@ async function seedClient(opts: { clientId: string; requireMfa?: boolean; reauth
         reauthPolicy: opts.reauthPolicy,
     });
     await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "oidc", serviceRefId: client.id });
+    await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientRefId: client.id });
     return client;
 }
 
@@ -396,6 +398,7 @@ describe("SAML SP 정책에 따른 재인증 분기", () => {
             reauthPolicy: opts.reauthPolicy,
         });
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         return { sp, kc };
     }
 

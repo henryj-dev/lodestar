@@ -13,6 +13,7 @@ import {
     seedTenantAndSigningKey,
     seedUser,
     seedOidcClient,
+    seedConsent,
     seedServiceAssignment,
     seedServiceEntitlement,
     grantEntitlement,
@@ -60,6 +61,7 @@ beforeEach(async () => {
     });
     clientDbId = client.id;
     assignmentId = await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "oidc", serviceRefId: clientDbId });
+    await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientRefId: clientDbId });
     const seeded = await seedSession(mem.db, { tenantId: tenant.id, userId: user.id });
     session = seeded.session;
 });
@@ -183,6 +185,7 @@ describe("listActiveEntitlements", () => {
             scopes: SCOPE,
         });
         const otherAssignment = await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "oidc", serviceRefId: other.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientRefId: other.id });
         const mine = await seedServiceEntitlement(mem.db, { tenantId: tenant.id, serviceType: "oidc", serviceRefId: clientDbId, key: "mine" });
         const theirs = await seedServiceEntitlement(mem.db, { tenantId: tenant.id, serviceType: "oidc", serviceRefId: other.id, key: "theirs" });
         await grantEntitlement(mem.db, { tenantId: tenant.id, assignmentId, serviceEntitlementId: mine });
@@ -459,6 +462,7 @@ describe("entitlement 정의 액션 (admin)", () => {
     it("다른 사용자의 배정은 건드리지 못한다 (IDOR)", async () => {
         const victim = await seedUser(mem.db, { tenantId: tenant.id, email: "victim@test.example" });
         const victimAssignment = await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: victim.id, serviceType: "oidc", serviceRefId: clientDbId });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: victim.id, clientRefId: clientDbId });
         const read = await seedServiceEntitlement(mem.db, { tenantId: tenant.id, serviceType: "oidc", serviceRefId: clientDbId, key: "site.read" });
 
         // params.id 는 user.id 인데 victim 의 assignmentId 를 넣어 본다.

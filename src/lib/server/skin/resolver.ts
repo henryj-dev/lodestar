@@ -105,7 +105,7 @@ function isFetchUrlAllowed(rawUrl: string): URL | null {
 export const TENANT_DEFAULT_CLIENT_TYPE = "tenant" as const;
 export const TENANT_DEFAULT_CLIENT_REF = "*";
 
-export type SkinType = "login" | "signup" | "find_id" | "find_password" | "mfa" | "reset_password" | "verify_email" | "accept_invite" | "confirm_email_change" | "logout";
+export type SkinType = "login" | "signup" | "find_id" | "find_password" | "mfa" | "reset_password" | "verify_email" | "accept_invite" | "confirm_email_change" | "logout" | "consent" | "terms";
 
 type SkinRow = typeof clientSkins.$inferSelect;
 

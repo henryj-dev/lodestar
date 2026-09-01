@@ -75,6 +75,7 @@ Event Token 으로 RP 에 통지됩니다. SAML SP 는 이름으로 허용받은
 | **TOTP 2FA**           | Google Authenticator 등 호환, 백업 코드 지원                                                                                  |
 | **LDAP 연동**          | LDAP 인증 및 JIT 사용자 프로비저닝, 관리자 UI에서 프로바이더 설정                                                             |
 | **계정 자가 관리**     | 프로필 편집, 이메일 변경, 비밀번호 재설정/찾기, MFA 등록, Passkey 등록·해제, 활성 세션 조회·철회, 탈퇴(30일 유예)             |
+| **동의 · 약관**        | OIDC 스코프 / SAML 속성 최초 이용 동의(필수·선택 분리), 앱별 약관 버전 관리와 항목별 동의 기록                                |
 | **서비스 권한**        | 서비스(RP)별 `roles` 배정과 `entitlements` 부여 — OIDC 클레임으로 발행, 변경 시 RP 에 SET 통지                                |
 | **서비스 API 토큰**    | 호출자별 스코프 제한 Bearer 토큰 발급·폐기 (관리 콘솔)                                                                        |
 | **조직 관리**          | 부서 → 팀 → 파트 계층, 직급/직책, 복수 소속                                                                                   |
@@ -543,7 +544,7 @@ LDAP 인증 성공 시, 동일 이메일의 기존 로컬 계정이 있는 경�
 
 **되는 것.** OIDC(Authorization Code + PKCE, Refresh Token 회전·재사용 감지, UserInfo, JWKS,
 Introspection, Revocation, End-Session), SAML 2.0 SP-Initiated SSO 와 SLO, WebAuthn/Passkey,
-TOTP 2FA, LDAP 인증과 JIT 프로비저닝, 계정 자가 관리, 서비스 role·entitlement, 클라이언트·SP별
+TOTP 2FA, LDAP 인증과 JIT 프로비저닝, 계정 자가 관리, 최초 이용 동의와 앱별 약관, 서비스 role·entitlement, 클라이언트·SP별
 재인증 정책(로그인 상태를 유지한 채 OTP 만 받는 step-up), 조직 계층,
 멀티테넌트, 관리자 UI, 커스텀 로그인 스킨, 행 단위 무결성 MAC 이 붙은 감사 로그, 한국어·영어
 i18n. 배포 타깃은 Cloudflare Workers 와 순수 Node 둘 다, DB 는 D1 · libSQL · PostgreSQL ·

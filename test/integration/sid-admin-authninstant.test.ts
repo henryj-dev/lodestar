@@ -14,6 +14,7 @@ import {
     seedTenantAndSigningKey,
     seedUser,
     seedOidcClient,
+    seedConsent,
     seedSamlSp,
     seedServiceAssignment,
     seedSession,
@@ -70,6 +71,7 @@ describe("sid 통일 — ID 토큰과 로그아웃 통지가 같은 값을 쓴�
             redirectUris: [REDIRECT_URI],
         });
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "oidc", serviceRefId: client.id });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientRefId: client.id });
         await mem.db.update(oidcClients).set({ backchannelLogoutUri: "https://rp.test.example/bc-logout", backchannelLogoutSessionRequired: true }).where(eq(oidcClients.id, client.id));
 
         const { session } = await seedSession(mem.db, { tenantId: tenant.id, userId: user.id });
@@ -252,6 +254,7 @@ describe("SAML AuthnInstant — 실제 인증 시각", () => {
             cert: kc.certPem,
             wantAuthnRequestsSigned: true,
         });
+        await seedConsent(mem.db, { tenantId: tenant.id, userId: user.id, clientType: "saml", clientRefId: sp.id });
         await seedServiceAssignment(mem.db, { tenantId: tenant.id, userId: user.id, serviceType: "saml", serviceRefId: sp.id });
 
         // 2시간 전에 인증한 세션.
