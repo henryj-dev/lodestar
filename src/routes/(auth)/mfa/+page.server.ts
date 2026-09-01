@@ -61,6 +61,29 @@ export const load: PageServerLoad = async (event) => {
     const requestedRedirect = sanitizeRedirectTarget(url.searchParams.get("redirectTo"));
     let mfaToken = cookies.get(MFA_PENDING_COOKIE);
 
+    // ── 남아 있는 pending 토큰이 **새 요청을 가로채는 것**을 막는다 ────────────────
+    //
+    // step-up 토큰은 5분을 살고 목적지를 claims 에 담는다. 그 사이 같은 사용자가 같은 앱에
+    // 로그인을 다시 시작하면(탭을 닫았다 다시 열거나, RP 가 재시도하거나) 아래 발급 분기는
+    // `!mfaToken` 조건 때문에 건너뛰어지고, OTP 통과 후 **먼저 있던 요청의 목적지**로 간다.
+    //
+    // 그러면 RP 로 돌아가는 state/nonce/PKCE 가 RP 가 지금 기다리는 값과 달라 콜백이 거부된다
+    // (RP 입장에서는 "이 브라우저에서 시작한 로그인이 아니다"). 사용자는 토큰이 만료될 때까지
+    // 재시도해도 같은 벽에 부딛치고, 재시도마다 RP 의 state 만 새로 갈려 상태가 더 어긋난다.
+    //
+    // 그래서 **같은 세션의 step-up 토큰인데 목적지가 다르면** 버리고 아래에서 다시 발급한다.
+    // 같은 사용자·같은 세션임을 확인하고 목적지만 갱신하므로 토큰의 강도는 그대로다.
+    // 비밀번호 로그인 대기 토큰(sessionId 없음)은 건드리지 않는다 — 그 경로는 로그인 POST 가
+    // 매번 새로 발급하므로 낡을 일이 없다.
+    if (mfaToken && url.searchParams.get("stepUp") === "mfa" && requestedRedirect && config.signingKeySecret) {
+        const staleToken = mfaToken;
+        const existing = await tryWithSecretsNullable(config.signingKeySecrets, (secret) => verifyMfaPendingToken(staleToken, secret));
+        const sameSessionStepUp = Boolean(existing?.sessionId) && existing?.sessionId === locals.session?.id && existing?.userId === locals.user?.id;
+        if (sameSessionStepUp && existing?.redirectTo !== requestedRedirect) {
+            mfaToken = undefined;
+        }
+    }
+
     // ── step-up 진입 ─────────────────────────────────────────────────────────
     // 클라이언트/SP 의 reauthPolicy=mfa_only 로 넘어온 경우. 1차 인증을 다시 받지 않고
     // 현재 세션을 유지한 채 OTP 만 받기 위해, 이 자리에서 pending 토큰을 직접 발급한다.
