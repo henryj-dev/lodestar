@@ -79,6 +79,7 @@ them by name.
 | **TOTP 2FA**              | Compatible with Google Authenticator and the like, with backup codes                                                                                                           |
 | **LDAP**                  | LDAP authentication and JIT user provisioning, providers configured from the admin UI                                                                                          |
 | **Account self-service**  | Profile, email change, password reset and recovery, MFA enrollment, passkey add and remove, active session listing and revocation, account deletion with a 30-day grace period |
+| **Consent & terms**       | First-use consent for OIDC scopes and SAML attributes (required/optional split), per-app terms of service with versioning and per-item agreement records                       |
 | **Service authorization** | Per-service (RP) `roles` assignment and `entitlements` grants — issued as OIDC claims, with a SET notification to the RP on change                                             |
 | **Service API tokens**    | Scope-limited bearer tokens issued and revoked per caller from the admin console                                                                                               |
 | **Organization**          | Department → team → part hierarchy, grades and titles, multiple memberships                                                                                                    |
@@ -676,6 +677,7 @@ with Logpush or similar, if you need that.
 **What works.** OIDC (Authorization Code + PKCE, refresh-token rotation and reuse detection,
 UserInfo, JWKS, introspection, revocation, end-session), SAML 2.0 SP-initiated SSO and SLO,
 WebAuthn/Passkey, TOTP 2FA, LDAP authentication with JIT provisioning, account self-service,
+first-use consent and per-app terms of service,
 per-service roles and entitlements, per-client and per-SP re-authentication policy (MFA-only
 step-up on a live session), the organization hierarchy, multi-tenancy, the admin UI,
 custom login skins, an audit log with per-row integrity MACs, and Korean/English i18n. It deploys
