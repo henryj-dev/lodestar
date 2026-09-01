@@ -102,6 +102,17 @@ function urisToText(json: string | null): string {
                         class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none" />
                     <p id="c-scopes-hint" class="mt-1 text-xs text-gray-500">{t("oidc.scopes_hint")}</p>
                 </div>
+                <div>
+                    <label for="c-optionalScopes" class="block text-xs font-medium text-gray-700">{t("oidc.optional_scopes_label")}</label>
+                    <input
+                        id="c-optionalScopes"
+                        type="text"
+                        name="optionalScopes"
+                        placeholder="phone address"
+                        aria-describedby="c-optionalScopes-hint"
+                        class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none" />
+                    <p id="c-optionalScopes-hint" class="mt-1 text-xs text-gray-500">{t("oidc.optional_scopes_hint")}</p>
+                </div>
                 <div class="sm:col-span-2">
                     <label for="c-redirectUris" class="block text-xs font-medium text-gray-700">{t("oidc.redirect_uris_label")}</label>
                     <textarea
@@ -307,6 +318,18 @@ function urisToText(json: string | null): string {
                                                 aria-describedby="e-scopes-hint-{client.id}"
                                                 class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none" />
                                             <p id="e-scopes-hint-{client.id}" class="mt-1 text-xs text-gray-500">{t("oidc.scopes_hint")}</p>
+                                        </div>
+                                        <div>
+                                            <label for="e-optionalScopes-{client.id}" class="block text-xs font-medium text-gray-700">{t("oidc.optional_scopes_label")}</label>
+                                            <input
+                                                id="e-optionalScopes-{client.id}"
+                                                type="text"
+                                                name="optionalScopes"
+                                                value={client.optionalScopes ?? ""}
+                                                placeholder="phone address"
+                                                aria-describedby="e-optionalScopes-hint-{client.id}"
+                                                class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-blue-500 focus:outline-none" />
+                                            <p id="e-optionalScopes-hint-{client.id}" class="mt-1 text-xs text-gray-500">{t("oidc.optional_scopes_hint")}</p>
                                         </div>
                                         <div class="sm:col-span-2">
                                             <label for="e-redirectUris-{client.id}" class="block text-xs font-medium text-gray-700">{t("oidc.redirect_uris_label")}</label>

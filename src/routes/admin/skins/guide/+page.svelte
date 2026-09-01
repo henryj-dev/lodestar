@@ -34,6 +34,9 @@ const placeholders = [
     { key: "IDP_SUBMITTED_EMAIL", pages: ["find_password"], desc: () => t("skins.placeholder_submitted_email") },
     { key: "IDP_TOKEN", pages: ["reset_password", "verify_email"], desc: () => t("skins.placeholder_token") },
     { key: "IDP_VERIFIED", pages: ["verify_email"], desc: () => t("skins.placeholder_verified") },
+    { key: "IDP_CLIENT_NAME", pages: ["consent"], desc: () => t("skins.placeholder_client_name") },
+    { key: "IDP_REQUIRED_SCOPES", pages: ["consent"], desc: () => t("skins.placeholder_required_scopes") },
+    { key: "IDP_OPTIONAL_SCOPES", pages: ["consent"], desc: () => t("skins.placeholder_optional_scopes") },
 ] as const;
 
 /** 빈 배열은 전체 페이지 공통을 뜻한다. */

@@ -140,6 +140,37 @@ export const positionUpdateSchema = z.object({
     level: intField("admin.errors.level_must_be_number"),
 });
 
+/**
+ * 약관의 필수 여부. 체크박스는 미체크 시 필드가 **아예 오지 않으므로** 기본을 false 로 둔다.
+ * 기존 admin 화면들이 쓰는 `=== "true"` 관례를 zod 로 흡수한 것이다.
+ */
+export const termsRequiredField = z.preprocess((v) => v === "true" || v === "on" || v === true, z.boolean()).default(false);
+
+// ── terms documents ─────────────────────────────────────────────────────────
+//
+// `key` 는 개정을 가로지르는 안정 식별자다. 서비스 role/entitlement 와 같은 형식 규칙을 쓴다
+// (점·밑줄 허용) — `service`, `privacy`, `marketing.email` 같은 값을 쓰게 된다.
+//
+// `version` 을 폼에서 받는다. 개정할 때 관리자가 올리는 값이고, (tenant, key, version, locale)
+// 유니크가 중복을 막는다. 자동 증가로 두지 않은 이유는 "무엇을 개정으로 볼지" 가 운영 판단이기
+// 때문이다 — 오탈자 수정에 version 을 올리면 전 사용자가 재동의해야 한다.
+export const termsCreateSchema = z.object({
+    key: z.string("admin.errors.terms_key_invalid").trim().regex(SERVICE_KEY_RE, "admin.errors.terms_key_invalid"),
+    version: intField("admin.errors.terms_version_must_be_number"),
+    locale: z.enum(["ko", "en"]).default("ko"),
+    title: requiredText("admin.errors.terms_title_required"),
+    body: requiredText("admin.errors.terms_body_required"),
+    required: termsRequiredField,
+    displayOrder: displayOrderField,
+});
+export const termsUpdateSchema = z.object({
+    id: requiredText("admin.errors.invalid_request"),
+    title: requiredText("admin.errors.terms_title_required"),
+    body: requiredText("admin.errors.terms_body_required"),
+    required: termsRequiredField,
+    displayOrder: displayOrderField,
+});
+
 // ── departments ─────────────────────────────────────────────────────────────
 export const departmentCreateSchema = z.object({
     name: requiredText("admin.errors.department_name_required"),

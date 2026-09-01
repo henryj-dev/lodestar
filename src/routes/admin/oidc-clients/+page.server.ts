@@ -92,6 +92,30 @@ function validateSingleUri(value: string, label: string, locale: Locale): { ok: 
     return { ok: true };
 }
 
+/**
+ * "거부 가능" 스코프 검증 — 등록 스코프의 **부분집합**이어야 한다.
+ *
+ * 등록하지 않은 스코프를 선택으로 두면 화면에는 뜨지 않는데 설정만 남아 오해를 만든다.
+ * `openid` 는 거부 가능으로 둘 수 없다 — 없으면 OIDC 요청 자체가 성립하지 않는다.
+ */
+function normalizeOptionalScopes(raw: string, registered: string, locale: Locale): { ok: true; value: string | null } | { ok: false; reason: string } {
+    const allowed = registered.split(/\s+/).filter(Boolean);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const token of raw
+        .split(/\s+/)
+        .map((t) => t.trim())
+        .filter(Boolean)) {
+        if (token === "openid") return { ok: false, reason: adminError(locale, "optional_scope_openid") };
+        if (!allowed.includes(token)) return { ok: false, reason: adminError(locale, "optional_scope_not_registered", { scope: token }) };
+        if (!seen.has(token)) {
+            seen.add(token);
+            out.push(token);
+        }
+    }
+    return { ok: true, value: out.length > 0 ? out.join(" ") : null };
+}
+
 function normalizeScopes(raw: string, locale: Locale): { ok: true; value: string } | { ok: false; reason: string } {
     const tokens = raw
         .split(/\s+/)
@@ -130,6 +154,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
             backchannelLogoutSessionRequired: oidcClients.backchannelLogoutSessionRequired,
             roleChangeUri: oidcClients.roleChangeUri,
             scopes: oidcClients.scopes,
+            optionalScopes: oidcClients.optionalScopes,
             tokenEndpointAuthMethod: oidcClients.tokenEndpointAuthMethod,
             requirePkce: oidcClients.requirePkce,
             allowWildcardRedirectUri: oidcClients.allowWildcardRedirectUri,
@@ -165,6 +190,8 @@ export const actions: Actions = {
         const frontchannelLogoutSessionRequired = fd.get("frontchannelLogoutSessionRequired") === "true";
         const backchannelLogoutSessionRequired = fd.get("backchannelLogoutSessionRequired") === "true";
         const scopesRaw = String(fd.get("scopes") ?? "openid").trim();
+        // C1-C: 사용자가 거부할 수 있는 스코프. 등록 스코프의 부분집합이어야 한다.
+        const optionalScopesRaw = String(fd.get("optionalScopes") ?? "").trim();
         const tokenMethodRaw = String(fd.get("tokenEndpointAuthMethod") ?? "client_secret_basic");
         if (!(ALLOWED_TOKEN_AUTH_METHODS as readonly string[]).includes(tokenMethodRaw)) {
             return fail(400, { create: true, error: adminError(locale, "invalid_token_auth_method") });
@@ -200,6 +227,8 @@ export const actions: Actions = {
 
         const scopesV = normalizeScopes(scopesRaw, locale);
         if (!scopesV.ok) return fail(400, { create: true, error: scopesV.reason });
+        const optionalV = normalizeOptionalScopes(optionalScopesRaw, scopesV.value, locale);
+        if (!optionalV.ok) return fail(400, { create: true, error: optionalV.reason });
 
         const clientId = generateClientId();
         const clientSecret = tokenMethod !== "none" ? generateClientSecret() : null;
@@ -219,6 +248,7 @@ export const actions: Actions = {
             backchannelLogoutSessionRequired,
             roleChangeUri: roleChangeUri || null,
             scopes: scopesV.value,
+            optionalScopes: optionalV.value,
             tokenEndpointAuthMethod: tokenMethod,
             requirePkce,
             allowWildcardRedirectUri,
@@ -262,6 +292,8 @@ export const actions: Actions = {
         const frontchannelLogoutSessionRequired = fd.get("frontchannelLogoutSessionRequired") === "true";
         const backchannelLogoutSessionRequired = fd.get("backchannelLogoutSessionRequired") === "true";
         const scopesRaw = String(fd.get("scopes") ?? "openid").trim();
+        // C1-C: 사용자가 거부할 수 있는 스코프. 등록 스코프의 부분집합이어야 한다.
+        const optionalScopesRaw = String(fd.get("optionalScopes") ?? "").trim();
         const enabled = fd.get("enabled") === "true";
 
         if (!id || !name) return fail(400, { error: adminError(locale, "invalid_request") });
@@ -279,6 +311,8 @@ export const actions: Actions = {
         if (!roleChangeV.ok) return fail(400, { error: roleChangeV.reason });
         const scopesV = normalizeScopes(scopesRaw, locale);
         if (!scopesV.ok) return fail(400, { error: scopesV.reason });
+        const optionalV = normalizeOptionalScopes(optionalScopesRaw, scopesV.value, locale);
+        if (!optionalV.ok) return fail(400, { error: optionalV.reason });
 
         // public client(none)는 PKCE를 수정 시에도 강제 유지
         const [existingClient] = await db
@@ -310,6 +344,7 @@ export const actions: Actions = {
                 backchannelLogoutSessionRequired,
                 roleChangeUri: roleChangeUri || null,
                 scopes: scopesV.value,
+                optionalScopes: optionalV.value,
                 requirePkce,
                 allowWildcardRedirectUri,
                 requireVerifiedEmail,

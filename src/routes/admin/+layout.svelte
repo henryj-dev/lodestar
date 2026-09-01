@@ -17,6 +17,7 @@ const menuItems = [
     { route: "/admin/ldap-providers" as const, key: "admin.ldap_providers" },
     { route: "/admin/social-providers" as const, key: "admin.social_providers" },
     { route: "/admin/skins" as const, key: "admin.skins" },
+    { route: "/admin/terms" as const, key: "admin.terms" },
     { route: "/admin/audit" as const, key: "admin.audit" },
 ];
 
