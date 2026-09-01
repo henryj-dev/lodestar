@@ -190,6 +190,38 @@ describe("/mfa step-up 진입", () => {
         expect(data.redirectTo).toBe("/oidc/authorize?client_id=x");
     });
 
+    it("먼저 있던 pending 토큰이 새 로그인의 목적지를 가로채지 않는다", async () => {
+        const jar = makeCookieJar();
+        const FIRST = "/oidc/authorize?client_id=x&state=first-login&nonce=n1";
+        const SECOND = "/oidc/authorize?client_id=x&state=second-login&nonce=n2";
+
+        // 1) 첫 로그인이 step-up 에 걸려 pending 토큰을 남긴다.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const firstData = (await mfaLoad(stepUpLoadEvent(jar.cookies, FIRST) as any)) as { redirectTo: string | null };
+        expect(firstData.redirectTo).toBe(FIRST);
+        const firstToken = jar.get(MFA_PENDING_COOKIE);
+
+        // 2) 토큰이 살아 있는 동안(5분) 같은 사용자가 같은 앱에 로그인을 다시 시작한다.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const secondData = (await mfaLoad(stepUpLoadEvent(jar.cookies, SECOND) as any)) as { redirectTo: string | null };
+
+        // 3) 화면은 **두 번째** 요청으로 돌아가야 한다. 첫 번째로 가면 RP 가 기다리는
+        //    state/nonce/PKCE 와 달라 콜백이 거부된다("이 브라우저에서 시작한 로그인이 아니다").
+        expect(secondData.redirectTo).toBe(SECOND);
+        expect(jar.get(MFA_PENDING_COOKIE)).not.toBe(firstToken); // 목적지를 갱신해 재발급
+    });
+
+    it("목적지가 같으면 pending 토큰을 재발급하지 않는다 (불필요한 갱신 없음)", async () => {
+        const jar = makeCookieJar();
+        const SAME = "/oidc/authorize?client_id=x&state=same";
+
+        await mfaLoad(stepUpLoadEvent(jar.cookies, SAME) as never);
+        const token = jar.get(MFA_PENDING_COOKIE);
+
+        await mfaLoad(stepUpLoadEvent(jar.cookies, SAME) as never);
+        expect(jar.get(MFA_PENDING_COOKIE)).toBe(token);
+    });
+
     it("미로그인 상태의 stepUp 요청은 전체 재인증으로 되돌린다", async () => {
         const jar = makeCookieJar();
         const event = makeEvent({
