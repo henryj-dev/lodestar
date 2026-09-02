@@ -528,6 +528,17 @@ wrangler secret put IDP_SIGNING_KEY_SECRET
 ```
 
 > [!IMPORTANT]
+> **CI deploy token — what it needs.** Start from the `Edit Cloudflare Workers` API token
+> template and add `Zone › Cache Purge` if you want the post-deploy purge. When the Worker
+> declares a `VPC` binding through `vpc_networks` (the private-network Postgres/MySQL path),
+> that is not enough: binding a tunnel directly requires the **Connectivity Directory Admin**
+> account role, and Cloudflare resolves that role through the **user** the token belongs to.
+> An **account-owned** token (`cfat_…`) is not tied to a user, so it cannot carry the role —
+> use a **user-owned** token (`cfut_…`) issued by a member who has it. Without this,
+> `wrangler deploy` fails with `[code: 10196]` and the message that your credentials are not
+> authorized for the requested VPC resource.
+
+> [!IMPORTANT]
 > Plaintext in `.env` is fine for local development. In production these must be secrets.
 
 ### Database migrations
