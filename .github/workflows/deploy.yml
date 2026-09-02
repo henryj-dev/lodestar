@@ -56,10 +56,54 @@ jobs:
             - name: Install dependencies
               run: bun install --frozen-lockfile
 
+            # **시크릿이 비어 있는지 여기서 잡는다.** 비어 있으면 wrangler 가
+            # `ValueExpected` 라는 파싱 오류만 내놓아서, 원인이 "설정이 잘못됐다" 처럼
+            # 보인다 — 실제로는 시크릿이 안 풀린 것이다. 그 둘을 구분하는 데 시간이 든다.
+            #
+            # 값은 절대 찍지 않는다. **길이만** 본다 — 존재 여부를 가리는 데는 그것으로 충분하고,
+            # 길이는 마스킹을 우회해 값을 흘리지 않는다.
+            #
+            # 이 워크플로는 `uses:` 로 불리는 재사용 워크플로다. 저장소 시크릿은 부르는 쪽이
+            # `secrets: inherit` 을 하지 않으면 전달되지 않으므로, 여기 필요한 것들은
+            # **`production` 환경의 시크릿**이어야 한다(저장소 시크릿으로 두면 빈 값이 된다).
+            - name: 배포에 필요한 시크릿이 실제로 채워졌나
+              env:
+                  WRANGLER_JSONC: ${{ secrets.WRANGLER_JSONC }}
+                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+                  CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+              run: |
+                  set -euo pipefail
+                  missing=0
+                  for name in WRANGLER_JSONC CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+                    # bash 간접 확장 — eval 을 쓰지 않는다(값이 셸에 해석될 여지를 만들지 않는다).
+                    value="${!name:-}"
+                    len="${#value}"
+                    if [ "$len" -eq 0 ]; then
+                      echo "::error::$name 시크릿이 비어 있습니다 — 저장소 시크릿이 아니라 **production 환경 시크릿**으로 설정해야 합니다 (Settings → Environments → production → Environment secrets)."
+                      missing=1
+                    else
+                      echo "  $name: 길이 ${len}자"
+                    fi
+                  done
+                  # zone id 는 캐시 퍼지에만 쓰이고 없어도 배포는 된다.
+                  if [ -z "${CLOUDFLARE_ZONE_ID:-}" ]; then
+                    echo "::warning::CLOUDFLARE_ZONE_ID 가 없어 배포 후 캐시 퍼지를 건너뜁니다."
+                  fi
+                  test "$missing" = "0" || exit 1
+
             - name: Setup Wrangler config
               env:
                   WRANGLER_JSONC: ${{ secrets.WRANGLER_JSONC }}
-              run: printf '%s' "$WRANGLER_JSONC" > wrangler.jsonc
+              run: |
+                  set -euo pipefail
+                  printf '%s' "$WRANGLER_JSONC" > wrangler.jsonc
+                  # 빈 파일이면 wrangler 가 `ValueExpected` 만 내놓아 원인이 흐려진다.
+                  # 여기서 끊으면 다음 단계의 파싱 오류는 "정말 설정이 잘못된 것" 으로 좁혀진다.
+                  # 내용 검증은 하지 않는다 — jsonc(주석·trailing comma)를 직접 파싱하려 들면
+                  # 정상 설정을 막을 위험이 있고, 바로 다음 `wrangler types` 가 이미 검증한다.
+                  test -s wrangler.jsonc || { echo "::error::wrangler.jsonc 가 비어 있습니다 (production 환경의 WRANGLER_JSONC 시크릿 확인)"; exit 1; }
+                  echo "  wrangler.jsonc: $(wc -c < wrangler.jsonc | tr -d ' ') 바이트"
 
             - name: Generate Wrangler types
               run: bunx wrangler types
