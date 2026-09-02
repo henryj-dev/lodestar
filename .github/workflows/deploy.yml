@@ -53,6 +53,12 @@ jobs:
         #    가 `secrets` 컨텍스트를 채우지 않는다 — 위 `on.workflow_call.secrets` 에
         #    선언하고 `deploy-trigger.yml` 이 넘겨준 것만 들어온다. 따라서 이 값들은
         #    **저장소(또는 조직) 시크릿**이어야 한다. 환경 시크릿에만 넣어 두면 빈 값이 된다.
+        #
+        # ⚠️ `CLOUDFLARE_API_TOKEN` 은 **사용자 소유 토큰**(`cfut_…`)이어야 한다. 이 워커는
+        #    `vpc_networks` 로 VPC 바인딩을 선언하는데, 터널에 직접 바인딩하려면
+        #    **Connectivity Directory Admin** 역할이 필요하고 Cloudflare 는 그 역할을 토큰이
+        #    속한 사용자로 확인한다. 계정 소유 토큰(`cfat_…`)은 사용자에 묶이지 않아 역할을
+        #    가질 수 없고, 배포가 `[code: 10196]` 으로 실패한다.
         environment:
             name: production
         steps:

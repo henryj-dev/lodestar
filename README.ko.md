@@ -433,6 +433,16 @@ bun run deploy
 wrangler secret put IDP_SIGNING_KEY_SECRET
 ```
 
+> [!IMPORTANT]
+> **CI 배포 토큰에 필요한 것.** `Edit Cloudflare Workers` 템플릿으로 시작하고, 배포 후
+> 캐시 퍼지를 쓰려면 `Zone › Cache Purge` 를 더한다. 워커가 `vpc_networks` 로 **`VPC`
+> 바인딩**을 선언하는 경우(사설망 Postgres/MySQL 경로)에는 그것으로 부족하다 — 터널에
+> 직접 바인딩하려면 **Connectivity Directory Admin** 계정 역할이 필요하고, Cloudflare 는
+> 그 역할을 **토큰이 속한 사용자**를 통해 확인한다. **계정 소유 토큰**(`cfat_…`)은 사용자에
+> 묶이지 않아 역할을 가질 수 없으므로, 그 역할을 가진 구성원이 발급한 **사용자 소유
+> 토큰**(`cfut_…`)을 써야 한다. 이것이 어긋나면 `wrangler deploy` 가 `[code: 10196]` 과
+> 함께 "credentials are not authorized for the requested VPC resource" 로 실패한다.
+
 > **참고**: 로컬 개발에서는 `.env`에 평문으로 저장해도 무방하지만, 프로덕션에서는 반드시 Secret으로 관리하세요.
 
 ### 데이터베이스 마이그레이션
