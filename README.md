@@ -528,15 +528,30 @@ wrangler secret put IDP_SIGNING_KEY_SECRET
 ```
 
 > [!IMPORTANT]
-> **CI deploy token — what it needs.** Start from the `Edit Cloudflare Workers` API token
-> template and add `Zone › Cache Purge` if you want the post-deploy purge. When the Worker
-> declares a `VPC` binding through `vpc_networks` (the private-network Postgres/MySQL path),
-> that is not enough: binding a tunnel directly requires the **Connectivity Directory Admin**
-> account role, and Cloudflare resolves that role through the **user** the token belongs to.
-> An **account-owned** token (`cfat_…`) is not tied to a user, so it cannot carry the role —
-> use a **user-owned** token (`cfut_…`) issued by a member who has it. Without this,
-> `wrangler deploy` fails with `[code: 10196]` and the message that your credentials are not
-> authorized for the requested VPC resource.
+> **CI deploy token — what it needs.** An **account-owned** token (`cfat_…`) works; the
+> `Edit Cloudflare Workers` template does not, because it omits the VPC permission. Build a
+> custom token with these groups instead — the split matters, three of them are zone-scoped.
+>
+> | Permission                     | Scope   | Why                                                          |
+> | ------------------------------ | ------- | ------------------------------------------------------------ |
+> | `Workers Scripts` **Write**    | Account | Upload the script and static assets                          |
+> | `Connectivity Directory Admin` | Account | The `vpc_networks` binding. `Bind` is not enough — see below |
+> | `Account Settings` **Read**    | Account | Account resolution                                           |
+> | `Workers R2 Storage` **Write** | Account | The R2 skin-cache binding                                    |
+> | `Workers Routes` **Write**     | Zone    | The custom-domain route                                      |
+> | `Cache Purge`                  | Zone    | The post-deploy purge (skipped with a warning when absent)   |
+> | `Zone` **Read**                | Zone    | Resolving the route and purge target                         |
+>
+> `Connectivity Directory` comes in three levels and the one you need depends on how the
+> binding is declared: **`Bind`** covers binding a `vpc_services` entry, while **`Admin`** is
+> required to bind a tunnel directly through `vpc_networks` — which is what the private-network
+> Postgres/MySQL path uses. With the wrong level, `wrangler deploy` fails with `[code: 10196]`
+> and the message that your credentials are not authorized for the requested VPC resource.
+>
+> Scope the token to the one account and the one zone you deploy to. Note that account-owned
+> tokens cannot carry **User**-scoped groups (`User Details Read`, `User Memberships Read`)
+> that the `Edit Cloudflare Workers` template includes; `wrangler deploy` does not need them.
+> `CLOUDFLARE_ACCOUNT_ID` must name the same account the token was created in.
 
 > [!IMPORTANT]
 > Plaintext in `.env` is fine for local development. In production these must be secrets.
