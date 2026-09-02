@@ -434,14 +434,30 @@ wrangler secret put IDP_SIGNING_KEY_SECRET
 ```
 
 > [!IMPORTANT]
-> **CI 배포 토큰에 필요한 것.** `Edit Cloudflare Workers` 템플릿으로 시작하고, 배포 후
-> 캐시 퍼지를 쓰려면 `Zone › Cache Purge` 를 더한다. 워커가 `vpc_networks` 로 **`VPC`
-> 바인딩**을 선언하는 경우(사설망 Postgres/MySQL 경로)에는 그것으로 부족하다 — 터널에
-> 직접 바인딩하려면 **Connectivity Directory Admin** 계정 역할이 필요하고, Cloudflare 는
-> 그 역할을 **토큰이 속한 사용자**를 통해 확인한다. **계정 소유 토큰**(`cfat_…`)은 사용자에
-> 묶이지 않아 역할을 가질 수 없으므로, 그 역할을 가진 구성원이 발급한 **사용자 소유
-> 토큰**(`cfut_…`)을 써야 한다. 이것이 어긋나면 `wrangler deploy` 가 `[code: 10196]` 과
-> 함께 "credentials are not authorized for the requested VPC resource" 로 실패한다.
+> **CI 배포 토큰에 필요한 것.** **계정 소유 토큰**(`cfat_…`)으로 된다. 다만
+> `Edit Cloudflare Workers` 템플릿으로는 안 된다 — VPC 권한이 빠져 있다. 아래 권한 그룹으로
+> 커스텀 토큰을 만든다. 계정 범위와 zone 범위가 갈리는 점이 중요하다.
+>
+> | 권한                           | 범위    | 왜                                                      |
+> | ------------------------------ | ------- | ------------------------------------------------------- |
+> | `Workers Scripts` **Write**    | Account | 스크립트·정적 자산 업로드                               |
+> | `Connectivity Directory Admin` | Account | `vpc_networks` 바인딩. `Bind` 로는 부족하다 — 아래 참고 |
+> | `Account Settings` **Read**    | Account | 계정 해석                                               |
+> | `Workers R2 Storage` **Write** | Account | 스킨 캐시 R2 바인딩                                     |
+> | `Workers Routes` **Write**     | Zone    | custom domain 라우트                                    |
+> | `Cache Purge`                  | Zone    | 배포 후 캐시 퍼지(없으면 경고 후 생략)                  |
+> | `Zone` **Read**                | Zone    | 라우트·퍼지 대상 zone 조회                              |
+>
+> `Connectivity Directory` 는 세 단계이고 필요한 것이 **바인딩을 어떻게 선언했는지**에 따라
+> 갈린다. **`Bind`** 는 `vpc_services` 항목을 바인딩하는 데까지고, `vpc_networks` 로 **터널에
+> 직접** 바인딩하려면 **`Admin`** 이 필요하다 — 사설망 Postgres/MySQL 경로가 그것이다. 단계가
+> 어긋나면 `wrangler deploy` 가 `[code: 10196]` 과 함께 "credentials are not authorized for
+> the requested VPC resource" 로 실패한다.
+>
+> 토큰 범위는 배포할 계정 하나와 zone 하나로 좁힌다. 계정 소유 토큰은 `Edit Cloudflare
+Workers` 템플릿에 포함된 **User 범위** 그룹(`User Details Read`, `User Memberships Read`)을
+> 가질 수 없지만, `wrangler deploy` 에는 필요하지 않다. `CLOUDFLARE_ACCOUNT_ID` 는 토큰을
+> 만든 그 계정이어야 한다.
 
 > **참고**: 로컬 개발에서는 `.env`에 평문으로 저장해도 무방하지만, 프로덕션에서는 반드시 Secret으로 관리하세요.
 
