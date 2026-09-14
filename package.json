@@ -102,7 +102,7 @@
         "@yrneh_jang/ldapjs": "^3.1.1",
         "aws4fetch": "^1.0.20",
         "mysql2": "^3.23.1",
-        "nodemailer": "^9.0.3",
+        "nodemailer": "^10.0.3",
         "postgres": "^3.4.9",
         "reflect-metadata": "^0.2.2",
         "xml-core": "^1.2.5",
