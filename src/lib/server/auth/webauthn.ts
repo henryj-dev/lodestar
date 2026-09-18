@@ -2,12 +2,12 @@
  * WebAuthn / Passkey 구현 (M3.5)
  *
  * - 등록/인증 챌린지를 HMAC-서명 쿠키로 단기 저장 (5분 TTL)
- * - @simplewebauthn/server v13, Workers WebCrypto 전용
+ * - @simplewebauthn/server v14, Workers WebCrypto 전용
  * - residentKey: 'required' → username-less(discoverable) 로그인 지원
  */
 
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
-import type { AuthenticatorTransportFuture, AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
+import type { AuthenticatorTransport, AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { type DB, DB_DIALECT } from "$lib/server/db";
 import { credentials, users, webauthnChallenges } from "$lib/server/db/schema";
 import { eq, and, isNull, gt, lt } from "drizzle-orm";
@@ -201,7 +201,7 @@ export async function verifyPasskeyAuthentication(
 
     // 타이밍 누출 방지: credential 이 없거나 잘못 매칭되더라도 동일한 검증 비용을 지불한다.
     const publicKey = valid ? b64uDecode(cred.publicKey!) : DUMMY_PUBLIC_KEY;
-    const transports = valid && cred.transports ? (JSON.parse(cred.transports) as AuthenticatorTransportFuture[]) : undefined;
+    const transports = valid && cred.transports ? (JSON.parse(cred.transports) as AuthenticatorTransport[]) : undefined;
 
     let verified: boolean;
     let newCounter = 0;
