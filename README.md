@@ -18,7 +18,7 @@ deployment target are chosen at build time.
 ![bun](https://img.shields.io/badge/Bun-1.x-000000?logo=bun&logoColor=white)
 ![typescript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![cloudflare workers](https://img.shields.io/badge/Cloudflare-Workers%20%C2%B7%20Node-F38020?logo=cloudflare&logoColor=white)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 <br/>
 
@@ -722,4 +722,4 @@ traffic. The known security limits are collected under [Security notes](#securit
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).

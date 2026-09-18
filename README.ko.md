@@ -18,7 +18,7 @@ OIDC, SAML 2.0, WebAuthn/Passkey, TOTP 2FA, LDAP 연동을 지원하고 멀티�
 ![bun](https://img.shields.io/badge/Bun-1.x-000000?logo=bun&logoColor=white)
 ![typescript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
 ![cloudflare workers](https://img.shields.io/badge/Cloudflare-Workers%20%C2%B7%20Node-F38020?logo=cloudflare&logoColor=white)
-[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 <br/>
 
@@ -589,4 +589,4 @@ Logpush 같은 외부 미러를 함께 써야 한다. `DISPATCHER_SERVICE_TOKEN`
 
 ## 라이선스
 
-MIT. [LICENSE](LICENSE) 를 참고하세요.
+Apache-2.0. [LICENSE](LICENSE) 를 참고하세요.
