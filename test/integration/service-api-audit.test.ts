@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { POST as enrollInitPOST } from "../../src/routes/api/totp/enroll/init/+server";
 import { POST as enrollConfirmPOST } from "../../src/routes/api/totp/enroll/confirm/+server";
@@ -170,13 +170,24 @@ describe("users lookup tenant isolation", () => {
     });
 
     it("keeps the lookup rate limit and throttling audit event", { timeout: 30_000 }, async () => {
-        for (let i = 0; i < 120; i++) {
-            const response = (await lookupGET(lookupEvent(`/api/users/lookup?email=${encodeURIComponent(user.email)}`))) as Response;
-            expect(response.status).toBe(200);
+        // 슬라이딩 윈도우는 Date.now() 로 이전 버킷을 깎으므로 루프 중간에 분이 바뀌면 121번째가 통과한다.
+        // Date 만 고정하고(libSQL·timeout 타이머는 실제로 둔다) 윈도우 중간에 세워 항상 한 버킷에 들어가게 한다.
+        // 윈도우 길이는 src/routes/api/users/lookup/+server.ts 의 LOOKUP_WINDOW_MS(60초)와 같다.
+        const WINDOW_MS = 60 * 1000;
+        const windowMiddle = Math.floor(Date.now() / WINDOW_MS) * WINDOW_MS + WINDOW_MS / 2;
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(windowMiddle);
+        try {
+            for (let i = 0; i < 120; i++) {
+                const response = (await lookupGET(lookupEvent(`/api/users/lookup?email=${encodeURIComponent(user.email)}`))) as Response;
+                expect(response.status).toBe(200);
+            }
+            const { status } = await catchError(() => lookupGET(lookupEvent(`/api/users/lookup?email=${encodeURIComponent(user.email)}`)));
+            expect(status).toBe(429);
+            expect(await audits("service_lookup_throttled")).toHaveLength(1);
+        } finally {
+            vi.useRealTimers();
         }
-        const { status } = await catchError(() => lookupGET(lookupEvent(`/api/users/lookup?email=${encodeURIComponent(user.email)}`)));
-        expect(status).toBe(429);
-        expect(await audits("service_lookup_throttled")).toHaveLength(1);
     });
 });
 
