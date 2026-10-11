@@ -7,11 +7,32 @@
  */
 
 import { generateRegistrationOptions, verifyRegistrationResponse, generateAuthenticationOptions, verifyAuthenticationResponse } from "@simplewebauthn/server";
-import type { AuthenticatorTransport, AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/server";
 import { type DB, DB_DIALECT } from "$lib/server/db";
 import { credentials, users, webauthnChallenges } from "$lib/server/db/schema";
 import { eq, and, isNull, gt, lt } from "drizzle-orm";
 import { b64uEncode, b64uDecode } from "$lib/server/crypto/keys";
+
+// 표준 AuthenticatorTransport 값은 6개 안팎이라 16이면 충분하다. 저장 컬럼엔 길이 제한이 없어 상한을 둔다.
+const MAX_STORED_TRANSPORTS = 16;
+
+/**
+ * credentials.transports(text, JSON 배열) 파서. 깨진 값은 undefined 로 처리한다.
+ * v14 verifyAuthenticationResponse 는 transports 를 쓰지 않으므로 undefined 여도 검증 결과는 같다.
+ * 원소가 AuthenticatorTransport 리터럴인지는 보지 않아 string[] 로 반환한다(라이브러리 타입이 string[]).
+ */
+export function parseStoredTransports(raw: string | null | undefined): string[] | undefined {
+    if (!raw) return undefined;
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(raw);
+    } catch {
+        return undefined;
+    }
+    if (!Array.isArray(parsed) || parsed.length > MAX_STORED_TRANSPORTS) return undefined;
+    if (!parsed.every((t): t is string => typeof t === "string")) return undefined;
+    return parsed;
+}
 
 export const WEBAUTHN_CHALLENGE_COOKIE = "idp_webauthn_challenge";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000; // 5분
@@ -201,7 +222,7 @@ export async function verifyPasskeyAuthentication(
 
     // 타이밍 누출 방지: credential 이 없거나 잘못 매칭되더라도 동일한 검증 비용을 지불한다.
     const publicKey = valid ? b64uDecode(cred.publicKey!) : DUMMY_PUBLIC_KEY;
-    const transports = valid && cred.transports ? (JSON.parse(cred.transports) as AuthenticatorTransport[]) : undefined;
+    const transports = valid ? parseStoredTransports(cred.transports) : undefined;
 
     let verified: boolean;
     let newCounter = 0;
