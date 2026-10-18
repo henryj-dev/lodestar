@@ -47,13 +47,19 @@ export const POST: RequestHandler = async (event) => {
     if (!userId || !code) throw error(400, "userId, code required");
 
     const [user] = await db
-        .select({ id: users.id })
+        .select({ id: users.id, status: users.status })
         .from(users)
         .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)))
         .limit(1);
     if (!user) {
         await audit("failure", userId, { reason: "user_not_found" });
         throw error(404, "user not found");
+    }
+    // 정지·잠금·탈퇴 대기 계정은 IdP 로그인이 막혀 있다. 이 API 만 통과시키면 호출자(RP)의 2단계
+    // 승인이 정지된 계정으로 계속 성립한다 — 로그인과 같은 기준으로 거부한다.
+    if (user.status !== "active") {
+        await audit("failure", userId, { reason: "user_inactive" });
+        return json({ ok: false, reason: "user_inactive" }, { status: 403 });
     }
 
     // ctrls C3: TOTP 브루트포스 방어. service-token 경계 안이지만 dispatcher 침해 시
