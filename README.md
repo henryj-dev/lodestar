@@ -107,7 +107,9 @@ assertion and the OIDC ID token.
 refreshed ones. A login on a 14-day trusted device skips the TOTP prompt, so it says
 `trusted_device` instead of `totp`; its ACR stays MFA so `require_mfa` behaves as before. An RP
 that needs TOTP performed in this login should check `amr` for `totp`, or ask for re-authentication
-with `prompt=login` / `max_age` (re-authentication never applies the trusted device).
+with `prompt=login` / `max_age` (re-authentication never applies the trusted device). To decide
+whether a login reached MFA level, check `acr`, not the presence of `totp` in `amr`. Once the
+session passes TOTP again in a step-up, `trusted_device` is replaced by `totp`.
 
 When a SAML SP demands a particular ACR through `RequestedAuthnContext` and the session's
 ACR does not meet it, re-authentication is forced. If it cannot be met at all — no MFA

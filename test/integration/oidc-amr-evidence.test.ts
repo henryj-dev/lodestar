@@ -154,6 +154,35 @@ describe("신뢰 기기 로그인의 amr", () => {
         expect(row.acr).toBe(ACR_MFA);
     });
 
+    it("신뢰 기기 로그인 세션으로 받은 첫 id_token 의 amr 은 pwd + trusted_device 다", async () => {
+        await mem.db.insert(credentials).values({
+            id: crypto.randomUUID(),
+            userId: user.id,
+            type: "totp",
+            secret: await encryptTotpSecret(generateTotpSecret(), TEST_SIGNING_SECRET, user.id),
+            totpOwnerId: user.id,
+        });
+        const trusted = await createTrustedDevice(mem.db, { tenantId: tenant.id, userId: user.id });
+        const jar = makeCookieJar({ [TRUSTED_DEVICE_COOKIE]: trusted.token });
+        await catchRedirect(() =>
+            loginActions.default(
+                makeEvent({
+                    method: "POST",
+                    url: `${TEST_ISSUER_URL}/login`,
+                    form: { username: "amruser", password: PASSWORD },
+                    locals: { db: mem.db, tenant, env: mem.env },
+                    cookies: jar.cookies,
+                }),
+            ),
+        );
+        const [session] = await mem.db.select().from(sessions).where(eq(sessions.userId, user.id));
+
+        const { code, verifier } = await authorize(session);
+        const claims = await exchange(code, verifier);
+        expect(claims.amr).toEqual(["pwd", AMR_TRUSTED_DEVICE]);
+        expect(claims.acr).toBe(ACR_MFA);
+    });
+
     it("amrToAcr: trusted_device 는 1차 수단과 함께일 때만 MFA 다", () => {
         expect(amrToAcr(["pwd", AMR_TRUSTED_DEVICE])).toBe(ACR_MFA);
         expect(amrToAcr(["fed", AMR_TRUSTED_DEVICE])).toBe(ACR_MFA);

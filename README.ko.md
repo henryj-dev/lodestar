@@ -102,6 +102,8 @@ Event Token 으로 RP 에 통지됩니다. SAML SP 는 이름으로 허용받은
 기기 로그인은 TOTP 입력을 건너뛰므로 `totp` 대신 `trusted_device` 를 싣습니다. ACR 은 MFA 그대로라
 `require_mfa` 동작은 바뀌지 않습니다. 이번 로그인에서 TOTP 를 했어야 하는 RP 는 `amr` 에 `totp` 가
 있는지 보거나, `prompt=login`/`max_age` 로 재인증을 요구하세요(재인증에는 신뢰 기기를 적용하지 않습니다).
+MFA 수준인지는 `amr` 의 `totp` 여부가 아니라 `acr` 로 판단하세요. 세션이 step-up 으로 TOTP 를 다시
+통과하면 `trusted_device` 는 `totp` 로 바뀝니다.
 
 SAML SP가 `RequestedAuthnContext`로 특정 ACR을 요구하는 경우, 세션 ACR이 해당 수준을 만족하지 않으면 재인증이 강제됩니다. MFA 미설정 등으로 만족 불가 시 `NoAuthnContext` 오류가 ACS URL로 반환됩니다.
 
