@@ -8,17 +8,19 @@
  *   2. 식별자 기록(retired_subjects) + users 행 삭제를 한 묶음(runAtomic)으로 실행한다. FK cascade 가
  *      자격 증명·세션·신원·배정 등 자식 행을 지우고, audit_events.userId 는 set null 로 남는다.
  *
- * 남기는 것은 식별자뿐이다: Lodestar 가 발급한 sub(=users.id)와 issuer, 연결돼 있던 외부 신원의
- * (provider, subject). 이메일·이름 같은 개인정보는 남기지 않는다. 감사 로그는 보존 기간(1년) 동안
- * 남지만 사용자 행과의 연결(userId)은 끊긴다.
+ * 남기는 것은 Lodestar 가 발급한 sub(=users.id, 서버가 만든 무작위 UUID)와 issuer 뿐이다.
+ * 연결돼 있던 외부 신원(identities)의 subject 는 **남기지 않는다** — 로컬 가입은 subject 가 이메일이고
+ * LDAP 은 DN(대개 실명 포함)이라, 그대로 두면 탈퇴 뒤에도 개인정보가 기한 없이 남는다. 외부 신원 행은
+ * 사용자 행과 함께 cascade 로 지워진다. 감사 로그는 보존 기간(1년) 동안 남지만 사용자 행과의
+ * 연결(userId)은 끊긴다.
  *
  * 30일 유예로 이미 `deletion_pending` 인 계정은 그때 안내한 대로 유예가 끝날 때 GC 가 지운다
  * (`runUsersBatchDelete`). 그 경로도 이 기록을 남긴다(`recordRetiredSubjects`).
  */
 import type { RequestEvent } from "@sveltejs/kit";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { DB } from "$lib/server/db";
-import { identities, retiredSubjects, users } from "$lib/server/db/schema";
+import { retiredSubjects, users } from "$lib/server/db/schema";
 import { runAtomic, type AtomicOp } from "$lib/server/db/atomic";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
@@ -33,30 +35,14 @@ interface RetiredRow {
     issuer: string | null;
 }
 
-/** 삭제 대상 사용자의 식별자 기록 행을 만든다(아직 기록되지 않은 것만). */
+/** 삭제 대상 사용자의 식별자 기록 행을 만든다(이미 기록돼 있으면 비운다 — 같은 사용자를 두 번 지우는 경우). */
 async function buildRetiredRows(db: DB, tenantId: string, userId: string, issuer: string | null): Promise<RetiredRow[]> {
-    const linked = await db.select({ provider: identities.provider, subject: identities.subject }).from(identities).where(eq(identities.userId, userId));
-    const candidates: RetiredRow[] = [
-        { tenantId, provider: LODESTAR_SUBJECT_PROVIDER, subject: userId, issuer },
-        ...linked.map((l) => ({ tenantId, provider: l.provider, subject: l.subject, issuer: null })),
-    ];
-
-    // 이미 있는 행은 빼고 넣는다(같은 외부 신원이 예전 계정에서도 기록됐을 수 있다). 방언마다 다른
-    // "충돌 시 무시" 문법을 피하려고 조회로 거른다. 그 사이 경쟁은 unique 인덱스가 막는다.
-    const existing = await db
-        .select({ provider: retiredSubjects.provider, subject: retiredSubjects.subject })
+    const [existing] = await db
+        .select({ id: retiredSubjects.id })
         .from(retiredSubjects)
-        .where(
-            and(
-                eq(retiredSubjects.tenantId, tenantId),
-                inArray(
-                    retiredSubjects.subject,
-                    candidates.map((c) => c.subject),
-                ),
-            ),
-        );
-    const seen = new Set(existing.map((e) => `${e.provider}\u0000${e.subject}`));
-    return candidates.filter((c) => !seen.has(`${c.provider}\u0000${c.subject}`));
+        .where(and(eq(retiredSubjects.tenantId, tenantId), eq(retiredSubjects.provider, LODESTAR_SUBJECT_PROVIDER), eq(retiredSubjects.subject, userId)))
+        .limit(1);
+    return existing ? [] : [{ tenantId, provider: LODESTAR_SUBJECT_PROVIDER, subject: userId, issuer }];
 }
 
 function deleteOps(rows: RetiredRow[], tenantId: string, userId: string): AtomicOp[] {

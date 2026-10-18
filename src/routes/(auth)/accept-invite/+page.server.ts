@@ -5,7 +5,7 @@ import { requireDbContext } from "$lib/server/auth/guards";
 import { escapeHtml, replacePlaceholders, resolveSkinByHint } from "$lib/server/skin/resolver";
 import { users, inviteTokens, credentials } from "$lib/server/db/schema";
 import { hashToken } from "$lib/server/email";
-import { checkPasswordPolicy, hashPassword } from "$lib/server/auth/password";
+import { checkPasswordPolicy, hashPassword, normalizePassword } from "$lib/server/auth/password";
 import { isBreachCheckEnabled, isPasswordBreached } from "$lib/server/auth/breach-check";
 import { PASSWORD_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { runAtomic } from "$lib/server/db/atomic";
@@ -88,8 +88,8 @@ export const actions: Actions = {
         if (violation === "too_short") return failWithSkin(400, translate(locale, "accept_invite.err_password_short"));
         if (violation) return failWithSkin(400, translate(locale, "errors.password_weak"));
         // ctrls R5: HIBP 유출 비밀번호 차단(운영자 opt-in). 오류 시 fail-open.
-        if (isBreachCheckEnabled() && (await isPasswordBreached(password))) return failWithSkin(400, translate(locale, "accept_invite.err_password_breached"));
-        if (password !== confirmPassword) return failWithSkin(400, translate(locale, "accept_invite.err_password_mismatch"));
+        if (isBreachCheckEnabled() && (await isPasswordBreached(normalizePassword(password)))) return failWithSkin(400, translate(locale, "accept_invite.err_password_breached"));
+        if (normalizePassword(password) !== normalizePassword(confirmPassword)) return failWithSkin(400, translate(locale, "accept_invite.err_password_mismatch"));
 
         const record = await lookupToken(db, tenant.id, token);
         if (!record) return failWithSkin(400, translate(locale, "accept_invite.invalid_link"));

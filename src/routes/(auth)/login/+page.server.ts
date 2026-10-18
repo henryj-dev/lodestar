@@ -156,7 +156,7 @@ export const actions: Actions = {
 
         // 계정+IP 지수 지연(회원 공통 정책): 5회 실패 뒤 1초부터 두 배씩, 상한 15분. 인증 전에 막는다 —
         // 키에 IP 가 들어가 있어 다른 곳의 공격자가 이 사용자를 막을 수 없다(login-throttle.ts).
-        const throttleScope = loginThrottleScope(tenant.id, username, requestMetadata.ipKey);
+        const throttleScope = await loginThrottleScope(tenant.id, username, requestMetadata.ipKey);
         const throttle = await checkThrottle(rateLimitStore, throttleScope);
         if (!throttle.allowed) {
             const msg = translate(locale, "login.err_throttled", { seconds: Math.ceil(throttle.retryAfterMs / 1000) });

@@ -681,7 +681,7 @@ service-to-service 호출(`/api/totp/*`, `/api/users/lookup`)에 쓰는 Bearer �
     2. **마지막 관리자 자기삭제 차단**.
     3. 전 세션·refresh token 폐기 + RP back-channel logout 을 먼저 보내고, 계정을 **즉시 하드 삭제**합니다. 복구할 수 없습니다. 삭제 알림 메일을 보냅니다.
 - 관리자 삭제(`/admin/users` 의 delete)도 같은 순서로 지웁니다(예전에는 RP 통지 없이 행만 지웠습니다).
-- 삭제할 때 **식별자만** `retired_subjects` 에 남깁니다: Lodestar 가 발급한 sub(=사용자 id)와 issuer, 연결돼 있던 외부 신원(provider, subject). 이메일·이름은 남기지 않습니다. sub 는 서버가 만든 무작위 UUID 라 다른 사람에게 다시 배정되지 않습니다.
+- 삭제할 때 **Lodestar 가 발급한 sub(=사용자 id)와 issuer 만** `retired_subjects` 에 남깁니다. sub 는 서버가 만든 무작위 UUID 라 다른 사람에게 다시 배정되지 않습니다. 연결돼 있던 외부 신원(로컬 가입의 이메일, LDAP DN, 소셜 subject)은 개인정보일 수 있어 남기지 않고 계정과 함께 지웁니다.
 - 감사 로그는 보존 기간(1년) 동안 남지만 사용자와의 연결(`userId`)은 끊깁니다. 감사 행의 MAC 은 쓸 때의 `userId` 로 계산했으므로, 삭제된 사용자의 행을 외부에서 재검증하면 일치하지 않습니다(예전 GC 하드 삭제와 같은 제약).
 - 이전 정책(30일 유예)으로 이미 `deletion_pending` 인 계정은 안내한 대로 유예가 끝날 때 GC 가 같은 방식으로 지웁니다. 유예 안에 다시 로그인하면 지금도 복구됩니다.
 

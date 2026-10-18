@@ -21,7 +21,7 @@
  * GC 실패는 요청 처리에 절대 영향을 주지 않는다(전부 try/catch + waitUntil 격리).
  */
 
-import { and, eq, lt, or, isNotNull, inArray } from "drizzle-orm";
+import { and, eq, lt, or, isNotNull, inArray, notInArray } from "drizzle-orm";
 import { getDb, DB_DIALECT, type DB } from "./index";
 import { sessions, oidcGrants, passwordResetTokens, emailVerificationTokens, emailChangeTokens, samlSloStates, samlAuthnRequestIds, samlSessions, users, inviteTokens, auditEvents } from "./schema";
 import { purgeExpiredChallenges } from "$lib/server/auth/webauthn";
@@ -134,21 +134,31 @@ function extractAffected(res: unknown): number | null {
 async function runUsersBatchDelete(db: DB, now: Date, tables: GcTableResult[]): Promise<void> {
     try {
         let total = 0;
+        const failedIds: string[] = [];
         for (;;) {
             const rows = await db
                 .select({ id: users.id, tenantId: users.tenantId })
                 .from(users)
-                .where(and(eq(users.status, "deletion_pending"), lt(users.deletionScheduledAt, now)))
+                .where(and(eq(users.status, "deletion_pending"), lt(users.deletionScheduledAt, now), failedIds.length > 0 ? notInArray(users.id, failedIds) : undefined))
                 .limit(USERS_GC_BATCH_SIZE);
             if (rows.length === 0) break;
             // 예전 30일 유예로 남은 계정도 즉시 삭제 경로와 같은 식별자 기록을 남기고 지운다.
+            // 한 행이 실패해도 나머지는 계속 지운다. 실패한 행은 다음 GC 에서 다시 고른다 — 같은 행만
+            // 계속 실패해 뒤의 계정이 막히지 않도록, 이번 실행에서 실패한 id 는 다음 배치 조회에서 뺀다.
+            let progressed = 0;
             for (const row of rows) {
-                await retireAndDeleteUser(db, row.tenantId, row.id);
+                try {
+                    await retireAndDeleteUser(db, row.tenantId, row.id);
+                    progressed += 1;
+                } catch (error) {
+                    failedIds.push(row.id);
+                    console.error(`[gc] delete user ${row.id} 실패:`, error instanceof Error ? error.message : String(error));
+                }
             }
-            total += rows.length;
+            total += progressed;
             if (rows.length < USERS_GC_BATCH_SIZE) break;
         }
-        tables.push({ table: "users", deleted: total, ok: true });
+        tables.push(failedIds.length === 0 ? { table: "users", deleted: total, ok: true } : { table: "users", deleted: total, ok: false, error: `${failedIds.length} user(s) failed` });
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error(`[gc] delete users 실패:`, msg);

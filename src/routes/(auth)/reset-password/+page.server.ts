@@ -5,7 +5,7 @@ import { requireDbContext } from "$lib/server/auth/guards";
 import { credentials, users, passwordResetTokens } from "$lib/server/db/schema";
 import { DB_DIALECT, type DB } from "$lib/server/db";
 import { runAtomic } from "$lib/server/db/atomic";
-import { checkPasswordPolicy, hashPassword } from "$lib/server/auth/password";
+import { checkPasswordPolicy, hashPassword, normalizePassword } from "$lib/server/auth/password";
 import { isBreachCheckEnabled, isPasswordBreached } from "$lib/server/auth/breach-check";
 import { hashToken } from "$lib/server/email";
 import { clearTrustedDeviceCookie, revokeAllTrustedDevices } from "$lib/server/auth/trusted-device";
@@ -95,8 +95,8 @@ export const actions: Actions = {
         if (violation === "too_short") return failWithSkin(translate(locale, "reset_password.err_password_short"));
         if (violation) return failWithSkin(translate(locale, "errors.password_weak"));
         // ctrls R5: HIBP 유출 비밀번호 차단(운영자 opt-in). 오류 시 fail-open.
-        if (isBreachCheckEnabled() && (await isPasswordBreached(password))) return failWithSkin(translate(locale, "reset_password.err_password_breached"));
-        if (password !== confirmPassword) return failWithSkin(translate(locale, "reset_password.err_password_mismatch"));
+        if (isBreachCheckEnabled() && (await isPasswordBreached(normalizePassword(password)))) return failWithSkin(translate(locale, "reset_password.err_password_breached"));
+        if (normalizePassword(password) !== normalizePassword(confirmPassword)) return failWithSkin(translate(locale, "reset_password.err_password_mismatch"));
 
         const tokenHash = await hashToken(token);
         const now = new Date();

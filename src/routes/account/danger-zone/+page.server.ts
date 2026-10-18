@@ -21,9 +21,6 @@ import { checkRateLimit } from "$lib/server/ratelimit";
 const STEPUP_WINDOW_MS = 5 * 60 * 1000;
 const STEPUP_LIMIT = 10;
 
-// 소프트 삭제 유예기간 = 30일. 이 기간 내 로그인하면 계정을 복구할 수 있고, 경과하면 GC 가
-// 하드 삭제한다. (login 복구 흐름·gc.ts 하드삭제 조건과 짝을 이룬다.)
-
 export const load: PageServerLoad = async ({ locals, url }) => {
     if (!locals.user) {
         throw redirect(303, `/login?redirectTo=${encodeURIComponent(url.pathname)}`);
@@ -131,18 +128,26 @@ export const actions: Actions = {
         }
 
         // ── 즉시 삭제(회원 공통 정책): RP 로그아웃 통지 → 식별자 기록 → 사용자 행 삭제 ─────────
-        // 감사는 삭제 전에 남긴다 — 삭제 뒤에는 userId FK 가 set null 이 되므로 actorId 로도 이어 둔다.
-        await recordAuditEvent(db, {
-            tenantId: tenant.id,
-            userId: user.id,
-            actorId: user.id,
-            kind: "user_deleted",
-            outcome: "success",
-            ip: requestMetadata.ip,
-            userAgent: requestMetadata.userAgent,
-            detail: { userId: user.id, by: "self" },
-        });
-        await deleteUserNow(event, { db, tenant, userId: user.id, actorId: user.id, reason: "account_deleted" });
+        // 감사는 결과가 정해진 뒤 남긴다. 삭제 뒤에는 사용자 행이 없어 userId FK 를 걸 수 없으므로
+        // 관리자 삭제와 같이 actorId·detail.userId 로 잇는다.
+        const deletionAudit = (outcome: "success" | "failure") =>
+            recordAuditEvent(db, {
+                tenantId: tenant.id,
+                userId: outcome === "failure" ? user.id : null,
+                actorId: user.id,
+                kind: "user_deleted",
+                outcome,
+                ip: requestMetadata.ip,
+                userAgent: requestMetadata.userAgent,
+                detail: { userId: user.id, by: "self" },
+            });
+        try {
+            await deleteUserNow(event, { db, tenant, userId: user.id, actorId: user.id, reason: "account_deleted" });
+        } catch (err) {
+            await deletionAudit("failure").catch(() => undefined);
+            throw err;
+        }
+        await deletionAudit("success");
 
         // 탈퇴 완료 알림 메일(best-effort). 사용자 행은 지워졌지만 주소는 위에서 읽어 둔 값을 쓴다.
         dispatchSecurityAlert({ to: user.email, locale: user.locale, kind: "account_deletion_requested", platform: event.platform });

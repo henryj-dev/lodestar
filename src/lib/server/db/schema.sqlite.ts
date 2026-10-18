@@ -283,8 +283,8 @@ export const trustedDevices = sqliteTable(
  *
  * - provider="lodestar": Lodestar 가 발급한 sub(=users.id). issuer 는 삭제 시점의 issuer URL.
  *   sub 는 서버가 만든 무작위 UUID 라 다시 배정될 일이 없지만, 그 사실을 RP·감사에서 확인할 수 있게 남긴다.
- * - 그 밖의 provider: 연결돼 있던 외부 신원(identities.provider, subject). 같은 외부 계정이 다시 들어와도
- *   예전 계정과 이어 붙지 않았음을 추적하는 근거다.
+ * - 외부 신원(identities)의 subject 는 이메일·DN 같은 개인정보일 수 있어 기록하지 않는다. provider 열은
+ *   나중에 다른 종류의 비개인 식별자를 담을 여지로 남긴다.
  */
 export const retiredSubjects = sqliteTable(
     "retired_subjects",

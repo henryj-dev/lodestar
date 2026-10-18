@@ -54,9 +54,15 @@ export async function clearThrottle(store: RateLimitStore, scope: string): Promi
     await store.deleteEntry(PREFIX + scope);
 }
 
-/** 로그인 범위 키: 테넌트 + 정규화한 로그인 식별자 + IP. */
-export function loginThrottleScope(tenantId: string, identifier: string, ipKey: string): string {
-    return `login:${tenantId}:${identifier.trim().toLowerCase()}:${ipKey}`;
+/**
+ * 로그인 범위 키: 테넌트 + 정규화한 로그인 식별자의 SHA-256 + IP.
+ * 식별자는 사용자가 입력한 값이라 길이 제한이 없다 — 해시로 줄여 저장소 키 길이(MySQL varchar 255)를
+ * 넘지 않게 하고, 입력한 아이디·이메일 원문이 rate_limits 에 남지 않게 한다.
+ */
+export async function loginThrottleScope(tenantId: string, identifier: string, ipKey: string): Promise<string> {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(identifier.trim().toLowerCase()));
+    const hex = Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+    return `login:${tenantId}:${hex}:${ipKey}`;
 }
 
 /** MFA 범위 키: 테넌트 + 사용자 + IP. */

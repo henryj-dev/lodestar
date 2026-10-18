@@ -5,7 +5,7 @@ import { actions as adminUserActions } from "../../src/routes/admin/users/+page.
 import { getSessionContext } from "../../src/lib/server/auth/session";
 import { retireAndDeleteUser, LODESTAR_SUBJECT_PROVIDER } from "../../src/lib/server/auth/account-deletion";
 import { SESSION_IDLE_TIMEOUT_MS } from "../../src/lib/server/auth/constants";
-import { credentials, identities, retiredSubjects, sessions, users } from "../../src/lib/server/db/schema";
+import { auditEvents, credentials, identities, retiredSubjects, sessions, users } from "../../src/lib/server/db/schema";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedMfaSession, seedSession, makeEvent, makeCookieJar, catchRedirect, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant, User } from "../../src/lib/server/db/schema";
 
@@ -109,6 +109,8 @@ describe("즉시 삭제와 식별자 기록", () => {
         const admin = await seedUser(mem.db, { tenantId: tenant.id, email: "admin@test.example", role: "admin" });
         const adminSession = (await seedMfaSession(mem.db, { tenantId: tenant.id, userId: admin.id })).session;
         await mem.db.insert(identities).values({ tenantId: tenant.id, userId: user.id, provider: "oauth:github", subject: "4242", email: "policy@test.example" });
+        await mem.db.insert(identities).values({ tenantId: tenant.id, userId: user.id, provider: "local", subject: "policy@test.example", email: "policy@test.example" });
+        await mem.db.insert(identities).values({ tenantId: tenant.id, userId: user.id, provider: "ldap:corp", subject: "cn=홍길동,ou=people,dc=corp", email: null });
 
         await adminUserActions.delete!(
             makeEvent({
@@ -121,15 +123,10 @@ describe("즉시 삭제와 식별자 기록", () => {
 
         expect(await mem.db.select().from(users).where(eq(users.id, user.id))).toHaveLength(0);
         expect(await mem.db.select().from(credentials).where(eq(credentials.userId, user.id))).toHaveLength(0);
+        // Lodestar sub 만 남긴다. 외부 신원(subject 가 이메일·DN 일 수 있음)은 기록하지 않는다.
         const rows = await retired();
-        expect(rows).toEqual(
-            expect.arrayContaining([
-                { provider: LODESTAR_SUBJECT_PROVIDER, subject: user.id, issuer: TEST_ISSUER_URL },
-                { provider: "oauth:github", subject: "4242", issuer: null },
-            ]),
-        );
-        // 개인정보(이메일 등)는 기록에 없다.
-        expect(JSON.stringify(rows)).not.toContain("policy@test.example");
+        expect(rows).toEqual([{ provider: LODESTAR_SUBJECT_PROVIDER, subject: user.id, issuer: TEST_ISSUER_URL }]);
+        expect(await mem.db.select().from(identities).where(eq(identities.userId, user.id))).toHaveLength(0);
     });
 
     it("본인 탈퇴도 즉시 지우고 기록한다", async () => {
@@ -151,14 +148,29 @@ describe("즉시 삭제와 식별자 기록", () => {
         expect(await retired()).toEqual([{ provider: LODESTAR_SUBJECT_PROVIDER, subject: user.id, issuer: TEST_ISSUER_URL }]);
     });
 
-    it("같은 식별자를 두 번 기록하지 않는다 (외부 신원이 예전 계정에서도 기록된 경우)", async () => {
-        await mem.db.insert(retiredSubjects).values({ tenantId: tenant.id, provider: "oauth:github", subject: "4242" });
-        await mem.db.insert(identities).values({ tenantId: tenant.id, userId: user.id, provider: "oauth:github", subject: "4242", email: "policy@test.example" });
-
+    it("같은 사용자를 두 번 기록하지 않는다", async () => {
+        await mem.db.insert(retiredSubjects).values({ tenantId: tenant.id, provider: LODESTAR_SUBJECT_PROVIDER, subject: user.id });
         await retireAndDeleteUser(mem.db, tenant.id, user.id);
+        expect(await retired()).toHaveLength(1);
+        expect(await mem.db.select().from(users).where(eq(users.id, user.id))).toHaveLength(0);
+    });
 
-        const rows = await retired();
-        expect(rows.filter((r) => r.subject === "4242")).toHaveLength(1);
-        expect(rows.some((r) => r.provider === LODESTAR_SUBJECT_PROVIDER && r.subject === user.id)).toBe(true);
+    it("본인 탈퇴의 감사는 삭제 뒤에 성공으로 남는다(사용자 연결 없이 actorId·detail 로)", async () => {
+        const { actions } = await import("../../src/routes/account/danger-zone/+page.server");
+        const current = (await seedSession(mem.db, { tenantId: tenant.id, userId: user.id })).session;
+        await catchRedirect(() =>
+            actions.requestDeletion!(
+                makeEvent({
+                    method: "POST",
+                    url: `${TEST_ISSUER_URL}/account/danger-zone?/requestDeletion`,
+                    form: { password: PASSWORD },
+                    locals: { db: mem.db, tenant, user, session: current, env: mem.env },
+                }) as never,
+            ),
+        );
+        const rows = await mem.db.select().from(auditEvents).where(eq(auditEvents.kind, "user_deleted"));
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ outcome: "success", userId: null, actorId: user.id });
+        expect(JSON.parse(rows[0].detailJson!)).toMatchObject({ userId: user.id, by: "self" });
     });
 });
