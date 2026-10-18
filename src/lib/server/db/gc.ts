@@ -81,10 +81,13 @@ const WORKERS_GC_SAMPLE_RATE = 0.01;
  * IN(...) 삭제" 2단계 루프로 이식성 있게 구현한다.
  */
 const USERS_GC_BATCH_SIZE = 100;
+/** 한 번의 GC 에서 허용하는 사용자 삭제 실패 수. 제외 목록이 D1 바인딩 한도(100)를 넘지 않게 한다. */
+const USERS_GC_MAX_FAILURES = 50;
 
 /**
  * 감사 로그 보존 기간: 1년(회원 공통 정책 2026-10-18). 이보다 오래된 audit_events 를 지운다.
- * 행 단위 MAC 이라 일부 행을 지워도 남은 행의 검증에는 영향이 없다(audit/index.ts).
+ * 행 단위 MAC 이라 오래된 행을 지워도 남은 행의 검증에는 영향이 없다(audit/index.ts). 단, 사용자를
+ * 삭제하면 FK set null 로 그 사용자 행들의 userId 가 바뀌어 외부 MAC 재계산과 맞지 않게 된다(기존 제약).
  * 외부 미러(Logpush 등)를 쓰는 운영이라면 그쪽 보존 기간은 따로 정한다.
  */
 export const AUDIT_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
@@ -157,6 +160,9 @@ async function runUsersBatchDelete(db: DB, now: Date, tables: GcTableResult[]): 
             }
             total += progressed;
             if (rows.length < USERS_GC_BATCH_SIZE) break;
+            // 제외 목록은 쿼리 바인딩 파라미터가 된다(D1 은 쿼리당 100개). 실패가 많으면 이번 실행은 멈추고
+            // 다음 GC 에 맡긴다 — 실패가 이만큼 쌓였다면 원인을 먼저 봐야 한다.
+            if (failedIds.length >= USERS_GC_MAX_FAILURES) break;
         }
         tables.push(failedIds.length === 0 ? { table: "users", deleted: total, ok: true } : { table: "users", deleted: total, ok: false, error: `${failedIds.length} user(s) failed` });
     } catch (error) {

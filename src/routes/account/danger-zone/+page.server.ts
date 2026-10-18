@@ -147,7 +147,8 @@ export const actions: Actions = {
             await deletionAudit("failure").catch(() => undefined);
             throw err;
         }
-        await deletionAudit("success");
+        // 계정은 이미 지워졌다 — 감사 기록이 실패해도 쿠키 정리·리다이렉트는 해야 한다.
+        await deletionAudit("success").catch((err) => console.error("[danger-zone] user_deleted 감사 기록 실패:", err));
 
         // 탈퇴 완료 알림 메일(best-effort). 사용자 행은 지워졌지만 주소는 위에서 읽어 둔 값을 쓴다.
         dispatchSecurityAlert({ to: user.email, locale: user.locale, kind: "account_deletion_requested", platform: event.platform });
