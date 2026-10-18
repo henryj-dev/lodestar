@@ -104,7 +104,9 @@ export const actions: Actions = {
             .select({ id: passwordResetTokens.id, userId: passwordResetTokens.userId, expiresAt: passwordResetTokens.expiresAt, email: users.email, locale: users.locale })
             .from(passwordResetTokens)
             .innerJoin(users, eq(passwordResetTokens.userId, users.id))
-            .where(and(eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt)))
+            // 요청 테넌트의 사용자 토큰만 받는다. 다른 테넌트 호스트로 제출하면 그 테넌트 issuer 로 엉뚱한
+            // RP 에 로그아웃을 통지하게 된다(세션 폐기는 userId 기준이라 문제없었지만 통지는 테넌트 기준이다).
+            .where(and(eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt), eq(users.tenantId, tenant.id)))
             .limit(1);
 
         if (!record || record.expiresAt < now) return failWithSkin(translate(locale, "reset_password.err_expired_link"));

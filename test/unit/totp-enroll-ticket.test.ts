@@ -58,6 +58,11 @@ describe("TOTP 등록 티켓", () => {
         expect(await verifyTotpEnrollTicket(".", base, [CURRENT])).toEqual({ ok: false, reason: "malformed" });
     });
 
+    it("대소문자·공백·패딩만 다른 secret 은 같은 secret 으로 본다 (base32 디코딩과 같은 기준)", async () => {
+        const ticket = await createTotpEnrollTicket(base, CURRENT);
+        expect(await verifyTotpEnrollTicket(ticket, { ...base, totpSecret: "jbsw y3dp ehpk 3pxp==" }, [CURRENT])).toEqual({ ok: true });
+    });
+
     it("secret 원문을 티켓에 싣지 않는다", async () => {
         const ticket = await createTotpEnrollTicket(base, CURRENT);
         const payload = atob(ticket.split(".")[0].replace(/-/g, "+").replace(/_/g, "/"));

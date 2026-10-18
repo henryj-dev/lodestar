@@ -4,7 +4,8 @@ import { actions as adminUserActions } from "../../src/routes/admin/users/+page.
 import { updateProfile } from "../../src/lib/server/admin/user-actions/profile";
 import { hashToken } from "../../src/lib/server/email";
 import { b64uDecode } from "../../src/lib/server/crypto/keys";
-import { auditEvents, oidcClients, oidcRefreshTokens, passwordResetTokens, sessions } from "../../src/lib/server/db/schema";
+import { auditEvents, oidcClients, oidcRefreshTokens, passwordResetTokens, sessions, signingKeys, tenants, trustedDevices, users } from "../../src/lib/server/db/schema";
+import { createTrustedDevice } from "../../src/lib/server/auth/trusted-device";
 import { openMemoryDb, seedTenantAndSigningKey, seedUser, seedMfaSession, seedOidcClient, seedServiceAssignment, seedSession, makeEvent, TEST_ISSUER_URL, type MemoryDb } from "./harness";
 import type { Tenant, User, Session } from "../../src/lib/server/db/schema";
 
@@ -169,6 +170,12 @@ describe("관리자 사용자 상세 편집 → RP 통지", () => {
         expect(await bcAuditReasons()).toEqual(["user_disabled"]);
     });
 
+    it("이미 비활성인 사용자를 다른 비활성 상태로 바꾸면 다시 보내지 않는다 (locked → disabled)", async () => {
+        await mem.db.update(users).set({ status: "locked" }).where(eq(users.id, target.id));
+        await updateProfile(profileEvent({ role: "user", status: "disabled" }));
+        expect(captured).toHaveLength(0);
+    });
+
     it("역할도 상태도 그대로면 보내지 않는다", async () => {
         await seedSession(mem.db, { tenantId: tenant.id, userId: target.id });
         await updateProfile(profileEvent({ role: "user", status: "active", displayName: "Renamed" }));
@@ -222,5 +229,97 @@ describe("본인 조치 → RP 통지", () => {
         expect(await liveSessionCount(target.id)).toBe(0);
         expect(logoutSubjects()).toEqual([target.id]);
         expect(await bcAuditReasons()).toEqual(["password_reset"]);
+    });
+
+    it("탈퇴 요청은 back-channel logout 을 보낸다", async () => {
+        const { actions } = await import("../../src/routes/account/danger-zone/+page.server");
+        const current = (await seedSession(mem.db, { tenantId: tenant.id, userId: target.id })).session;
+
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/account/danger-zone?/requestDeletion`,
+            form: { password: "old-password-123" },
+            locals: { db: mem.db, tenant, user: target, session: current, env: mem.env },
+        });
+        try {
+            await actions.requestDeletion!(event as never);
+        } catch (e) {
+            if (!(typeof e === "object" && e !== null && "status" in e)) throw e;
+        }
+
+        const [row] = await mem.db.select({ status: users.status }).from(users).where(eq(users.id, target.id));
+        expect(row.status).toBe("deletion_pending");
+        expect(logoutSubjects()).toEqual([target.id]);
+        expect(await bcAuditReasons()).toEqual(["deletion_requested"]);
+    });
+
+    it("다른 테넌트의 재설정 토큰은 받지 않는다", async () => {
+        const { actions } = await import("../../src/routes/(auth)/reset-password/+page.server");
+        const otherTenantId = crypto.randomUUID();
+        await mem.db.insert(tenants).values({ id: otherTenantId, slug: `other-${otherTenantId.slice(0, 8)}`, name: "Other" });
+        const otherTenant = (await mem.db.select().from(tenants).where(eq(tenants.id, otherTenantId)))[0];
+        const token = `reset-token-${crypto.randomUUID()}`;
+        await mem.db.insert(passwordResetTokens).values({
+            id: crypto.randomUUID(),
+            userId: target.id,
+            tokenHash: await hashToken(token),
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        });
+        await seedSession(mem.db, { tenantId: tenant.id, userId: target.id });
+
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/reset-password`,
+            form: { token, password: "new-password-456", confirmPassword: "new-password-456" },
+            locals: { db: mem.db, tenant: otherTenant, env: mem.env },
+        });
+        try {
+            await actions.default!(event as never);
+        } catch (e) {
+            if (!(typeof e === "object" && e !== null && "status" in e)) throw e;
+        }
+        expect(await liveSessionCount(target.id)).toBe(1);
+        expect(captured).toHaveLength(0);
+    });
+});
+
+describe("통지 실패는 호출자를 깨지 않는다", () => {
+    it("서명키를 풀 수 없어도 비밀번호 재설정이 끝까지 진행되고(신뢰 기기 폐기 포함) 실패가 감사에 남는다", async () => {
+        const { actions } = await import("../../src/routes/(auth)/reset-password/+page.server");
+        await seedSession(mem.db, { tenantId: tenant.id, userId: target.id });
+        await createTrustedDevice(mem.db, { tenantId: tenant.id, userId: target.id });
+        // 저장된 개인키를 어느 시크릿으로도 풀 수 없게 만든다(previous 시크릿을 너무 일찍 지운 상황).
+        await mem.db.update(signingKeys).set({ privateJwkEncrypted: "corrupted.ciphertext.value" }).where(eq(signingKeys.tenantId, tenant.id));
+        const token = `reset-token-${crypto.randomUUID()}`;
+        await mem.db.insert(passwordResetTokens).values({
+            id: crypto.randomUUID(),
+            userId: target.id,
+            tokenHash: await hashToken(token),
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        });
+
+        const event = makeEvent({
+            method: "POST",
+            url: `${TEST_ISSUER_URL}/reset-password`,
+            form: { token, password: "new-password-456", confirmPassword: "new-password-456" },
+            locals: { db: mem.db, tenant, env: mem.env },
+        });
+        let thrown: unknown;
+        try {
+            await actions.default!(event as never);
+        } catch (e) {
+            thrown = e;
+        }
+        // 성공 경로는 redirect 를 던진다. 500 같은 일반 오류가 아니어야 한다.
+        expect(thrown).toMatchObject({ status: expect.any(Number) });
+        expect((thrown as { status: number }).status).toBeLessThan(400);
+
+        expect(await liveSessionCount(target.id)).toBe(0);
+        const devices = await mem.db.select({ revokedAt: trustedDevices.revokedAt }).from(trustedDevices).where(eq(trustedDevices.userId, target.id));
+        expect(devices.every((d) => d.revokedAt !== null)).toBe(true);
+        const rows = await mem.db.select({ outcome: auditEvents.outcome, detailJson: auditEvents.detailJson }).from(auditEvents).where(eq(auditEvents.kind, "backchannel_logout_sent"));
+        expect(rows).toHaveLength(1);
+        expect(rows[0].outcome).toBe("failure");
+        expect(JSON.parse(rows[0].detailJson!)).toMatchObject({ reason: "password_reset", error: "signing_key_unavailable" });
     });
 });

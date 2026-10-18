@@ -55,7 +55,9 @@ async function deriveTicketKey(secret: string): Promise<CryptoKey> {
 }
 
 async function hashSecret(totpSecret: string): Promise<string> {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(totpSecret));
+    // base32Decode(totp.ts)와 같은 정규화 — 호출자가 대소문자·공백·패딩만 바꿔 돌려보내도 같은 secret 이다.
+    const normalized = totpSecret.toUpperCase().replace(/[^A-Z2-7]/g, "");
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(normalized));
     return b64uEncode(new Uint8Array(digest));
 }
 

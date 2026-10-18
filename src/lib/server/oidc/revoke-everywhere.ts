@@ -48,11 +48,8 @@ export async function revokeUserEverywhere(
 
     // 폐기 **전에** 살아 있는 세션 id 를 읽는다. sid 를 요구하는 RP 에는 세션마다 한 건씩 보내야 하는데,
     // 폐기 후에는 목록을 다시 만들 수 없다. sessions.id 가 ID 토큰의 `sid` 와 같은 값이다.
-    const liveSessions = await db
-        .select({ id: sessions.id })
-        .from(sessions)
-        .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt), gt(sessions.expiresAt, new Date())));
-    const bcTargets = await getOidcBackchannelTargetsForUser(db, tenant.id, userId);
+    // 대상 조회가 실패해도 폐기는 반드시 한다 — 통지보다 폐기가 우선이다.
+    const { liveSessions, bcTargets } = await loadNotifyTargets(db, tenant.id, userId);
 
     await revokeAllUserSessions(db, userId, params.revokedAt);
     await revokeAllUserRefreshTokens(db, userId);
@@ -61,11 +58,25 @@ export async function revokeUserEverywhere(
     const signingKeySecrets = locals.runtimeConfig.signingKeySecrets;
     if (bcTargets.length === 0 || signingKeySecrets.length === 0) return result;
 
-    const signingKey = await getActiveSigningKey(db, tenant.id, signingKeySecrets);
-    if (!signingKey) return result;
-
-    const issuerUrl = resolveIssuerUrl(locals.runtimeConfig, url.origin, tenant.slug);
     const meta = getRequestMetadata(event);
+
+    // 여기부터는 최선 노력이다. 서명키를 풀지 못하는 등(예: previous 시크릿을 너무 일찍 지움) 예외가
+    // 나도 호출자의 나머지 처리(신뢰 기기 폐기·감사·알림)를 깨지 않도록 삼키고 감사에만 남긴다.
+    const signer = await loadSigner(db, tenant, locals.runtimeConfig, url.origin, signingKeySecrets);
+    if (!signer) {
+        await recordAuditEvent(db, {
+            tenantId: tenant.id,
+            userId,
+            actorId,
+            kind: "backchannel_logout_sent",
+            outcome: "failure",
+            ip: meta.ip,
+            userAgent: meta.userAgent,
+            detail: { reason, error: "signing_key_unavailable", targets: bcTargets.map((t) => t.clientId) },
+        }).catch(() => undefined);
+        return result;
+    }
+    const { key, issuerUrl } = signer;
     const queue = platform?.env?.OIDC_WEBHOOK_QUEUE;
 
     const deliver = async (target: BackchannelTarget, sessionId: string) => {
@@ -76,7 +87,7 @@ export async function revokeUserEverywhere(
             reason,
         };
         try {
-            const sent = await sendOneBackchannelLogout(target, userId, sessionId, issuerUrl, signingKey.privateKey, signingKey.kid, queue);
+            const sent = await sendOneBackchannelLogout(target, userId, sessionId, issuerUrl, key.privateKey, key.kid, queue);
             await recordAuditEvent(db, {
                 tenantId: tenant.id,
                 userId,
@@ -119,4 +130,33 @@ export async function revokeUserEverywhere(
     if (wait) wait(Promise.all(deliveries));
     else await Promise.all(deliveries);
     return result;
+}
+
+async function loadNotifyTargets(db: DB, tenantId: string, userId: string): Promise<{ liveSessions: { id: string }[]; bcTargets: BackchannelTarget[] }> {
+    try {
+        const liveSessions = await db
+            .select({ id: sessions.id })
+            .from(sessions)
+            .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt), gt(sessions.expiresAt, new Date())));
+        const bcTargets = await getOidcBackchannelTargetsForUser(db, tenantId, userId);
+        return { liveSessions, bcTargets };
+    } catch {
+        return { liveSessions: [], bcTargets: [] };
+    }
+}
+
+async function loadSigner(
+    db: DB,
+    tenant: { id: string; slug: string },
+    runtimeConfig: App.Locals["runtimeConfig"],
+    origin: string,
+    signingKeySecrets: string[],
+): Promise<{ key: NonNullable<Awaited<ReturnType<typeof getActiveSigningKey>>>; issuerUrl: string } | null> {
+    try {
+        const key = await getActiveSigningKey(db, tenant.id, signingKeySecrets);
+        if (!key) return null;
+        return { key, issuerUrl: resolveIssuerUrl(runtimeConfig, origin, tenant.slug) };
+    } catch {
+        return null;
+    }
 }
