@@ -231,7 +231,7 @@ describe("본인 조치 → RP 통지", () => {
         expect(await bcAuditReasons()).toEqual(["password_reset"]);
     });
 
-    it("탈퇴 요청은 back-channel logout 을 보낸다", async () => {
+    it("탈퇴는 계정을 즉시 지우기 전에 back-channel logout 을 보낸다", async () => {
         const { actions } = await import("../../src/routes/account/danger-zone/+page.server");
         const current = (await seedSession(mem.db, { tenantId: tenant.id, userId: target.id })).session;
 
@@ -247,10 +247,10 @@ describe("본인 조치 → RP 통지", () => {
             if (!(typeof e === "object" && e !== null && "status" in e)) throw e;
         }
 
-        const [row] = await mem.db.select({ status: users.status }).from(users).where(eq(users.id, target.id));
-        expect(row.status).toBe("deletion_pending");
+        // 즉시 삭제: 사용자 행이 없어지고, 지우기 전에 RP 에 로그아웃을 보낸다.
+        expect(await mem.db.select({ id: users.id }).from(users).where(eq(users.id, target.id))).toHaveLength(0);
         expect(logoutSubjects()).toEqual([target.id]);
-        expect(await bcAuditReasons()).toEqual(["deletion_requested"]);
+        expect(await bcAuditReasons()).toEqual(["account_deleted"]);
     });
 
     it("다른 테넌트의 재설정 토큰은 받지 않는다", async () => {

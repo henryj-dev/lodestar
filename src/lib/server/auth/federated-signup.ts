@@ -17,7 +17,7 @@ import type { DB } from "$lib/server/db";
 import { credentials, identities, users, type User } from "$lib/server/db/schema";
 import { runAtomic, type AtomicOp } from "$lib/server/db/atomic";
 import { isUniqueViolation } from "$lib/server/db/errors";
-import { hashPassword, MAX_PASSWORD_LENGTH } from "./password";
+import { checkPasswordPolicy, hashPassword } from "./password";
 import { isBreachCheckEnabled, isPasswordBreached } from "./breach-check";
 import { issueEmailVerification } from "./email-verification";
 import type { PendingLinkClaims } from "./pending-link";
@@ -71,8 +71,9 @@ export async function createFederatedAccount(db: DB, claims: PendingLinkClaims, 
     let hashedPw: string | null = null;
 
     if (wantsPassword) {
-        if (input.password.length < 8) return fail(400, "signup.err_password_short");
-        if (input.password.length > MAX_PASSWORD_LENGTH) return fail(400, "errors.password_too_long", { max: MAX_PASSWORD_LENGTH });
+        const violation = checkPasswordPolicy(input.password);
+        if (violation === "too_short") return fail(400, "signup.err_password_short");
+        if (violation) return fail(400, "errors.password_weak");
         if (input.password !== input.confirmPassword) return fail(400, "signup.err_password_mismatch");
         if (isBreachCheckEnabled() && (await isPasswordBreached(input.password))) return fail(400, "signup.err_password_breached");
         hashedPw = await hashPassword(input.password);

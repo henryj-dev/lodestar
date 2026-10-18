@@ -28,7 +28,7 @@ let confirmed = $state(false);
 
             <div class="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 <p class="font-medium">{t("account.danger_zone.warning_title")}</p>
-                <p class="mt-1">{t("account.danger_zone.warning_grace", { days: data.graceDays })}</p>
+                <p class="mt-1">{t("account.danger_zone.warning_immediate")}</p>
                 <p class="mt-1">{t("account.danger_zone.warning_recovery")}</p>
             </div>
 

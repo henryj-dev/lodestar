@@ -5,7 +5,7 @@ import { requireDbContext } from "$lib/server/auth/guards";
 import { escapeHtml, replacePlaceholders, resolveSkinByHint } from "$lib/server/skin/resolver";
 import { users, inviteTokens, credentials } from "$lib/server/db/schema";
 import { hashToken } from "$lib/server/email";
-import { hashPassword, MAX_PASSWORD_LENGTH } from "$lib/server/auth/password";
+import { checkPasswordPolicy, hashPassword } from "$lib/server/auth/password";
 import { isBreachCheckEnabled, isPasswordBreached } from "$lib/server/auth/breach-check";
 import { PASSWORD_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { runAtomic } from "$lib/server/db/atomic";
@@ -84,8 +84,9 @@ export const actions: Actions = {
 
         if (!token) return failWithSkin(400, translate(locale, "accept_invite.invalid_link"));
         // 비밀번호 정책 재사용 — reset_password 와 동일(8자 이상, 확인 일치).
-        if (password.length < 8) return failWithSkin(400, translate(locale, "accept_invite.err_password_short"));
-        if (password.length > MAX_PASSWORD_LENGTH) return failWithSkin(400, translate(locale, "errors.password_too_long", { max: MAX_PASSWORD_LENGTH }));
+        const violation = checkPasswordPolicy(password);
+        if (violation === "too_short") return failWithSkin(400, translate(locale, "accept_invite.err_password_short"));
+        if (violation) return failWithSkin(400, translate(locale, "errors.password_weak"));
         // ctrls R5: HIBP 유출 비밀번호 차단(운영자 opt-in). 오류 시 fail-open.
         if (isBreachCheckEnabled() && (await isPasswordBreached(password))) return failWithSkin(400, translate(locale, "accept_invite.err_password_breached"));
         if (password !== confirmPassword) return failWithSkin(400, translate(locale, "accept_invite.err_password_mismatch"));

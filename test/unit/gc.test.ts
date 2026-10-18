@@ -6,6 +6,18 @@ import { runExpiredDataGc } from "$lib/server/db/gc";
 import { REFRESH_TOKEN_TTL_MS } from "$lib/server/oidc/refresh";
 import { SESSION_TTL_MS } from "$lib/server/auth/constants";
 
+// users 하드삭제는 식별자 기록(retired_subjects)과 함께 runAtomic 으로 지우는데, 이 목 DB 는 batch 를
+// 흉내 내지 않는다. 그래서 삭제 함수만 목으로 바꿔 "어떤 사용자를 지우는지" 를 같은 delete 캡처로 남긴다.
+vi.mock("$lib/server/auth/account-deletion", async () => {
+    const { eq } = await import("drizzle-orm");
+    const { users } = await import("$lib/server/db/schema");
+    return {
+        retireAndDeleteUser: async (db: { delete: (t: unknown) => { where: (w: unknown) => Promise<unknown> } }, _tenantId: string, userId: string) => {
+            await db.delete(users).where(eq(users.id, userId));
+        },
+    };
+});
+
 // ── 순수 로직 검증용 목(mock) ──────────────────────────────────────────────
 // runExpiredDataGc 는 각 테이블에 대해 db.delete(table).where(cond) 만 호출한다.
 // (직접 DELETE + import 된 purge 함수 모두 동일 shape.) mock 은 delete 대상 테이블명과
@@ -50,7 +62,9 @@ function makeDb(opts: { failFor?: string[] } = {}) {
                     async limit() {
                         if (opts.failFor?.includes(name)) throw new Error(`boom:${name}`);
                         if (this._where) selects.push({ table: name, where: this._where });
-                        return name === "users" ? [{ id: "u1" }] : [];
+                        if (name === "users") return [{ id: "u1", tenantId: "t1" }];
+                        if (name === "audit_events") return [{ id: "a1" }];
+                        return [];
                     },
                 };
                 return builder;
@@ -94,6 +108,7 @@ const ALL_TABLES = [
     "saml_sessions",
     "sessions",
     "users",
+    "audit_events",
 ];
 
 describe("runExpiredDataGc — 보수적 만료 조건", () => {
@@ -194,9 +209,9 @@ describe("runExpiredDataGc — 보수적 만료 조건", () => {
         expect(cutoff).toBeGreaterThanOrEqual(start - 5_000);
         expect(cutoff).toBeLessThanOrEqual(end);
 
-        // 조회된 id 로 실제 삭제(inArray)가 배치 수행된다.
+        // 조회된 사용자마다 식별자 기록과 함께 지운다(retireAndDeleteUser — 여기서는 목).
         const delSql = whereFor(deletes, "users").sql;
-        expect(delSql).toContain('"users"."id" in');
+        expect(delSql).toContain('"users"."id" = ?');
     });
 
     it("invite_tokens: 만료(expiresAt 경과) 또는 소진(usedAt 설정) 토큰을 삭제한다(유효 대기분 보존)", async () => {
@@ -247,16 +262,26 @@ describe("runExpiredDataGc — purge 함수의 방언 안전성", () => {
     }
 });
 
-describe("runExpiredDataGc — rate_limits 는 Workers 에서만 청소한다", () => {
-    // resolveRateLimitStore 가 Workers 가 아니면 MemoryRateLimitStore 를 쓰므로 Node 배포는
-    // rate_limits 테이블에 애초에 쓰지 않는다. 쓰지도 않는 테이블을 매시간 지우러 가지 않는다.
-    it("Node(isWorkers:false)에서는 rate_limits 를 건너뛴다", async () => {
+describe("runExpiredDataGc — rate_limits 는 db 저장소를 쓸 때만 청소한다", () => {
+    // 회원 공통 정책으로 Node 기본 저장소도 db 다(resolveRateLimitStore auto → db). memory/redis 를
+    // 명시한 Node 배포만 rate_limits 에 쓰지 않으므로 청소를 건너뛴다.
+    afterEach(() => {
+        delete process.env.RATELIMIT_STORE;
+    });
+
+    it("Node 기본값(auto)에서는 rate_limits 를 청소한다", async () => {
+        const { db, deletes } = makeDb();
+        await runExpiredDataGc(db, { isWorkers: false });
+        expect(deletes.map((d) => d.table)).toContain("rate_limits");
+    });
+
+    it("Node 에서 RATELIMIT_STORE=memory 면 rate_limits 를 건너뛴다", async () => {
+        process.env.RATELIMIT_STORE = "memory";
         const { db, deletes } = makeDb();
         const result = await runExpiredDataGc(db, { isWorkers: false });
 
         expect(deletes.map((d) => d.table)).not.toContain("rate_limits");
         expect(result.tables.map((t) => t.table)).not.toContain("rate_limits");
-        // 나머지 테이블은 그대로 다 돈다.
         const expected = ALL_TABLES.filter((t) => t !== "rate_limits");
         expect(deletes.map((d) => d.table).sort()).toEqual([...expected].sort());
     });
@@ -265,6 +290,20 @@ describe("runExpiredDataGc — rate_limits 는 Workers 에서만 청소한다", 
         const { db, deletes } = makeDb();
         await runExpiredDataGc(db, { isWorkers: true });
         expect(deletes.map((d) => d.table)).toContain("rate_limits");
+    });
+});
+
+describe("runExpiredDataGc — audit_events 1년 보존", () => {
+    it("1년보다 오래된 감사 로그만 고른다", async () => {
+        const start = Date.now();
+        const { db, selects } = makeDb();
+        await runExpiredDataGc(db, { isWorkers: true });
+        const { sql, params } = whereFor(selects, "audit_events");
+        expect(sql).toContain('"audit_events"."created_at" < ?');
+        const cutoff = params[0] as number;
+        const YEAR = 365 * 24 * 60 * 60 * 1000;
+        expect(cutoff).toBeLessThanOrEqual(Date.now() - YEAR);
+        expect(cutoff).toBeGreaterThanOrEqual(start - YEAR - 5_000);
     });
 });
 

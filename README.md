@@ -69,25 +69,25 @@ them by name.
 
 ## What it does
 
-| Feature                   |                                                                                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **OIDC**                  | Authorization Code + PKCE, refresh tokens (rotation and reuse detection), UserInfo, JWKS, introspection, revocation, end-session                                               |
-| **SAML 2.0**              | SP-initiated SSO (HTTP-Redirect and HTTP-POST bindings), assertion signing and encryption, `ForceAuthn`, `IsPassive`, `RequestedAuthnContext`, SLO                             |
-| **ACR / AMR**             | ACR decided from how the session authenticated — carried in the SAML assertion and the OIDC ID token                                                                           |
-| **Re-auth policy**        | Per client and per SP: require an MFA-level session, and choose whether re-authentication takes the password again or just an OTP on the live session                          |
-| **WebAuthn / Passkey**    | Passkey registration and authentication, single-use challenges held in the database, tenant isolation                                                                          |
-| **TOTP 2FA**              | Compatible with Google Authenticator and the like, with backup codes                                                                                                           |
-| **LDAP**                  | LDAP authentication and JIT user provisioning, providers configured from the admin UI                                                                                          |
-| **Account self-service**  | Profile, email change, password reset and recovery, MFA enrollment, passkey add and remove, active session listing and revocation, account deletion with a 30-day grace period |
-| **Consent & terms**       | First-use consent for OIDC scopes and SAML attributes (required/optional split), per-app terms of service with versioning and per-item agreement records                       |
-| **Service authorization** | Per-service (RP) `roles` assignment and `entitlements` grants — issued as OIDC claims, with a SET notification to the RP on change                                             |
-| **Service API tokens**    | Scope-limited bearer tokens issued and revoked per caller from the admin console                                                                                               |
-| **Organization**          | Department → team → part hierarchy, grades and titles, multiple memberships                                                                                                    |
-| **Multi-tenant**          | Users, clients and keys are managed independently per tenant                                                                                                                   |
-| **Admin UI**              | CRUD for users, organization (departments, teams, parts, grades), OIDC clients, SAML SPs, LDAP providers, signing keys, service tokens, login skins and audit logs             |
-| **Custom login skins**    | Per-client HTML and CSS for 10 auth screens (login, signup, MFA, logout …), sanitized server-side, cached in R2 or S3-compatible storage                                       |
-| **Audit log**             | Logins, SSO and token issuance recorded automatically, each row carrying an integrity MAC, browsable from the admin UI                                                         |
-| **i18n**                  | Message-catalog internationalization — Korean and English (`ko` / `en`)                                                                                                        |
+| Feature                   |                                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **OIDC**                  | Authorization Code + PKCE, refresh tokens (rotation and reuse detection), UserInfo, JWKS, introspection, revocation, end-session                                   |
+| **SAML 2.0**              | SP-initiated SSO (HTTP-Redirect and HTTP-POST bindings), assertion signing and encryption, `ForceAuthn`, `IsPassive`, `RequestedAuthnContext`, SLO                 |
+| **ACR / AMR**             | ACR decided from how the session authenticated — carried in the SAML assertion and the OIDC ID token                                                               |
+| **Re-auth policy**        | Per client and per SP: require an MFA-level session, and choose whether re-authentication takes the password again or just an OTP on the live session              |
+| **WebAuthn / Passkey**    | Passkey registration and authentication, single-use challenges held in the database, tenant isolation                                                              |
+| **TOTP 2FA**              | Compatible with Google Authenticator and the like, with backup codes                                                                                               |
+| **LDAP**                  | LDAP authentication and JIT user provisioning, providers configured from the admin UI                                                                              |
+| **Account self-service**  | Profile, email change, password reset and recovery, MFA enrollment, passkey add and remove, active session listing and revocation, immediate account deletion      |
+| **Consent & terms**       | First-use consent for OIDC scopes and SAML attributes (required/optional split), per-app terms of service with versioning and per-item agreement records           |
+| **Service authorization** | Per-service (RP) `roles` assignment and `entitlements` grants — issued as OIDC claims, with a SET notification to the RP on change                                 |
+| **Service API tokens**    | Scope-limited bearer tokens issued and revoked per caller from the admin console                                                                                   |
+| **Organization**          | Department → team → part hierarchy, grades and titles, multiple memberships                                                                                        |
+| **Multi-tenant**          | Users, clients and keys are managed independently per tenant                                                                                                       |
+| **Admin UI**              | CRUD for users, organization (departments, teams, parts, grades), OIDC clients, SAML SPs, LDAP providers, signing keys, service tokens, login skins and audit logs |
+| **Custom login skins**    | Per-client HTML and CSS for 10 auth screens (login, signup, MFA, logout …), sanitized server-side, cached in R2 or S3-compatible storage                           |
+| **Audit log**             | Logins, SSO and token issuance recorded automatically, each row carrying an integrity MAC, browsable from the admin UI                                             |
+| **i18n**                  | Message-catalog internationalization — Korean and English (`ko` / `en`)                                                                                            |
 
 ### ACR / AMR mapping
 
@@ -284,7 +284,7 @@ in regular use.
 | `IDP_DEFAULT_TENANT_NAME`           | optional    | Default tenant name (default `My Organization`)                                                                                                                                                     |
 | `IDP_TENANT_BASE_DOMAIN`            | optional    | Base domain for `<tenant-slug>.<base-domain>` routing. Explicit `/t/<tenant-slug>/…` paths also work                                                                                                |
 | `IDP_TENANT_ISSUER_MODE`            | optional    | `shared` (default), `host` or `path` — per-tenant OIDC/SAML issuer strategy                                                                                                                         |
-| `RATELIMIT_STORE`                   | optional    | `auto` (default), `memory`, `db` or `redis` — use `db` or `redis` for multi-instance Node                                                                                                           |
+| `RATELIMIT_STORE`                   | optional    | `auto` (default, = `db` on Workers and Node), `memory` (single-process dev only), `db` or `redis`                                                                                                   |
 | `RATELIMIT_REDIS_URL` / `_TOKEN`    | conditional | Upstash-compatible Redis REST credentials, needed when `RATELIMIT_STORE=redis`                                                                                                                      |
 | `APP_INSTANCE_COUNT`                | optional    | Node instance count, used to warn when memory rate limiting is chosen for more than one                                                                                                             |
 | `IDP_ENFORCE_SP_CERT_VALIDITY`      | optional    | Enforce SAML SP certificate validity periods. **On by default** — only `"false"` relaxes it                                                                                                         |
@@ -639,8 +639,11 @@ helper `scripts/lib/db.ts`, and reach D1 over its REST API.
 
 ### Password hashing
 
-New passwords are hashed with **scrypt** (native `node:crypto`, N=2^15, r=8, p=3 — about 32 MiB,
-an OWASP-recommended combination). It behaves identically on Workers, Node and Bun.
+New passwords are hashed with **scrypt** (native `node:crypto`, N=2^16, r=8, p=2 — about 64 MiB,
+sized for the Workers limits). It behaves identically on Workers, Node and Bun. Passwords are
+NFC-normalized before checking and hashing, and must be at least 8 characters mixing three of
+lowercase, uppercase, digits and symbols; there is no maximum length (auth request bodies are
+capped at 64 KiB instead). Hashes made with older parameters are re-hashed on the next login.
 
 Legacy hashes stored as **argon2id** (`@hicaru/argon2-pure.js`) or **PBKDF2-SHA256** still verify,
 and are **re-hashed to scrypt automatically on a successful login**. argon2id was abandoned

@@ -162,6 +162,13 @@
       "when": 1788150007975,
       "tag": "0022_remarkable_bug",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1792336030401,
+      "tag": "0023_greedy_ink",
+      "breakpoints": true
     }
   ]
 }

@@ -3,7 +3,7 @@ import type { Cookies } from "@sveltejs/kit";
 import { dev } from "$app/environment";
 import type { DB } from "$lib/server/db";
 import { sessions, users } from "$lib/server/db/schema";
-import { SESSION_COOKIE_NAME, SESSION_TTL_MS } from "./constants";
+import { SESSION_COOKIE_NAME, SESSION_IDLE_TIMEOUT_MS, SESSION_TTL_MS } from "./constants";
 
 function bytesToBase64Url(bytes: Uint8Array): string {
     return btoa(String.fromCharCode(...bytes))
@@ -98,6 +98,11 @@ export interface ActiveSessionInfo {
  * 사용자의 활성(revokedAt IS NULL·미만료) 세션 목록을 최근 활동 순으로 반환한다.
  * 셀프서비스 세션 관리 화면에서 사용한다.
  */
+/** 이 시각 이전에 마지막으로 활동한 세션은 유휴 만료다. */
+function idleCutoff(now: Date): Date {
+    return new Date(now.getTime() - SESSION_IDLE_TIMEOUT_MS);
+}
+
 export async function listActiveSessions(db: DB, userId: string): Promise<ActiveSessionInfo[]> {
     const now = new Date();
     return db
@@ -109,7 +114,7 @@ export async function listActiveSessions(db: DB, userId: string): Promise<Active
             createdAt: sessions.createdAt,
         })
         .from(sessions)
-        .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt), gt(sessions.expiresAt, now)))
+        .where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt), gt(sessions.expiresAt, now), gt(sessions.lastSeenAt, idleCutoff(now))))
         .orderBy(desc(sessions.lastSeenAt));
 }
 
@@ -144,7 +149,17 @@ export async function getSessionContext(db: DB, sessionToken: string, tenantId?:
         .select({ session: sessions, user: users })
         .from(sessions)
         .innerJoin(users, eq(sessions.userId, users.id))
-        .where(and(eq(sessions.idpSessionId, tokenHash), gt(sessions.expiresAt, now), isNull(sessions.revokedAt), eq(users.status, "active"), tenantId ? eq(sessions.tenantId, tenantId) : undefined))
+        .where(
+            and(
+                eq(sessions.idpSessionId, tokenHash),
+                gt(sessions.expiresAt, now),
+                // 유휴 만료: 마지막 활동이 30분보다 오래됐으면 세션으로 인정하지 않는다.
+                gt(sessions.lastSeenAt, idleCutoff(now)),
+                isNull(sessions.revokedAt),
+                eq(users.status, "active"),
+                tenantId ? eq(sessions.tenantId, tenantId) : undefined,
+            ),
+        )
         .limit(1);
 
     return row ?? null;
