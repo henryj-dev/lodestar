@@ -18,3 +18,6 @@ d48992c3dd491706b9795d1e2ae3de3d234eadcf:test/unit/crypto-keys.test.ts:generic-a
 
 # False positive: TOTP 등록 티켓 단위 테스트의 가짜 base32 secret 리터럴("KRSXG5CTMVRXEZLU") — 실제 시크릿 아님
 28128e59447ee0b6dae8a0a912ec9a0063c15e25:test/unit/totp-enroll-ticket.test.ts:generic-api-key:19
+
+# 같은 오탐이 #157 squash 머지 커밋에 다시 나타난 것 — 실제 시크릿 아님
+264cde29a8012395abcdd7c59c5ca2bc0b34b3bb:test/unit/totp-enroll-ticket.test.ts:generic-api-key:19

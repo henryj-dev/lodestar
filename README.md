@@ -94,12 +94,22 @@ them by name.
 ACR is derived from how the session authenticated (AMR) and carried into both the SAML
 assertion and the OIDC ID token.
 
-| Authentication         | AMR           | ACR                                                                 |
-| ---------------------- | ------------- | ------------------------------------------------------------------- |
-| Password only          | `pwd`         | `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport` |
-| Password + TOTP        | `pwd`, `totp` | `https://refeds.org/profile/mfa`                                    |
-| Password + backup code | `pwd`, `swk`  | `https://refeds.org/profile/mfa`                                    |
-| WebAuthn / Passkey     | `hwk`         | `https://refeds.org/profile/mfa`                                    |
+| Authentication                           | AMR                                     | ACR                                                                 |
+| ---------------------------------------- | --------------------------------------- | ------------------------------------------------------------------- |
+| Password only                            | `pwd`                                   | `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport` |
+| Password + TOTP                          | `pwd`, `totp`                           | `https://refeds.org/profile/mfa`                                    |
+| Password + backup code                   | `pwd`, `swk`                            | `https://refeds.org/profile/mfa`                                    |
+| WebAuthn / Passkey                       | `hwk`                                   | `https://refeds.org/profile/mfa`                                    |
+| Password + trusted device (TOTP skipped) | `pwd`, `trusted_device`                 | `https://refeds.org/profile/mfa`                                    |
+| Social login + TOTP / trusted device     | `fed`, `totp` / `fed`, `trusted_device` | `https://refeds.org/profile/mfa`                                    |
+
+`amr` is carried in every ID token — the one from the authorization code exchange as well as
+refreshed ones. A login on a 14-day trusted device skips the TOTP prompt, so it says
+`trusted_device` instead of `totp`; its ACR stays MFA so `require_mfa` behaves as before. An RP
+that needs TOTP performed in this login should check `amr` for `totp`, or ask for re-authentication
+with `prompt=login` / `max_age` (re-authentication never applies the trusted device). To decide
+whether a login reached MFA level, check `acr`, not the presence of `totp` in `amr`. Once the
+session passes TOTP again in a step-up, `trusted_device` is replaced by `totp`.
 
 When a SAML SP demands a particular ACR through `RequestedAuthnContext` and the session's
 ACR does not meet it, re-authentication is forced. If it cannot be met at all — no MFA
