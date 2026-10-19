@@ -1,4 +1,5 @@
 import { fail, redirect } from "@sveltejs/kit";
+import { checkThrottle, clearThrottle, mfaThrottleScope, recordThrottleFailure } from "$lib/server/auth/login-throttle";
 import { eq, and, isNull } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { dev } from "$app/environment";
@@ -254,6 +255,14 @@ export const actions: Actions = {
             return fail(429, { error: msg, skinHtml: await resolveMfaSkinForAction(event, msg) });
         }
 
+        // 계정+IP 지수 지연(회원 공통 정책) — 로그인과 같은 규칙(login-throttle.ts).
+        const mfaScope = mfaThrottleScope(claims.tenantId, claims.userId, getRequestMetadata(event).ipKey);
+        const mfaThrottle = await checkThrottle(event.locals.rateLimitStore, mfaScope);
+        if (!mfaThrottle.allowed) {
+            const msg = translate(locale, "mfa_login.err_throttled", { seconds: Math.ceil(mfaThrottle.retryAfterMs / 1000) });
+            return fail(429, { error: msg, skinHtml: await resolveMfaSkinForAction(event, msg) });
+        }
+
         const formData = await event.request.formData();
         const code = String(formData.get("code") ?? "")
             .trim()
@@ -342,9 +351,11 @@ export const actions: Actions = {
                 detail: { method: useBackup ? "backup_code" : "totp" },
             });
 
+            await recordThrottleFailure(event.locals.rateLimitStore, mfaScope);
             const msg = useBackup ? translate(locale, "mfa_login.err_invalid_backup") : translate(locale, "mfa_login.err_invalid_totp");
             return fail(400, { error: msg, skinHtml: await resolveMfaSkinForAction(event, msg) });
         }
+        await clearThrottle(event.locals.rateLimitStore, mfaScope);
 
         // 백업 코드로 통과한 경우: 소진 처리 후 남은 미사용 코드 수를 계산해
         // 저잔량(≤임계값) 경고 / 소진(0) 알림을 보안 메일로 발송한다(fire-and-forget).

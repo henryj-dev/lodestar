@@ -5,10 +5,11 @@ import { requireAdminContext, assertNotLastAdmin } from "$lib/server/auth/guards
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { dispatchSecurityAlert } from "$lib/server/security-notify";
 import { users, credentials, inviteTokens } from "$lib/server/db/schema";
-import { hashPassword } from "$lib/server/auth/password";
+import { checkPasswordPolicy, hashPassword } from "$lib/server/auth/password";
 import { normalizeEmail, normalizeUsername } from "$lib/server/auth/users";
 import { PASSWORD_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
+import { deleteUserNow } from "$lib/server/auth/account-deletion";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
 import { runAtomic } from "$lib/server/db/atomic";
 import { issueInvite } from "$lib/server/auth/invite";
@@ -111,8 +112,9 @@ export const actions: Actions = {
         if (!email || !password) {
             return fail(400, { create: true, error: adminError(locale, "email_password_required") });
         }
-        if (password.length < 8) {
-            return fail(400, { create: true, error: adminError(locale, "password_min_length") });
+        const createViolation = checkPasswordPolicy(password);
+        if (createViolation) {
+            return fail(400, { create: true, error: adminError(locale, createViolation === "too_short" ? "password_min_length" : "password_weak") });
         }
         if (!["admin", "user"].includes(role)) {
             return fail(400, { create: true, error: adminError(locale, "invalid_role") });
@@ -373,8 +375,9 @@ export const actions: Actions = {
         if (!id || !newPassword) {
             return fail(400, { resetPassword: true, error: adminError(locale, "password_required") });
         }
-        if (newPassword.length < 8) {
-            return fail(400, { resetPassword: true, error: adminError(locale, "password_min_length") });
+        const resetViolation = checkPasswordPolicy(newPassword);
+        if (resetViolation) {
+            return fail(400, { resetPassword: true, error: adminError(locale, resetViolation === "too_short" ? "password_min_length" : "password_weak") });
         }
 
         // 대상 유저가 같은 테넌트인지 확인
@@ -443,7 +446,16 @@ export const actions: Actions = {
         const lastAdminFail = await assertNotLastAdmin(db, tenant.id, id);
         if (lastAdminFail) return lastAdminFail;
 
-        await db.delete(users).where(and(eq(users.id, id), eq(users.tenantId, tenant.id)));
+        const [exists] = await db
+            .select({ id: users.id })
+            .from(users)
+            .where(and(eq(users.id, id), eq(users.tenantId, tenant.id)))
+            .limit(1);
+        if (!exists) return fail(404, { error: adminError(locale, "user_not_found") });
+
+        // 즉시 삭제: RP 에 로그아웃을 통지하고(행이 살아 있을 때), 식별자를 기록한 뒤 지운다.
+        // 예전에는 행만 지워 cascade 로 세션이 사라졌을 뿐 RP 는 통지를 받지 못했다.
+        await deleteUserNow(event, { db, tenant, userId: id, actorId: locals.user!.id, reason: "deleted_by_admin" });
 
         const requestMetadata = getRequestMetadata(event);
         await recordAuditEvent(db, {

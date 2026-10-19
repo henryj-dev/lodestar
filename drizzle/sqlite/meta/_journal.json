@@ -162,6 +162,13 @@
       "when": 1788150007488,
       "tag": "0022_late_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1792336031527,
+      "tag": "0023_little_meteorite",
+      "breakpoints": true
     }
   ]
 }

@@ -74,7 +74,7 @@ Event Token 으로 RP 에 통지됩니다. SAML SP 는 이름으로 허용받은
 | **WebAuthn / Passkey** | 패스키 등록 및 인증, challenge 1회용 DB 처리, 테넌트 격리                                                                     |
 | **TOTP 2FA**           | Google Authenticator 등 호환, 백업 코드 지원                                                                                  |
 | **LDAP 연동**          | LDAP 인증 및 JIT 사용자 프로비저닝, 관리자 UI에서 프로바이더 설정                                                             |
-| **계정 자가 관리**     | 프로필 편집, 이메일 변경, 비밀번호 재설정/찾기, MFA 등록, Passkey 등록·해제, 활성 세션 조회·철회, 탈퇴(30일 유예)             |
+| **계정 자가 관리**     | 프로필 편집, 이메일 변경, 비밀번호 재설정/찾기, MFA 등록, Passkey 등록·해제, 활성 세션 조회·철회, 탈퇴(즉시 삭제)             |
 | **동의 · 약관**        | OIDC 스코프 / SAML 속성 최초 이용 동의(필수·선택 분리), 앱별 약관 버전 관리와 항목별 동의 기록                                |
 | **서비스 권한**        | 서비스(RP)별 `roles` 배정과 `entitlements` 부여 — OIDC 클레임으로 발행, 변경 시 RP 에 SET 통지                                |
 | **서비스 API 토큰**    | 호출자별 스코프 제한 Bearer 토큰 발급·폐기 (관리 콘솔)                                                                        |
@@ -244,7 +244,7 @@ scripts/setup.ts           # 대화형 초기 셋업 스크립트
 | `IDP_DEFAULT_TENANT_NAME`           | 선택 | 기본 테넌트 이름 (기본: `My Organization`)                                                                                                                                    |
 | `IDP_TENANT_BASE_DOMAIN`            | 선택 | `<tenant-slug>.<base-domain>` 서브도메인 라우팅 기준 도메인. 명시 경로 `/t/<tenant-slug>/...`도 지원                                                                          |
 | `IDP_TENANT_ISSUER_MODE`            | 선택 | `shared`(기본)                                                                                                                                                                | `host`   | `path` — tenant별 OIDC/SAML issuer 전략 |
-| `RATELIMIT_STORE`                   | 선택 | `auto`(기본)                                                                                                                                                                  | `memory` | `db`                                    | `redis` — Node 다중 인스턴스는 `db`/`redis` 권장 |
+| `RATELIMIT_STORE`                   | 선택 | `auto`(기본, Workers·Node 모두 `db`)                                                                                                                                          | `memory` | `db`                                    | `redis` — Node 다중 인스턴스는 `db`/`redis` 권장 |
 | `RATELIMIT_REDIS_URL/TOKEN`         | 조건 | `RATELIMIT_STORE=redis`일 때 필요한 Upstash 호환 Redis REST 접속 정보                                                                                                         |
 | `APP_INSTANCE_COUNT`                | 선택 | Node 인스턴스 수. memory rate-limit 선택 시 다중 인스턴스 경고에 사용                                                                                                         |
 | `IDP_ENFORCE_SP_CERT_VALIDITY`      | 선택 | SAML SP 인증서 유효기간 강제 검증. **기본 on** — `"false"` 로만 완화                                                                                                          |
@@ -531,7 +531,7 @@ bun run db:migrate:preview  # D1 프리뷰
 
 ### 비밀번호 해싱
 
-신규 비밀번호는 **scrypt** (`node:crypto` 네이티브, N=2^15·r=8·p=3 ≒ 32 MiB — OWASP 권고 조합)로 해싱됩니다. Workers·Node·Bun 모두에서 동일하게 동작합니다.
+신규 비밀번호는 **scrypt** (`node:crypto` 네이티브, N=2^16·r=8·p=2 ≒ 64 MiB — Workers 한도에 맞춘 값)로 해싱됩니다. Workers·Node·Bun 모두에서 동일하게 동작합니다. 비밀번호는 판정·해시 전에 NFC 로 정규화하고, 8자 이상에 영소문자·영대문자·숫자·특수문자 중 3종류 이상을 섞어야 합니다. 최대 길이는 없고 대신 인증 요청 본문을 64 KiB 로 제한합니다. 예전 매개변수로 만든 해시는 다음 로그인 때 다시 저장됩니다.
 
 과거 **argon2id**(`@hicaru/argon2-pure.js`)와 **PBKDF2-SHA256** 으로 저장된 레거시 해시는 검증은 계속 지원되며, **로그인 성공 시 자동으로 scrypt 로 재해싱**됩니다. argon2id 에서 전환한 이유는 순수 JS 구현이 verify 1회에 약 4.4초의 CPU 를 써서 Workers 요청 지연의 주원인이었기 때문입니다(자세한 판단 근거는 `src/lib/server/auth/password.ts` 상단 주석).
 

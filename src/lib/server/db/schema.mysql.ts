@@ -280,6 +280,29 @@ export const trustedDevices = mysqlTable(
 
 // ---------- OIDC ----------
 
+/**
+ * 탈퇴(즉시 삭제)한 계정의 식별자 기록(회원 공통 정책 2026-10-18). 개인정보는 남기지 않는다.
+ * 자세한 설명은 schema.sqlite.ts 의 같은 테이블 주석 참고.
+ */
+export const retiredSubjects = mysqlTable(
+    "retired_subjects",
+    {
+        id: varchar("id", { length: 64 })
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: varchar("tenant_id", { length: 64 })
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        provider: varchar("provider", { length: 255 }).notNull(),
+        subject: varchar("subject", { length: 255 }).notNull(),
+        issuer: text("issuer"),
+        retiredAt: datetime("retired_at", { mode: "date", fsp: 3 })
+            .notNull()
+            .default(sql`(CURRENT_TIMESTAMP(3))`),
+    },
+    (t) => [uniqueIndex("retired_subjects_tenant_provider_subject_uidx").on(t.tenantId, t.provider, t.subject)],
+);
+
 export const oidcClients = mysqlTable(
     "oidc_clients",
     {
@@ -764,7 +787,12 @@ export const auditEvents = mysqlTable(
             .notNull()
             .default(sql`(CURRENT_TIMESTAMP(3))`),
     },
-    (t) => [index("audit_events_tenant_kind_idx").on(t.tenantId, t.kind), index("audit_events_tenant_created_idx").on(t.tenantId, t.createdAt), index("audit_events_user_idx").on(t.userId)],
+    (t) => [
+        index("audit_events_tenant_kind_idx").on(t.tenantId, t.kind),
+        index("audit_events_tenant_created_idx").on(t.tenantId, t.createdAt),
+        index("audit_events_created_idx").on(t.createdAt),
+        index("audit_events_user_idx").on(t.userId),
+    ],
 );
 
 // ---------- Organization ----------

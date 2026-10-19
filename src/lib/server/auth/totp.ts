@@ -7,7 +7,7 @@
  *   (레거시 무염 SHA-256 해시는 검증 시 하위호환 처리)
  */
 
-import { hashPassword, verifyPassword } from "$lib/server/auth/password";
+import { hashBackupSecret, verifyKdfHash } from "$lib/server/auth/password";
 import { and, eq, isNull, lt } from "drizzle-orm";
 import { credentials } from "$lib/server/db/schema";
 import { DB_DIALECT, type DB } from "$lib/server/db";
@@ -273,19 +273,19 @@ export function generateBackupCodes(): string[] {
  * KDF 를 재사용한다. 코드는 대문자 정규화 후 해싱한다.
  */
 export async function hashBackupCode(code: string): Promise<string> {
-    return hashPassword(code.toUpperCase());
+    return hashBackupSecret(code.toUpperCase());
 }
 
 /**
  * 입력한 코드가 저장된 해시와 일치하는지 검증한다.
- * - scrypt/argon2/pbkdf2 형식: 패스워드 KDF(verifyPassword)로 상수시간 검증.
+ * - scrypt/argon2/pbkdf2 형식: KDF 대조(verifyKdfHash)로 상수시간 검증.
  * - 레거시 무염 SHA-256 hex: 하위호환을 위해 상수시간 비교(이미 저장된 코드 대상).
  *   백업 코드는 일회성이라 사용 즉시 소진되므로 레거시 해시는 자연 소멸한다.
  */
 export async function verifyBackupCode(code: string, storedHash: string): Promise<boolean> {
     if (storedHash.startsWith("scrypt$") || storedHash.startsWith("$argon2") || storedHash.startsWith("pbkdf2$")) {
-        const { valid } = await verifyPassword(code.toUpperCase(), storedHash);
-        return valid;
+        // 재해시 없이 대조만 한다 — 백업 코드는 1회용이라 다시 저장할 일이 없다.
+        return verifyKdfHash(code.toUpperCase(), storedHash);
     }
     // 레거시 무염 SHA-256 hex.
     const enc = new TextEncoder();

@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { resolveSkinHtml, replacePlaceholders, escapeHtml } from "$lib/server/skin/resolver";
 import { requireDbContext } from "$lib/server/auth/guards";
-import { hashPassword, MAX_PASSWORD_LENGTH } from "$lib/server/auth/password";
+import { checkPasswordPolicy, hashPassword, normalizePassword } from "$lib/server/auth/password";
 import { isBreachCheckEnabled, isPasswordBreached } from "$lib/server/auth/breach-check";
 import { users, credentials, identities } from "$lib/server/db/schema";
 import { resolve } from "$app/paths";
@@ -208,11 +208,12 @@ export const actions: Actions = {
         if (!username || !email || !password) return failSkin(400, translate(locale, "signup.err_missing_fields"));
         if (!/^[a-z0-9_]{3,32}$/.test(username)) return failSkin(400, translate(locale, "signup.err_invalid_username"));
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return failSkin(400, translate(locale, "signup.err_invalid_email"));
-        if (password.length < 8) return failSkin(400, translate(locale, "signup.err_password_short"));
-        if (password.length > MAX_PASSWORD_LENGTH) return failSkin(400, translate(locale, "errors.password_too_long", { max: MAX_PASSWORD_LENGTH }));
+        const violation = checkPasswordPolicy(password);
+        if (violation === "too_short") return failSkin(400, translate(locale, "signup.err_password_short"));
+        if (violation) return failSkin(400, translate(locale, "errors.password_weak"));
         // ctrls R5: HIBP 유출 비밀번호 차단(운영자 opt-in). 오류 시 fail-open.
-        if (isBreachCheckEnabled() && (await isPasswordBreached(password))) return failSkin(400, translate(locale, "signup.err_password_breached"));
-        if (password !== confirmPassword) return failSkin(400, translate(locale, "signup.err_password_mismatch"));
+        if (isBreachCheckEnabled() && (await isPasswordBreached(normalizePassword(password)))) return failSkin(400, translate(locale, "signup.err_password_breached"));
+        if (normalizePassword(password) !== normalizePassword(confirmPassword)) return failSkin(400, translate(locale, "signup.err_password_mismatch"));
 
         const [existingByUsername] = await db
             .select({ id: users.id })

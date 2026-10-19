@@ -10,6 +10,7 @@ import { clearTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE, verifyTrustedDevice } 
 import { AMR_PASSWORD, AMR_TOTP, amrToAcr } from "$lib/server/auth/constants";
 import { getRuntimeConfig } from "$lib/server/auth/runtime";
 import { checkRateLimit, peekRateLimit } from "$lib/server/ratelimit";
+import { checkThrottle, clearThrottle, loginThrottleScope, recordThrottleFailure } from "$lib/server/auth/login-throttle";
 import { and, eq } from "drizzle-orm";
 import { identityProviders, users } from "$lib/server/db/schema";
 import { authenticateLdap } from "$lib/server/ldap/auth";
@@ -153,6 +154,20 @@ export const actions: Actions = {
             });
         }
 
+        // 계정+IP 지수 지연(회원 공통 정책): 5회 실패 뒤 1초부터 두 배씩, 상한 15분. 인증 전에 막는다 —
+        // 키에 IP 가 들어가 있어 다른 곳의 공격자가 이 사용자를 막을 수 없다(login-throttle.ts).
+        const throttleScope = await loginThrottleScope(tenant.id, username, requestMetadata.ipKey);
+        const throttle = await checkThrottle(rateLimitStore, throttleScope);
+        if (!throttle.allowed) {
+            const msg = translate(locale, "login.err_throttled", { seconds: Math.ceil(throttle.retryAfterMs / 1000) });
+            return fail(429, {
+                username,
+                redirectTo,
+                error: msg,
+                skinHtml: await resolveSkinForAction(event, msg, redirectTo),
+            });
+        }
+
         // 계정 단위 잠금(S2, ctrls M-2): 동일 계정에 대한 연속 실패를 제한하되, 무인증
         // 공격자가 임의 username 으로 실패를 유발해 "올바른 비밀번호를 가진 피해자"를
         // 로그인 불가로 만드는 DoS 를 막는다.
@@ -277,6 +292,7 @@ export const actions: Actions = {
             // 실패 시에만 카운트(성공은 미카운트). 미존재/존재-오답 모두 이 분기를 타므로
             // 동일하게 기록되어 열거 오라클을 만들지 않는다.
             await checkRateLimit(rateLimitStore, userLockKey, { windowMs: USER_LOCK_WINDOW_MS, limit: USER_LOCK_LIMIT });
+            await recordThrottleFailure(rateLimitStore, throttleScope);
 
             await recordAuditEvent(db, {
                 tenantId: tenant.id,
@@ -307,6 +323,9 @@ export const actions: Actions = {
                 skinHtml: await resolveSkinForAction(event, msg, redirectTo),
             });
         }
+
+        // 1차 인증 성공 — 계정+IP 실패 기록을 지운다.
+        await clearThrottle(rateLimitStore, throttleScope);
 
         if (await hasTotpCredential(db, user.id)) {
             // MFA 단계로 진행

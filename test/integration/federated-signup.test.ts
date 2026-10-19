@@ -207,7 +207,7 @@ describe("연합 가입 — 계정 정책", () => {
     it("비밀번호를 설정하면 credential 도 함께 생긴다", async () => {
         const jar = await jarWithPendingLink(baseClaims());
 
-        await catchRedirect(() => actions.default(submit(jar, { username: "octocat", email: "octocat@example.com", password: "correct-horse-battery", confirmPassword: "correct-horse-battery" })));
+        await catchRedirect(() => actions.default(submit(jar, { username: "octocat", email: "octocat@example.com", password: "Correct-horse-battery9", confirmPassword: "Correct-horse-battery9" })));
 
         const [user] = await mem.db.select().from(users);
         const creds = await mem.db.select().from(credentials).where(eq(credentials.userId, user.id));
@@ -217,7 +217,7 @@ describe("연합 가입 — 계정 정책", () => {
 
     it("비밀번호 확인이 일치하지 않으면 거부한다", async () => {
         const jar = await jarWithPendingLink(baseClaims());
-        const result = (await actions.default(submit(jar, { username: "octocat", email: "octocat@example.com", password: "correct-horse-battery", confirmPassword: "wrong-value-here" }))) as {
+        const result = (await actions.default(submit(jar, { username: "octocat", email: "octocat@example.com", password: "Correct-horse-battery9", confirmPassword: "wrong-value-here" }))) as {
             status: number;
         };
         expect(result.status).toBe(400);

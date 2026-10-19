@@ -55,10 +55,11 @@
         "err_missing_credentials": "Please enter your username and password.",
         "err_rate_limit": "Too many login attempts. Please try again in {{minutes}} minutes.",
         "err_account_locked": "Too many login attempts. Please try again in {{minutes}} minutes.",
+        "err_throttled": "Too many login attempts. Please try again in {{seconds}} seconds.",
         "err_invalid_credentials": "The username or password is incorrect.",
         "err_mfa_config": "There is a problem with the two-factor authentication configuration. Please contact your administrator.",
         "err_account_deleting": "This account is being deleted and can no longer be used to sign in.",
-        "deletion_requested_notice": "Your account deletion has been received. You can recover your account by signing in again within the 30-day grace period.",
+        "deletion_requested_notice": "Your account has been deleted. Thank you for using the service.",
         "recovery_desc": "This account is scheduled for deletion. To keep using it, re-enter your password to recover the account.",
         "recovery_password_label": "Re-enter your password to recover",
         "recovery_confirm": "Recover account and sign in",
@@ -89,6 +90,7 @@
             "user_not_found": "User not found.",
             "name_required": "Name is required.",
             "password_min_length": "Password must be at least 8 characters.",
+            "password_weak": "Password must mix at least three of: lowercase letters, uppercase letters, digits, and special characters.",
             "csrf_failed": "CSRF validation failed. Please refresh the page and try again.",
             "invalid_expiry_format": "Invalid expiry date format.",
             "required_field_missing": "Required fields are missing.",
@@ -258,15 +260,15 @@
         },
         "danger_zone": {
             "title": "Delete account",
-            "subtitle": "Move your account into a pending-deletion state. During the grace period you can recover it by signing in again.",
+            "subtitle": "Deletes your account and personal data right away. A deleted account cannot be restored.",
             "warning_title": "Requesting deletion will do the following.",
-            "warning_grace": "If you request deletion now, your account will be permanently deleted in {{days}} days. Until then you can recover it by signing in.",
-            "warning_recovery": "You will be signed out of all devices immediately, and once the grace period passes your account and related data are permanently deleted.",
+            "warning_immediate": "Your account and personal data are deleted permanently as soon as you confirm. This cannot be undone.",
+            "warning_recovery": "You are signed out of every device and connected service immediately. Security audit records are kept for one year, unlinked from your account.",
             "password_label": "Password for identity verification",
             "totp_label": "Authenticator code (TOTP)",
             "confirm_label": "I understand the above and want to delete my account.",
-            "confirm_dialog": "Are you sure you want to request deletion? You will be signed out immediately and permanently deleted after the grace period.",
-            "submit": "Request account deletion",
+            "confirm_dialog": "Delete your account? It is deleted immediately and cannot be restored.",
+            "submit": "Delete account",
             "err_reauth": "Identity verification failed. Please check your password or authentication code.",
             "err_last_admin": "The last active administrator cannot delete their account. Please assign another administrator first."
         }
@@ -289,6 +291,7 @@
         "step_up_cancel": "Cancel and go back",
         "err_config": "There is a problem with your MFA configuration. Please try again later.",
         "err_rate_limit": "Too many verification attempts. Please try again later.",
+        "err_throttled": "Too many verification attempts. Please try again in {{seconds}} seconds.",
         "err_missing_code": "Please enter your code.",
         "err_invalid_totp": "Invalid authentication code.",
         "err_invalid_backup": "Invalid backup code.",
@@ -811,7 +814,7 @@
         "username_placeholder": "Lowercase letters, numbers, _ (3-32 characters)",
         "email_label": "Email",
         "password_label": "Password",
-        "password_placeholder": "At least 8 characters",
+        "password_placeholder": "8+ characters, 3 of upper·lower·digit·symbol",
         "confirm_password_label": "Confirm Password",
         "err_password_breached": "This password appears in a known data breach and cannot be used. Please choose a different one.",
         "submit": "Sign up",
@@ -860,7 +863,7 @@
         "title": "Reset Password",
         "subtitle": "Please enter your new password.",
         "password_label": "New Password",
-        "password_placeholder": "At least 8 characters",
+        "password_placeholder": "8+ characters, 3 of upper·lower·digit·symbol",
         "confirm_label": "Confirm Password",
         "err_invalid_request": "The reset link information is missing. Please open the link from your email again.",
         "err_password_short": "Password must be at least 8 characters.",
@@ -883,7 +886,7 @@
         "title": "Accept Invitation",
         "subtitle": "Set a password to complete your registration.",
         "password_label": "Password",
-        "password_placeholder": "At least 8 characters",
+        "password_placeholder": "8+ characters, 3 of upper·lower·digit·symbol",
         "confirm_label": "Confirm Password",
         "submit": "Complete Registration",
         "success": "Registration complete. You can now sign in.",
@@ -896,7 +899,7 @@
     },
     "errors": {
         "rate_limit": "Too many requests. Please try again in {{minutes}} minute(s).",
-        "password_too_long": "Password must be at most {{max}} characters.",
+        "password_weak": "Password must mix at least three of: lowercase letters, uppercase letters, digits, and special characters.",
         "db_not_ready": "The D1 binding \"DB\" is not ready. Please run in a Wrangler preview/dev environment."
     },
     "error_page": {
@@ -918,9 +921,9 @@
         "password_reset": {
             "subject": "Reset your password",
             "title": "Reset password",
-            "body": "Click the button below to reset your password. The link is valid for 1 hour.",
+            "body": "Click the button below to reset your password. The link is valid for 30 minutes.",
             "button": "Reset password",
-            "text": "Use the link below to reset your password. The link is valid for 1 hour."
+            "text": "Use the link below to reset your password. The link is valid for 30 minutes."
         },
         "verify": {
             "subject": "Verify your email",
@@ -1003,9 +1006,9 @@
             "body": "A passkey was removed from your account."
         },
         "account_deletion_requested": {
-            "subject": "[Security Alert] Account deletion requested",
-            "heading": "Account deletion requested",
-            "body": "Your account deletion was received and moved to a pending-deletion state. You can recover it by signing in again within the 30-day grace period. If you did not request this, sign in immediately to recover and change your password."
+            "subject": "[Security Alert] Your account was deleted",
+            "heading": "Your account was deleted",
+            "body": "Your account and personal data were deleted as requested. A deleted account cannot be restored. If you did not request this, reply to this email to let the operator know."
         },
         "email_change_requested": {
             "subject": "[Security Alert] An email address change was requested",

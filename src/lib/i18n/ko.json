@@ -55,10 +55,11 @@
         "err_missing_credentials": "아이디와 비밀번호를 입력해 주세요.",
         "err_rate_limit": "로그인 시도가 너무 많습니다. {{minutes}}분 후 다시 시도해 주세요.",
         "err_account_locked": "로그인 시도가 너무 많습니다. {{minutes}}분 후 다시 시도해 주세요.",
+        "err_throttled": "로그인 시도가 너무 많습니다. {{seconds}}초 후 다시 시도해 주세요.",
         "err_invalid_credentials": "아이디 또는 비밀번호가 올바르지 않습니다.",
         "err_mfa_config": "2단계 인증 설정에 문제가 있습니다. 관리자에게 문의해 주세요.",
         "err_account_deleting": "이 계정은 삭제 처리 중이며 더 이상 로그인할 수 없습니다.",
-        "deletion_requested_notice": "탈퇴가 접수되었습니다. 유예기간(30일) 내에 다시 로그인하면 계정을 복구할 수 있습니다.",
+        "deletion_requested_notice": "계정이 삭제되었습니다. 이용해 주셔서 감사합니다.",
         "recovery_desc": "이 계정은 탈퇴(삭제) 예정 상태입니다. 계속 사용하려면 비밀번호를 다시 입력해 계정을 복구하세요.",
         "recovery_password_label": "비밀번호를 다시 입력해 복구",
         "recovery_confirm": "계정 복구 후 로그인",
@@ -89,6 +90,7 @@
             "user_not_found": "사용자를 찾을 수 없습니다.",
             "name_required": "이름은 필수입니다.",
             "password_min_length": "비밀번호는 8자 이상이어야 합니다.",
+            "password_weak": "비밀번호는 영문 소문자·대문자·숫자·특수문자 중 3종류 이상을 섞어야 합니다.",
             "csrf_failed": "CSRF 검증에 실패했습니다. 페이지를 새로 고친 뒤 다시 시도해 주세요.",
             "invalid_expiry_format": "만료일 형식이 올바르지 않습니다.",
             "required_field_missing": "필수 항목이 누락되었습니다.",
@@ -258,15 +260,15 @@
         },
         "danger_zone": {
             "title": "계정 탈퇴",
-            "subtitle": "계정을 삭제 예정 상태로 전환합니다. 유예기간 동안은 다시 로그인해 복구할 수 있습니다.",
+            "subtitle": "계정과 개인정보를 바로 삭제합니다. 삭제한 계정은 되돌릴 수 없습니다.",
             "warning_title": "탈퇴하면 다음이 진행됩니다.",
-            "warning_grace": "지금 탈퇴를 신청하면 계정이 {{days}}일 후 영구 삭제됩니다. 그때까지는 로그인해서 복구할 수 있습니다.",
-            "warning_recovery": "탈퇴 즉시 모든 기기에서 로그아웃되며, 유예기간이 지나면 계정과 관련 데이터가 영구 삭제됩니다.",
+            "warning_immediate": "탈퇴를 신청하면 계정과 개인정보가 즉시 영구 삭제되며 복구할 수 없습니다.",
+            "warning_recovery": "모든 기기와 연결된 서비스에서 바로 로그아웃됩니다. 보안 감사 기록은 계정과의 연결을 끊은 채 1년 동안 보관됩니다.",
             "password_label": "본인 확인을 위한 비밀번호",
             "totp_label": "인증 앱 코드 (TOTP)",
             "confirm_label": "위 내용을 이해했으며 계정 탈퇴를 신청합니다.",
-            "confirm_dialog": "정말 탈퇴를 신청하시겠습니까? 즉시 로그아웃되며 유예기간이 지나면 영구 삭제됩니다.",
-            "submit": "계정 탈퇴 신청",
+            "confirm_dialog": "정말 탈퇴하시겠습니까? 계정이 즉시 삭제되며 되돌릴 수 없습니다.",
+            "submit": "계정 탈퇴",
             "err_reauth": "본인 확인에 실패했습니다. 비밀번호 또는 인증 코드를 확인해 주세요.",
             "err_last_admin": "마지막 활성 관리자는 탈퇴할 수 없습니다. 먼저 다른 관리자를 지정해 주세요."
         }
@@ -289,6 +291,7 @@
         "step_up_cancel": "취소하고 돌아가기",
         "err_config": "MFA 설정에 문제가 있습니다. 잠시 후 다시 시도해 주세요.",
         "err_rate_limit": "인증 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+        "err_throttled": "인증 시도가 너무 많습니다. {{seconds}}초 후 다시 시도해 주세요.",
         "err_missing_code": "코드를 입력해 주세요.",
         "err_invalid_totp": "인증 코드가 올바르지 않습니다.",
         "err_invalid_backup": "백업 코드가 올바르지 않습니다.",
@@ -811,7 +814,7 @@
         "username_placeholder": "영문 소문자, 숫자, _ (3~32자)",
         "email_label": "이메일",
         "password_label": "비밀번호",
-        "password_placeholder": "8자 이상",
+        "password_placeholder": "8자 이상, 대·소문자·숫자·특수문자 중 3종류",
         "confirm_password_label": "비밀번호 확인",
         "err_password_breached": "이 비밀번호는 알려진 유출 목록에 포함되어 있어 사용할 수 없습니다. 다른 비밀번호를 선택해 주세요.",
         "submit": "가입하기",
@@ -860,7 +863,7 @@
         "title": "비밀번호 재설정",
         "subtitle": "새로운 비밀번호를 입력해 주세요.",
         "password_label": "새 비밀번호",
-        "password_placeholder": "8자 이상",
+        "password_placeholder": "8자 이상, 대·소문자·숫자·특수문자 중 3종류",
         "confirm_label": "비밀번호 확인",
         "err_invalid_request": "재설정 링크 정보가 없습니다. 이메일의 링크로 다시 접속해 주세요.",
         "err_password_short": "비밀번호는 8자 이상이어야 합니다.",
@@ -883,7 +886,7 @@
         "title": "초대 수락",
         "subtitle": "비밀번호를 설정하여 가입을 완료해 주세요.",
         "password_label": "비밀번호",
-        "password_placeholder": "8자 이상",
+        "password_placeholder": "8자 이상, 대·소문자·숫자·특수문자 중 3종류",
         "confirm_label": "비밀번호 확인",
         "submit": "가입 완료",
         "success": "가입이 완료되었습니다. 이제 로그인할 수 있습니다.",
@@ -896,7 +899,7 @@
     },
     "errors": {
         "rate_limit": "요청이 너무 많습니다. {{minutes}}분 후 다시 시도해 주세요.",
-        "password_too_long": "비밀번호는 최대 {{max}}자까지 가능합니다.",
+        "password_weak": "비밀번호는 영문 소문자·대문자·숫자·특수문자 중 3종류 이상을 섞어야 합니다.",
         "db_not_ready": "D1 binding \"DB\" 가 준비되지 않았습니다. Wrangler preview/dev 환경에서 실행해 주세요."
     },
     "error_page": {
@@ -918,9 +921,9 @@
         "password_reset": {
             "subject": "비밀번호 재설정 안내",
             "title": "비밀번호 재설정",
-            "body": "아래 버튼을 클릭하여 비밀번호를 재설정하세요. 링크는 1시간 동안 유효합니다.",
+            "body": "아래 버튼을 클릭하여 비밀번호를 재설정하세요. 링크는 30분 동안 유효합니다.",
             "button": "비밀번호 재설정",
-            "text": "아래 링크에서 비밀번호를 재설정하세요. 링크는 1시간 동안 유효합니다."
+            "text": "아래 링크에서 비밀번호를 재설정하세요. 링크는 30분 동안 유효합니다."
         },
         "verify": {
             "subject": "이메일 인증 안내",
@@ -1003,9 +1006,9 @@
             "body": "계정에서 패스키가 삭제되었습니다."
         },
         "account_deletion_requested": {
-            "subject": "[보안 알림] 계정 탈퇴가 접수되었습니다",
-            "heading": "계정 탈퇴가 접수되었습니다",
-            "body": "계정 탈퇴가 접수되어 삭제 예정 상태로 전환되었습니다. 유예기간(30일) 내에 다시 로그인하면 계정을 복구할 수 있습니다. 본인이 요청하지 않았다면 즉시 로그인해 복구하고 비밀번호를 변경해 주세요."
+            "subject": "[보안 알림] 계정이 삭제되었습니다",
+            "heading": "계정이 삭제되었습니다",
+            "body": "요청에 따라 계정과 개인정보를 삭제했습니다. 삭제한 계정은 복구할 수 없습니다. 본인이 요청하지 않았다면 이 메일에 답장해 운영자에게 알려 주세요."
         },
         "email_change_requested": {
             "subject": "[보안 알림] 이메일 주소 변경이 요청되었습니다",

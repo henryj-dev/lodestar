@@ -278,6 +278,33 @@ export const trustedDevices = sqliteTable(
 
 // ---------- OIDC ----------
 
+/**
+ * 탈퇴(즉시 삭제)한 계정의 식별자 기록(회원 공통 정책 2026-10-18). 개인정보는 남기지 않는다.
+ *
+ * - provider="lodestar": Lodestar 가 발급한 sub(=users.id). issuer 는 삭제 시점의 issuer URL.
+ *   sub 는 서버가 만든 무작위 UUID 라 다시 배정될 일이 없지만, 그 사실을 RP·감사에서 확인할 수 있게 남긴다.
+ * - 외부 신원(identities)의 subject 는 이메일·DN 같은 개인정보일 수 있어 기록하지 않는다. provider 열은
+ *   나중에 다른 종류의 비개인 식별자를 담을 여지로 남긴다.
+ */
+export const retiredSubjects = sqliteTable(
+    "retired_subjects",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        provider: text("provider").notNull(),
+        subject: text("subject").notNull(),
+        issuer: text("issuer"),
+        retiredAt: integer("retired_at", { mode: "timestamp_ms" })
+            .notNull()
+            .default(sql`(unixepoch() * 1000)`),
+    },
+    (t) => [uniqueIndex("retired_subjects_tenant_provider_subject_uidx").on(t.tenantId, t.provider, t.subject)],
+);
+
 export const oidcClients = sqliteTable(
     "oidc_clients",
     {
@@ -763,7 +790,12 @@ export const auditEvents = sqliteTable(
             .notNull()
             .default(sql`(unixepoch() * 1000)`),
     },
-    (t) => [index("audit_events_tenant_kind_idx").on(t.tenantId, t.kind), index("audit_events_tenant_created_idx").on(t.tenantId, t.createdAt), index("audit_events_user_idx").on(t.userId)],
+    (t) => [
+        index("audit_events_tenant_kind_idx").on(t.tenantId, t.kind),
+        index("audit_events_tenant_created_idx").on(t.tenantId, t.createdAt),
+        index("audit_events_created_idx").on(t.createdAt),
+        index("audit_events_user_idx").on(t.userId),
+    ],
 );
 
 // ---------- Organization ----------
