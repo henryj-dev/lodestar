@@ -15,3 +15,6 @@ d48992c3dd491706b9795d1e2ae3de3d234eadcf:test/unit/crypto-keys.test.ts:generic-a
 # 스캔하므로 그 커밋의 지문은 남는다. 값을 바꾼 것은 앞으로의 재발 방지용이고, 이력에 대해서는
 # 이 항목이 필요하다.
 4e49e1f6460880f9d4a5b0ec214f892e55f7b6b7:test/integration/session-logout-durability.test.ts:generic-api-key:32
+
+# False positive: TOTP 등록 티켓 단위 테스트의 가짜 base32 secret 리터럴("KRSXG5CTMVRXEZLU") — 실제 시크릿 아님
+28128e59447ee0b6dae8a0a912ec9a0063c15e25:test/unit/totp-enroll-ticket.test.ts:generic-api-key:19
