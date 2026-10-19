@@ -280,30 +280,31 @@ scripts/setup.ts           # interactive first-run setup
 [`.env.example`](.env.example) carries the full list with detailed comments. These are the ones
 in regular use.
 
-| Variable                            | Required    |                                                                                                                                                                           |
-| ----------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IDP_ISSUER_URL`                    | ✅          | OIDC/SAML issuer URL, matching the deployed domain. **Required in production** — without it requests fail closed with a 503. Only in dev does the request origin stand in |
-| `IDP_SIGNING_KEY_SECRET`            | ✅          | KEK encrypting the signing keys (a Secret in production). **Required in production** — without it requests fail fast                                                      |
-| `IDP_SIGNING_KEY_SECRET_PREVIOUS`   | optional    | Set alongside the current value only while **rotating the master secret**; decryption falls back current → previous ([rotation procedure](docs/SECRET_ROTATION.md))       |
-| `BUILD_TARGET`                      | optional    | `cloudflare` (default) or `node` — which adapter to build. Read **at build time**                                                                                         |
-| `DB_DIALECT`                        | optional    | `d1` (default), `sqlite`, `postgres` or `mysql`. Read **at build, typecheck and migration-generation time as well**                                                       |
-| `DATABASE_URL`                      | conditional | Connection string for postgres, mysql or sqlite. On Cloudflare a `HYPERDRIVE` binding takes precedence                                                                    |
-| `DATABASE_AUTH_TOKEN`               | optional    | Auth token for remote libSQL such as Turso (only with `sqlite` against a remote)                                                                                          |
-| `DISPATCHER_SERVICE_TOKEN`          | optional    | Legacy **all-scope** bearer token for the service API. Prefer per-caller tokens from the admin console. With neither this nor an issued token, those APIs answer 503      |
-| `IDP_DEFAULT_TENANT_NAME`           | optional    | Default tenant name (default `My Organization`)                                                                                                                           |
-| `IDP_TENANT_BASE_DOMAIN`            | optional    | Base domain for `<tenant-slug>.<base-domain>` routing. Explicit `/t/<tenant-slug>/…` paths also work                                                                      |
-| `IDP_TENANT_ISSUER_MODE`            | optional    | `shared` (default), `host` or `path` — per-tenant OIDC/SAML issuer strategy                                                                                               |
-| `RATELIMIT_STORE`                   | optional    | `auto` (default), `memory`, `db` or `redis` — use `db` or `redis` for multi-instance Node                                                                                 |
-| `RATELIMIT_REDIS_URL` / `_TOKEN`    | conditional | Upstash-compatible Redis REST credentials, needed when `RATELIMIT_STORE=redis`                                                                                            |
-| `APP_INSTANCE_COUNT`                | optional    | Node instance count, used to warn when memory rate limiting is chosen for more than one                                                                                   |
-| `IDP_ENFORCE_SP_CERT_VALIDITY`      | optional    | Enforce SAML SP certificate validity periods. **On by default** — only `"false"` relaxes it                                                                               |
-| `PASSWORD_BREACH_CHECK`             | optional    | Screen against breached passwords (HIBP k-anonymity). Off by default; API errors fail open                                                                                |
-| `SMTP_HOSTNAME` and other `SMTP_*`  | optional    | Outbound mail (password recovery, invitations, email verification, security notices). Unset means those mails are skipped                                                 |
-| `S3_ENDPOINT` and other `S3_*`      | optional    | S3-compatible storage for the skin cache, used when there is no R2 binding                                                                                                |
-| `CLOUDFLARE_ACCOUNT_ID`             | optional    | Cloudflare account id (used by the migration scripts)                                                                                                                     |
-| `CLOUDFLARE_D1_DATABASE_ID`         | optional    | D1 database id (used by the migration scripts)                                                                                                                            |
-| `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | optional    | Preview D1 database id                                                                                                                                                    |
-| `CLOUDFLARE_D1_TOKEN`               | optional    | D1 API token (used by `db:migrate`)                                                                                                                                       |
+| Variable                            | Required    |                                                                                                                                                                                                     |
+| ----------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IDP_ISSUER_URL`                    | ✅          | OIDC/SAML issuer URL, matching the deployed domain. **Required in production** — without it requests fail closed with a 503. Only in dev does the request origin stand in                           |
+| `IDP_SIGNING_KEY_SECRET`            | ✅          | KEK encrypting the signing keys (a Secret in production). **Required in production** — without it requests fail fast                                                                                |
+| `IDP_SIGNING_KEY_SECRET_PREVIOUS`   | optional    | Set alongside the current value only while **rotating the master secret**; decryption falls back current → previous ([rotation procedure](docs/SECRET_ROTATION.md))                                 |
+| `BUILD_TARGET`                      | optional    | `cloudflare` (default) or `node` — which adapter to build. Read **at build time**                                                                                                                   |
+| `DB_DIALECT`                        | optional    | `d1` (default), `sqlite`, `postgres` or `mysql`. Read **at build, typecheck and migration-generation time as well**                                                                                 |
+| `DATABASE_URL`                      | conditional | Connection string for postgres, mysql or sqlite. On Cloudflare a `HYPERDRIVE` binding takes precedence                                                                                              |
+| `DATABASE_AUTH_TOKEN`               | optional    | Auth token for remote libSQL such as Turso (only with `sqlite` against a remote)                                                                                                                    |
+| `DISPATCHER_SERVICE_TOKEN`          | optional    | Legacy **all-scope** bearer token for the service API. Prefer per-caller tokens from the admin console. With neither this nor an issued token, those APIs answer 503                                |
+| `TOTP_ENROLL_TICKET`                | optional    | `optional` (default) or `required`. With `required`, `/api/totp/enroll/confirm` rejects requests without the `enrollmentTicket` returned by `init`. Switch to `required` once every caller sends it |
+| `IDP_DEFAULT_TENANT_NAME`           | optional    | Default tenant name (default `My Organization`)                                                                                                                                                     |
+| `IDP_TENANT_BASE_DOMAIN`            | optional    | Base domain for `<tenant-slug>.<base-domain>` routing. Explicit `/t/<tenant-slug>/…` paths also work                                                                                                |
+| `IDP_TENANT_ISSUER_MODE`            | optional    | `shared` (default), `host` or `path` — per-tenant OIDC/SAML issuer strategy                                                                                                                         |
+| `RATELIMIT_STORE`                   | optional    | `auto` (default), `memory`, `db` or `redis` — use `db` or `redis` for multi-instance Node                                                                                                           |
+| `RATELIMIT_REDIS_URL` / `_TOKEN`    | conditional | Upstash-compatible Redis REST credentials, needed when `RATELIMIT_STORE=redis`                                                                                                                      |
+| `APP_INSTANCE_COUNT`                | optional    | Node instance count, used to warn when memory rate limiting is chosen for more than one                                                                                                             |
+| `IDP_ENFORCE_SP_CERT_VALIDITY`      | optional    | Enforce SAML SP certificate validity periods. **On by default** — only `"false"` relaxes it                                                                                                         |
+| `PASSWORD_BREACH_CHECK`             | optional    | Screen against breached passwords (HIBP k-anonymity). Off by default; API errors fail open                                                                                                          |
+| `SMTP_HOSTNAME` and other `SMTP_*`  | optional    | Outbound mail (password recovery, invitations, email verification, security notices). Unset means those mails are skipped                                                                           |
+| `S3_ENDPOINT` and other `S3_*`      | optional    | S3-compatible storage for the skin cache, used when there is no R2 binding                                                                                                                          |
+| `CLOUDFLARE_ACCOUNT_ID`             | optional    | Cloudflare account id (used by the migration scripts)                                                                                                                                               |
+| `CLOUDFLARE_D1_DATABASE_ID`         | optional    | D1 database id (used by the migration scripts)                                                                                                                                                      |
+| `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | optional    | Preview D1 database id                                                                                                                                                                              |
+| `CLOUDFLARE_D1_TOKEN`               | optional    | D1 API token (used by `db:migrate`)                                                                                                                                                                 |
 
 LDAP identity/user tenant consistency can be checked once before deploying with
 `bun run db:check-tenant-consistency`; the runtime GC also emits structured warnings periodically.
@@ -514,12 +515,17 @@ stored.
 > `DISPATCHER_SERVICE_TOKEN` is a legacy path holding **every scope**. It remains so existing
 > callers keep working; remove it once they have all moved to issued tokens.
 
-| Path                       | Method |                                                                        |
-| -------------------------- | ------ | ---------------------------------------------------------------------- |
-| `/api/totp/enroll/init`    | POST   | `{userId}` → `{secret, otpAuthUri, username}` (stateless)              |
-| `/api/totp/enroll/confirm` | POST   | `{userId, secret, code}` → verify, persist, and return `{backupCodes}` |
-| `/api/totp/verify`         | POST   | `{userId, code}` → step-up verification → `{ok, verifiedAt}`           |
-| `/api/totp/status`         | GET    | `?userId=…` → `{enrolled, backupCodeCount, lastUsedAt}`                |
+| Path                       | Method |                                                                                          |
+| -------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| `/api/totp/enroll/init`    | POST   | `{userId}` → `{secret, otpAuthUri, username, enrollmentTicket}` (stateless)              |
+| `/api/totp/enroll/confirm` | POST   | `{userId, secret, code, enrollmentTicket}` → verify, persist, and return `{backupCodes}` |
+| `/api/totp/verify`         | POST   | `{userId, code}` → step-up verification → `{ok, verifiedAt}`                             |
+| `/api/totp/status`         | GET    | `?userId=…` → `{enrolled, backupCodeCount, lastUsedAt}`                                  |
+
+All four answer **403 for users that are not `active`** (disabled, locked, pending deletion), matching
+the login rule. `enrollmentTicket` binds the issued `secret` to `userId` for 10 minutes: send it back
+to `confirm` unchanged. A ticket that does not match is always rejected; a missing ticket is accepted
+and audited (`ticket: "missing"`) until `TOTP_ENROLL_TICKET=required`.
 
 ---
 

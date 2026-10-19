@@ -2,8 +2,7 @@ import { fail } from "@sveltejs/kit";
 import type { RequestEvent } from "@sveltejs/kit";
 import { and, eq } from "drizzle-orm";
 import { requireAdminContext, assertNotLastAdmin, assertUserInTenant } from "$lib/server/auth/guards";
-import { revokeAllUserSessions } from "$lib/server/auth/session";
-import { revokeAllUserRefreshTokens } from "$lib/server/oidc/refresh";
+import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
 import { recordAuditEvent, getRequestMetadata } from "$lib/server/audit/index";
 import { users } from "$lib/server/db/schema";
 import { adminError, requireCsrf } from "$lib/server/admin/errors";
@@ -125,10 +124,12 @@ export async function updateProfile(event: UserActionEvent) {
         }
     }
 
-    // role 변경 시 기존 세션 + OIDC refresh token 전부 파기 — 이전 권한 캐시 차단
-    if (before && before.role !== effectiveRole) {
-        await revokeAllUserSessions(db, userId);
-        await revokeAllUserRefreshTokens(db, userId);
+    // role 변경 또는 비활성/잠금 전환 시 기존 세션 + OIDC refresh token 전부 파기하고 RP 에도 통지한다.
+    // 상태 전환은 목록 화면의 상태 변경 액션과 같은 기준이다(그쪽만 세션을 끊던 불일치를 없앤다).
+    const roleChanged = Boolean(before && before.role !== effectiveRole);
+    const deactivated = Boolean(before && before.status === "active" && effectiveStatus !== "active");
+    if (roleChanged || deactivated) {
+        await revokeUserEverywhere(event, { db, tenant, userId, actorId: locals.user!.id, reason: deactivated ? `user_${effectiveStatus}` : "role_changed" });
     }
 
     const meta = getRequestMetadata(event);

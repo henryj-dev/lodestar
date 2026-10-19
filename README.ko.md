@@ -239,30 +239,31 @@ scripts/setup.ts           # 대화형 초기 셋업 스크립트
 
 전체 목록과 상세 주석은 [`.env.example`](.env.example) 을 참고하세요. 아래는 자주 쓰는 값입니다.
 
-| 변수                                | 필수 | 설명                                                                                                                                                  |
-| ----------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IDP_ISSUER_URL`                    | ✅   | OIDC/SAML 발급자 URL (배포 도메인과 일치). **프로덕션 필수** — 미설정 시 요청 초기 503(fail-closed). dev 에서만 요청 origin 자동 대체                 |
-| `IDP_SIGNING_KEY_SECRET`            | ✅   | 서명 키 암호화 KEK (프로덕션은 반드시 Secret). **프로덕션 필수** — 미설정 시 요청 초기에 오류로 차단(fail-fast)                                       |
-| `IDP_SIGNING_KEY_SECRET_PREVIOUS`   | 선택 | 마스터 시크릿 **무중단 회전** 중에만 이전 값을 병기. 복호/검증이 current→previous 로 폴백 ([회전 절차](docs/SECRET_ROTATION.md))                      |
-| `BUILD_TARGET`                      | 선택 | `cloudflare`(기본) \| `node` — 어댑터 선택. **빌드 시점** 값                                                                                          |
-| `DB_DIALECT`                        | 선택 | `d1`(기본) \| `sqlite` \| `postgres` \| `mysql`. **빌드·타입체크·마이그레이션 생성 시점에도** 참조됨                                                  |
-| `DATABASE_URL`                      | 조건 | postgres/mysql/sqlite 연결 문자열. Cloudflare 에서 `HYPERDRIVE` 바인딩이 있으면 그쪽이 우선                                                           |
-| `DATABASE_AUTH_TOKEN`               | 선택 | Turso 등 원격 libSQL 인증 토큰 (`sqlite` + 원격일 때만)                                                                                               |
-| `DISPATCHER_SERVICE_TOKEN`          | 선택 | **전 스코프** service API Bearer 토큰(레거시). 호출자별 토큰은 관리 콘솔 → 서비스 토큰에서 발급하세요. 이 값도 없고 발급된 토큰도 없으면 해당 API 503 |
-| `IDP_DEFAULT_TENANT_NAME`           | 선택 | 기본 테넌트 이름 (기본: `My Organization`)                                                                                                            |
-| `IDP_TENANT_BASE_DOMAIN`            | 선택 | `<tenant-slug>.<base-domain>` 서브도메인 라우팅 기준 도메인. 명시 경로 `/t/<tenant-slug>/...`도 지원                                                  |
-| `IDP_TENANT_ISSUER_MODE`            | 선택 | `shared`(기본)                                                                                                                                        | `host`   | `path` — tenant별 OIDC/SAML issuer 전략 |
-| `RATELIMIT_STORE`                   | 선택 | `auto`(기본)                                                                                                                                          | `memory` | `db`                                    | `redis` — Node 다중 인스턴스는 `db`/`redis` 권장 |
-| `RATELIMIT_REDIS_URL/TOKEN`         | 조건 | `RATELIMIT_STORE=redis`일 때 필요한 Upstash 호환 Redis REST 접속 정보                                                                                 |
-| `APP_INSTANCE_COUNT`                | 선택 | Node 인스턴스 수. memory rate-limit 선택 시 다중 인스턴스 경고에 사용                                                                                 |
-| `IDP_ENFORCE_SP_CERT_VALIDITY`      | 선택 | SAML SP 인증서 유효기간 강제 검증. **기본 on** — `"false"` 로만 완화                                                                                  |
-| `PASSWORD_BREACH_CHECK`             | 선택 | 유출 비밀번호(HIBP k-anonymity) 스크리닝. 기본 off(opt-in), API 오류는 fail-open                                                                      |
-| `SMTP_HOSTNAME` 외 `SMTP_*`         | 선택 | 메일 발송(비밀번호 찾기·초대·이메일 인증·보안 알림). 미설정 시 해당 메일은 skip                                                                       |
-| `S3_ENDPOINT` 외 `S3_*`             | 선택 | 스킨 캐시용 S3 호환 스토리지 (R2 바인딩이 없을 때 폴백)                                                                                               |
-| `CLOUDFLARE_ACCOUNT_ID`             | 선택 | Cloudflare 계정 ID (마이그레이션 스크립트에서 사용)                                                                                                   |
-| `CLOUDFLARE_D1_DATABASE_ID`         | 선택 | D1 데이터베이스 ID (마이그레이션 스크립트에서 사용)                                                                                                   |
-| `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | 선택 | 프리뷰용 D1 데이터베이스 ID                                                                                                                           |
-| `CLOUDFLARE_D1_TOKEN`               | 선택 | D1 API 토큰 (`db:migrate` 스크립트에서 사용)                                                                                                          |
+| 변수                                | 필수 | 설명                                                                                                                                                                          |
+| ----------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IDP_ISSUER_URL`                    | ✅   | OIDC/SAML 발급자 URL (배포 도메인과 일치). **프로덕션 필수** — 미설정 시 요청 초기 503(fail-closed). dev 에서만 요청 origin 자동 대체                                         |
+| `IDP_SIGNING_KEY_SECRET`            | ✅   | 서명 키 암호화 KEK (프로덕션은 반드시 Secret). **프로덕션 필수** — 미설정 시 요청 초기에 오류로 차단(fail-fast)                                                               |
+| `IDP_SIGNING_KEY_SECRET_PREVIOUS`   | 선택 | 마스터 시크릿 **무중단 회전** 중에만 이전 값을 병기. 복호/검증이 current→previous 로 폴백 ([회전 절차](docs/SECRET_ROTATION.md))                                              |
+| `BUILD_TARGET`                      | 선택 | `cloudflare`(기본) \| `node` — 어댑터 선택. **빌드 시점** 값                                                                                                                  |
+| `DB_DIALECT`                        | 선택 | `d1`(기본) \| `sqlite` \| `postgres` \| `mysql`. **빌드·타입체크·마이그레이션 생성 시점에도** 참조됨                                                                          |
+| `DATABASE_URL`                      | 조건 | postgres/mysql/sqlite 연결 문자열. Cloudflare 에서 `HYPERDRIVE` 바인딩이 있으면 그쪽이 우선                                                                                   |
+| `DATABASE_AUTH_TOKEN`               | 선택 | Turso 등 원격 libSQL 인증 토큰 (`sqlite` + 원격일 때만)                                                                                                                       |
+| `DISPATCHER_SERVICE_TOKEN`          | 선택 | **전 스코프** service API Bearer 토큰(레거시). 호출자별 토큰은 관리 콘솔 → 서비스 토큰에서 발급하세요. 이 값도 없고 발급된 토큰도 없으면 해당 API 503                         |
+| `TOTP_ENROLL_TICKET`                | 선택 | `optional`(기본) \| `required`. `required` 면 `/api/totp/enroll/confirm` 이 `init` 응답의 `enrollmentTicket` 없는 요청을 거부합니다. 호출자가 모두 티켓을 보내게 된 뒤 켜세요 |
+| `IDP_DEFAULT_TENANT_NAME`           | 선택 | 기본 테넌트 이름 (기본: `My Organization`)                                                                                                                                    |
+| `IDP_TENANT_BASE_DOMAIN`            | 선택 | `<tenant-slug>.<base-domain>` 서브도메인 라우팅 기준 도메인. 명시 경로 `/t/<tenant-slug>/...`도 지원                                                                          |
+| `IDP_TENANT_ISSUER_MODE`            | 선택 | `shared`(기본)                                                                                                                                                                | `host`   | `path` — tenant별 OIDC/SAML issuer 전략 |
+| `RATELIMIT_STORE`                   | 선택 | `auto`(기본)                                                                                                                                                                  | `memory` | `db`                                    | `redis` — Node 다중 인스턴스는 `db`/`redis` 권장 |
+| `RATELIMIT_REDIS_URL/TOKEN`         | 조건 | `RATELIMIT_STORE=redis`일 때 필요한 Upstash 호환 Redis REST 접속 정보                                                                                                         |
+| `APP_INSTANCE_COUNT`                | 선택 | Node 인스턴스 수. memory rate-limit 선택 시 다중 인스턴스 경고에 사용                                                                                                         |
+| `IDP_ENFORCE_SP_CERT_VALIDITY`      | 선택 | SAML SP 인증서 유효기간 강제 검증. **기본 on** — `"false"` 로만 완화                                                                                                          |
+| `PASSWORD_BREACH_CHECK`             | 선택 | 유출 비밀번호(HIBP k-anonymity) 스크리닝. 기본 off(opt-in), API 오류는 fail-open                                                                                              |
+| `SMTP_HOSTNAME` 외 `SMTP_*`         | 선택 | 메일 발송(비밀번호 찾기·초대·이메일 인증·보안 알림). 미설정 시 해당 메일은 skip                                                                                               |
+| `S3_ENDPOINT` 외 `S3_*`             | 선택 | 스킨 캐시용 S3 호환 스토리지 (R2 바인딩이 없을 때 폴백)                                                                                                                       |
+| `CLOUDFLARE_ACCOUNT_ID`             | 선택 | Cloudflare 계정 ID (마이그레이션 스크립트에서 사용)                                                                                                                           |
+| `CLOUDFLARE_D1_DATABASE_ID`         | 선택 | D1 데이터베이스 ID (마이그레이션 스크립트에서 사용)                                                                                                                           |
+| `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | 선택 | 프리뷰용 D1 데이터베이스 ID                                                                                                                                                   |
+| `CLOUDFLARE_D1_TOKEN`               | 선택 | D1 API 토큰 (`db:migrate` 스크립트에서 사용)                                                                                                                                  |
 
 LDAP identity/user 테넌트 정합성은 배포 전 `bun run db:check-tenant-consistency`로 일회 점검할 수 있으며, 런타임 GC에서도 주기적으로 구조화 경고를 확인합니다.
 
@@ -419,12 +420,17 @@ SAML 도 같은 값을 내보냅니다 — Assertion 의 **`Entitlements` 속성
 > `DISPATCHER_SERVICE_TOKEN`(환경변수)은 **모든 스코프**를 가진 레거시 경로입니다. 기존 호출자
 > 무중단을 위해 남아 있으며, 호출자를 전부 발급 토큰으로 옮긴 뒤 제거하세요.
 
-| 경로                       | 메서드 | 설명                                                          |
-| -------------------------- | ------ | ------------------------------------------------------------- |
-| `/api/totp/enroll/init`    | POST   | `{userId}` → `{secret, otpAuthUri, username}` (stateless)     |
-| `/api/totp/enroll/confirm` | POST   | `{userId, secret, code}` → 검증 + 영구 저장 + `{backupCodes}` |
-| `/api/totp/verify`         | POST   | `{userId, code}` → step-up 검증 + `{ok, verifiedAt}`          |
-| `/api/totp/status`         | GET    | `?userId=...` → `{enrolled, backupCodeCount, lastUsedAt}`     |
+| 경로                       | 메서드 | 설명                                                                            |
+| -------------------------- | ------ | ------------------------------------------------------------------------------- |
+| `/api/totp/enroll/init`    | POST   | `{userId}` → `{secret, otpAuthUri, username, enrollmentTicket}` (stateless)     |
+| `/api/totp/enroll/confirm` | POST   | `{userId, secret, code, enrollmentTicket}` → 검증 + 영구 저장 + `{backupCodes}` |
+| `/api/totp/verify`         | POST   | `{userId, code}` → step-up 검증 + `{ok, verifiedAt}`                            |
+| `/api/totp/status`         | GET    | `?userId=...` → `{enrolled, backupCodeCount, lastUsedAt}`                       |
+
+네 경로 모두 **`active` 가 아닌 사용자(비활성·잠금·탈퇴 대기)에게 403** 을 돌려줍니다. 로그인과 같은
+기준입니다. `enrollmentTicket` 은 발급한 `secret` 과 `userId` 를 10분 동안 묶는 값이라 `confirm` 에
+그대로 돌려보내면 됩니다. 맞지 않는 티켓은 언제나 거부하고, 티켓이 없으면 `TOTP_ENROLL_TICKET=required`
+전까지는 허용하되 감사에 `ticket: "missing"` 을 남깁니다.
 
 ---
 

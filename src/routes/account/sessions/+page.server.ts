@@ -2,9 +2,10 @@ import { fail, redirect } from "@sveltejs/kit";
 import type { Actions, PageServerLoad } from "./$types";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { requireDbContext } from "$lib/server/auth/guards";
-import { clearSessionCookie, listActiveSessions, revokeAllUserSessions, revokeOtherSessions, revokeSessionById } from "$lib/server/auth/session";
+import { clearSessionCookie, listActiveSessions, revokeOtherSessions, revokeSessionById } from "$lib/server/auth/session";
 import { clearTrustedDeviceCookie, listTrustedDevices, revokeAllTrustedDevices, revokeTrustedDeviceById } from "$lib/server/auth/trusted-device";
-import { revokeAllUserRefreshTokens, revokeRefreshTokensForSession } from "$lib/server/oidc/refresh";
+import { revokeRefreshTokensForSession } from "$lib/server/oidc/refresh";
+import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
 import { dispatchSecurityAlert } from "$lib/server/security-notify";
 import { translate } from "$lib/i18n/server";
 
@@ -180,8 +181,8 @@ export const actions: Actions = {
         const { db, tenant } = requireDbContext(locals);
         const active = await listActiveSessions(db, locals.user.id);
 
-        await revokeAllUserSessions(db, locals.user.id);
-        await revokeAllUserRefreshTokens(db, locals.user.id);
+        // RP 에도 back-channel logout 을 보낸다 — "모든 기기에서 로그아웃" 이 RP 세션까지 끊어야 한다.
+        await revokeUserEverywhere(event, { db, tenant, userId: locals.user.id, actorId: locals.user.id, reason: "self_revoke_all" });
 
         const requestMetadata = getRequestMetadata(event);
         await recordAuditEvent(db, {
