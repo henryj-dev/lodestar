@@ -266,7 +266,7 @@ describe("runExpiredDataGc — rate_limits 는 db 저장소를 쓸 때만 청소
     // 회원 공통 정책으로 Node 기본 저장소도 db 다(resolveRateLimitStore auto → db). memory/redis 를
     // 명시한 Node 배포만 rate_limits 에 쓰지 않으므로 청소를 건너뛴다.
     afterEach(() => {
-        delete process.env.RATELIMIT_STORE;
+        vi.unstubAllEnvs();
     });
 
     it("Node 기본값(auto)에서는 rate_limits 를 청소한다", async () => {
@@ -276,7 +276,7 @@ describe("runExpiredDataGc — rate_limits 는 db 저장소를 쓸 때만 청소
     });
 
     it("Node 에서 RATELIMIT_STORE=memory 면 rate_limits 를 건너뛴다", async () => {
-        process.env.RATELIMIT_STORE = "memory";
+        vi.stubEnv("RATELIMIT_STORE", "memory");
         const { db, deletes } = makeDb();
         const result = await runExpiredDataGc(db, { isWorkers: false });
 
