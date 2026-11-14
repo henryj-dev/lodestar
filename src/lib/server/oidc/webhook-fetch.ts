@@ -1,4 +1,15 @@
-import { assertResolvedHostAllowed, isForbiddenWebhookHost } from "$lib/server/validation";
+import { env } from "$env/dynamic/private";
+import { assertResolvedHostAllowed, isForbiddenWebhookHost, parseAllowedPrivateHosts } from "$lib/server/validation";
+
+/**
+ * 같은 인프라 안의 알려진 webhook 피어(예: 다른 서비스가 사설 IP 로만 노출된 환경)에
+ * 한해 DNS 리바인딩 완화 검사(`assertResolvedHostAllowed`)의 사설망 차단을 호스트명
+ * 정확 일치로 푼다. 기본 미설정 = 빈 목록 = 기존 동작(전부 차단) 그대로.
+ * loopback/link-local/메타데이터는 이 목록에 있어도 계속 차단된다.
+ */
+function allowedPrivateWebhookHosts(): Set<string> {
+    return parseAllowedPrivateHosts(env.OIDC_WEBHOOK_ALLOWED_PRIVATE_HOSTS);
+}
 
 const WEBHOOK_TIMEOUT_MS = 10_000;
 const MAX_ATTEMPTS = 3;
@@ -35,7 +46,7 @@ export function assertPublicWebhookUrl(raw: string): void {
  */
 export async function postOidcWebhook(url: string, body: string, options: { queue?: OidcWebhookQueue } = {}): Promise<{ status: number; durationMs: number; queued?: boolean }> {
     assertPublicWebhookUrl(url);
-    await assertResolvedHostAllowed(new URL(url).hostname);
+    await assertResolvedHostAllowed(new URL(url).hostname, allowedPrivateWebhookHosts());
 
     const started = Date.now();
     let lastError: unknown;
