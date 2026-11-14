@@ -65,15 +65,49 @@ export function isForbiddenWebhookHost(hostname: string): boolean {
 }
 
 /**
+ * 허용 목록으로도 못 여는 대역: loopback, link-local(메타데이터 포함), 클라우드 메타데이터
+ * 호스트명. `assertResolvedHostAllowed` 의 `allowedPrivateHosts` 는 이 집합에는 영향이 없다.
+ */
+function isAlwaysForbiddenHost(hostname: string): boolean {
+    const h = hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+    if (isCloudMetadataHost(h) || isLinkLocalHost(h) || isLoopbackHost(hostname)) return true;
+    if (/^127\./.test(h)) return true; // loopback /8
+    if (h === "::" || h === "::1") return true;
+    if (/^fe80:/.test(h)) return true; // link-local
+    return false;
+}
+
+/**
+ * `OIDC_WEBHOOK_ALLOWED_PRIVATE_HOSTS` 같은 콤마 구분 호스트 목록을 정확 일치용 Set 으로
+ * 변환한다(trim + 소문자). 빈 값/미설정은 빈 Set(= 허용 없음, 기존 동작과 동일).
+ */
+export function parseAllowedPrivateHosts(raw: string | undefined | null): Set<string> {
+    if (!raw) return new Set();
+    return new Set(
+        raw
+            .split(",")
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean),
+    );
+}
+
+/**
  * ctrls R7: DNS 리바인딩 완화. 리터럴 호스트 검사(isForbiddenWebhookHost)는 hostname
  * 문자열만 보므로, 공인 도메인처럼 보이지만 사설/메타데이터 IP 로 해석되는 호스트를 놓친다.
  * fetch 직전에 실제 A/AAAA 를 해석해, 결과 IP 중 하나라도 금지 대역이면 예외를 던진다.
+ *
+ * `allowedPrivateHosts`: 호출부가 명시적으로 넘기는 정확-일치 허용 목록(기본 없음 = 기존
+ * 동작 그대로 전부 차단). 같은 인프라 안에서 서로를 사설 IP 로 호출해야 하는 알려진 피어
+ * (예: 백엔드 전용 webhook 수신처)에 한해, 호출부가 **알아서** 허용 목록을 꾸며 넘긴다 —
+ * 이 함수가 env 를 직접 읽지 않는 것은, 같은 가드를 쓰는 다른 경로(OAuth 업스트림, 스킨
+ * 리소스 fetch 등)까지 덩달아 열리지 않게 하기 위함이다. loopback/link-local/메타데이터는
+ * 허용 목록에 있어도 계속 차단한다(`isAlwaysForbiddenHost`).
  *
  * 한계(원천 차단 아님): 여기서 해석한 IP 와 이후 fetch 가 실제 접속 시 재해석하는 IP 가
  * 다를 수 있다(TOCTOU) — 해석된 IP 로 커넥션을 핀 고정하는 API 가 없다. 따라서 "완화".
  * 해석 실패(NXDOMAIN/타임아웃/모듈 부재)는 fail-open — 이후 fetch 가 자연히 실패한다.
  */
-export async function assertResolvedHostAllowed(hostname: string): Promise<void> {
+export async function assertResolvedHostAllowed(hostname: string, allowedPrivateHosts?: ReadonlySet<string>): Promise<void> {
     const h = hostname.replace(/^\[/, "").replace(/\]$/, "");
     // 이미 리터럴 IP 면 문자열 검사가 담당하므로 재해석 불필요.
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(":")) return;
@@ -84,8 +118,12 @@ export async function assertResolvedHostAllowed(hostname: string): Promise<void>
     if (v6.status === "fulfilled") addrs.push(...v6.value);
     // 둘 다 실패하면 해석 불가 → fail-open(빈 목록이라 아래 루프가 no-op).
 
+    const allowed = allowedPrivateHosts?.has(h.toLowerCase()) ?? false;
     for (const ip of addrs) {
-        if (isForbiddenWebhookHost(ip)) {
+        if (isAlwaysForbiddenHost(ip)) {
+            throw new Error(`SSRF blocked: ${hostname} resolved to a forbidden internal address (${ip}).`);
+        }
+        if (isForbiddenWebhookHost(ip) && !allowed) {
             throw new Error(`SSRF blocked: ${hostname} resolved to a forbidden internal address (${ip}).`);
         }
     }
