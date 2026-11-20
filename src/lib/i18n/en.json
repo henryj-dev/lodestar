@@ -476,6 +476,8 @@
         "invite_hint": "Creates an account without a password and sends an invitation email. The invited user sets their own password from the link.",
         "invite_submit": "Send Invite",
         "badge_pending_invite": "Pending Invite",
+        "badge_email_verified": "Verified",
+        "badge_email_unverified": "Unverified",
         "search_placeholder": "Search by email, username, or name",
         "search_empty": "No results found.",
         "create_title": "Add New User",
@@ -508,6 +510,10 @@
         "force_logout_desc": "Immediately revokes all of this user's sessions and OIDC refresh tokens. Status and password are not changed.",
         "force_logout_confirm": "Force this user to log out on all devices?",
         "force_logout_done": "All sessions have been revoked.",
+        "reset_mfa": "Reset MFA",
+        "reset_mfa_desc": "Deletes this user's TOTP, backup codes, and trusted devices. They will need to re-enroll two-factor authentication on next login. Use this when a user loses their OTP device.",
+        "reset_mfa_confirm": "Reset this user's two-factor authentication (TOTP)? They will need to re-enroll on next login.",
+        "reset_mfa_done": "Two-factor authentication has been reset.",
         "saved": "Saved.",
         "profile_section": "Profile Information",
         "given_name": "Given Name",
@@ -530,6 +536,8 @@
         "status_active": "Active",
         "status_disabled": "Disabled",
         "status_locked": "Locked",
+        "email_verified": "Email verified",
+        "email_verified_at": "Verified at: {{date}}",
         "dept_section": "Department Membership",
         "dept_empty": "No department memberships.",
         "dept_select": "Select department",
@@ -979,6 +987,11 @@
             "subject": "[Security Alert] Two-factor authentication was disabled",
             "heading": "Two-factor authentication was disabled",
             "body": "Two-factor authentication (TOTP) was removed from your account."
+        },
+        "mfa_reset_by_admin": {
+            "subject": "[Security Alert] An admin reset your two-factor authentication",
+            "heading": "Two-factor authentication was reset",
+            "body": "An admin reset your account's two-factor authentication (TOTP) and backup codes. Please set up two-factor authentication again the next time you sign in. If you didn't request this, contact your admin."
         },
         "backup_codes_regenerated": {
             "subject": "[Security Alert] Backup codes were regenerated",

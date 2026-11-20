@@ -216,7 +216,14 @@ const STATUS_NEXT: Record<string, StatusNext> = {
                                     <p class="text-sm font-medium text-gray-900">
                                         {user.username ?? "-"}
                                     </p>
-                                    <p class="text-xs text-gray-500">{user.email}</p>
+                                    <p class="flex items-center gap-1.5 text-xs text-gray-500">
+                                        {user.email}
+                                        {#if user.emailVerified}
+                                            <span class="rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-medium text-green-700">{t("users.badge_email_verified")}</span>
+                                        {:else}
+                                            <span class="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">{t("users.badge_email_unverified")}</span>
+                                        {/if}
+                                    </p>
                                 </a>
                             </td>
                             <td class="px-4 py-3 text-sm text-gray-600">{user.displayName ?? "-"}</td>

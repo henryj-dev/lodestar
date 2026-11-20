@@ -476,6 +476,8 @@
         "invite_hint": "비밀번호 없이 계정을 만들고 초대 메일을 발송합니다. 초대받은 사용자가 링크에서 비밀번호를 직접 설정합니다.",
         "invite_submit": "초대 보내기",
         "badge_pending_invite": "초대중",
+        "badge_email_verified": "인증됨",
+        "badge_email_unverified": "미인증",
         "search_placeholder": "이메일 · 아이디 · 이름 검색",
         "search_empty": "검색 결과가 없습니다.",
         "create_title": "새 사용자 추가",
@@ -508,6 +510,10 @@
         "force_logout_desc": "이 사용자의 모든 세션과 OIDC refresh token 을 즉시 폐기합니다. 상태나 비밀번호는 변경되지 않습니다.",
         "force_logout_confirm": "이 사용자를 모든 기기에서 강제 로그아웃하시겠습니까?",
         "force_logout_done": "모든 세션이 폐기되었습니다.",
+        "reset_mfa": "MFA 초기화",
+        "reset_mfa_desc": "이 사용자의 TOTP와 백업 코드, 신뢰 기기를 모두 삭제합니다. 다음 로그인 시 2단계 인증을 다시 등록해야 합니다. OTP 분실 시 사용하세요.",
+        "reset_mfa_confirm": "이 사용자의 2단계 인증(TOTP)을 초기화하시겠습니까? 다음 로그인부터 다시 등록해야 합니다.",
+        "reset_mfa_done": "2단계 인증이 초기화되었습니다.",
         "saved": "저장되었습니다.",
         "profile_section": "프로필 정보",
         "given_name": "이름 (Given Name)",
@@ -530,6 +536,8 @@
         "status_active": "활성",
         "status_disabled": "비활성",
         "status_locked": "잠김",
+        "email_verified": "이메일 인증됨",
+        "email_verified_at": "인증 시각: {{date}}",
         "dept_section": "부서 소속",
         "dept_empty": "소속된 부서가 없습니다.",
         "dept_select": "부서 선택",
@@ -979,6 +987,11 @@
             "subject": "[보안 알림] 2단계 인증이 해제되었습니다",
             "heading": "2단계 인증이 해제되었습니다",
             "body": "계정의 2단계 인증(TOTP)이 삭제되었습니다."
+        },
+        "mfa_reset_by_admin": {
+            "subject": "[보안 알림] 관리자가 2단계 인증을 초기화했습니다",
+            "heading": "2단계 인증이 초기화되었습니다",
+            "body": "관리자가 계정의 2단계 인증(TOTP)과 백업 코드를 초기화했습니다. 다음 로그인 시 2단계 인증을 다시 등록해 주세요. 본인이 요청하지 않았다면 관리자에게 문의하세요."
         },
         "backup_codes_regenerated": {
             "subject": "[보안 알림] 백업 코드가 재생성되었습니다",

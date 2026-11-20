@@ -37,9 +37,10 @@ export async function updateProfile(event: UserActionEvent) {
     const tenantCheck = await assertUserInTenant(db, tenant.id, userId);
     if (!tenantCheck.ok) return tenantCheck.error;
 
-    // 변경 전 role/status 캡처 — 자기-자신 가드, race 가드, role 변경 감지 모두에 사용
+    // 변경 전 role/status/emailVerifiedAt 캡처 — 자기-자신 가드, race 가드, role 변경 감지,
+    // 이메일 인증 뱃지 토글(이미 인증된 시각은 재체크해도 덮어쓰지 않음) 모두에 사용.
     const [before] = await db
-        .select({ role: users.role, status: users.status })
+        .select({ role: users.role, status: users.status, emailVerifiedAt: users.emailVerifiedAt })
         .from(users)
         .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)))
         .limit(1);
@@ -83,6 +84,11 @@ export async function updateProfile(event: UserActionEvent) {
     const addressPostalCode = String(fd.get("addressPostalCode") ?? "").trim() || null;
     const addressCountry = String(fd.get("addressCountry") ?? "").trim() || null;
 
+    // 이메일 인증 뱃지 수동 토글. 체크 해제 → NULL(미인증). 체크 → 이미 인증돼 있었으면 기존
+    // 시각을 유지하고(매 저장마다 갱신되면 "최초 인증 시각"의 의미가 사라진다), 아니면 지금 시각.
+    const emailVerifiedChecked = fd.get("emailVerified") === "true";
+    const emailVerifiedAt = emailVerifiedChecked ? (before?.emailVerifiedAt ?? new Date()) : null;
+
     await db
         .update(users)
         .set({
@@ -101,6 +107,7 @@ export async function updateProfile(event: UserActionEvent) {
             addressCountry,
             role: effectiveRole,
             status: effectiveStatus,
+            emailVerifiedAt,
             updatedAt: new Date(),
         })
         .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)));
@@ -141,7 +148,7 @@ export async function updateProfile(event: UserActionEvent) {
         outcome: "success",
         ip: meta.ip,
         userAgent: meta.userAgent,
-        detail: { role: effectiveRole, status: effectiveStatus },
+        detail: { role: effectiveRole, status: effectiveStatus, emailVerified: emailVerifiedAt !== null },
     });
 
     return { updated: true };
