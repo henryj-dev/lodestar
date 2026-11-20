@@ -1,4 +1,5 @@
 import type { Handle, RequestEvent } from "@sveltejs/kit";
+import { AUTH_BODY_LIMITED_PATHS, exceedsBodyLimit } from "$lib/server/auth/body-limit";
 import { ensureAuthBaseline } from "$lib/server/auth/bootstrap";
 import { SESSION_COOKIE_NAME, SESSION_TOUCH_INTERVAL_MS } from "$lib/server/auth/constants";
 import { getRuntimeConfig } from "$lib/server/auth/runtime";
@@ -129,6 +130,13 @@ export const handle: Handle = async ({ event, resolve }) => {
                 }
             }
         }
+    }
+
+    // ── 본문 크기 제한: 비밀번호를 받는 요청은 64 KiB 까지 ─────────────────────────
+    // 경로 기반 테넌트(`/t/<slug>/login`)도 같은 기준으로 묶는다 — reroute 전 URL 이라 접두사를 떼고 본다.
+    const routePath = path.replace(/^\/t\/[^/]+(?=\/|$)/i, "") || "/";
+    if (event.request.method === "POST" && AUTH_BODY_LIMITED_PATHS.test(routePath) && (await exceedsBodyLimit(event.request))) {
+        return new Response("Payload Too Large", { status: 413, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
     }
 
     // baseline 쿼리가 불필요한 경로 (정적 메타데이터, 헬스체크)

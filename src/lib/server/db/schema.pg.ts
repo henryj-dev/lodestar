@@ -254,6 +254,27 @@ export const trustedDevices = pgTable(
 
 // ---------- OIDC ----------
 
+/**
+ * 탈퇴(즉시 삭제)한 계정의 식별자 기록(회원 공통 정책 2026-10-18). 개인정보는 남기지 않는다.
+ * 자세한 설명은 schema.sqlite.ts 의 같은 테이블 주석 참고.
+ */
+export const retiredSubjects = pgTable(
+    "retired_subjects",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => crypto.randomUUID()),
+        tenantId: text("tenant_id")
+            .notNull()
+            .references(() => tenants.id, { onDelete: "cascade" }),
+        provider: text("provider").notNull(),
+        subject: text("subject").notNull(),
+        issuer: text("issuer"),
+        retiredAt: timestamp("retired_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    },
+    (t) => [uniqueIndex("retired_subjects_tenant_provider_subject_uidx").on(t.tenantId, t.provider, t.subject)],
+);
+
 export const oidcClients = pgTable(
     "oidc_clients",
     {
@@ -703,7 +724,12 @@ export const auditEvents = pgTable(
         hash: text("hash"),
         createdAt: timestamp("created_at", { mode: "date", withTimezone: true, precision: 3 }).notNull().defaultNow(),
     },
-    (t) => [index("audit_events_tenant_kind_idx").on(t.tenantId, t.kind), index("audit_events_tenant_created_idx").on(t.tenantId, t.createdAt), index("audit_events_user_idx").on(t.userId)],
+    (t) => [
+        index("audit_events_tenant_kind_idx").on(t.tenantId, t.kind),
+        index("audit_events_tenant_created_idx").on(t.tenantId, t.createdAt),
+        index("audit_events_created_idx").on(t.createdAt),
+        index("audit_events_user_idx").on(t.userId),
+    ],
 );
 
 // ---------- Organization ----------

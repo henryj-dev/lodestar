@@ -4,7 +4,7 @@ import type { Actions, PageServerLoad } from "./$types";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { requireDbContext, assertNotLastAdmin } from "$lib/server/auth/guards";
 import { clearSessionCookie } from "$lib/server/auth/session";
-import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
+import { deleteUserNow } from "$lib/server/auth/account-deletion";
 import { findPasswordCredential } from "$lib/server/auth/users";
 import { verifyPassword } from "$lib/server/auth/password";
 import { verifyTotp, decryptTotpSecret, encryptTotpSecret, isLegacyTotpCiphertext } from "$lib/server/auth/totp";
@@ -12,7 +12,7 @@ import { getRuntimeConfig } from "$lib/server/auth/runtime";
 import { tryWithSecrets } from "$lib/server/crypto/keys";
 import { TOTP_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { dispatchSecurityAlert } from "$lib/server/security-notify";
-import { credentials, users } from "$lib/server/db/schema";
+import { credentials } from "$lib/server/db/schema";
 import { translate } from "$lib/i18n/server";
 import { checkRateLimit } from "$lib/server/ratelimit";
 
@@ -20,10 +20,6 @@ import { checkRateLimit } from "$lib/server/ratelimit";
 // mfa-stepup:<userId> 키를 공유해 공격자가 엔드포인트를 옮겨가며 시도횟수를 우회하지 못하게 한다.
 const STEPUP_WINDOW_MS = 5 * 60 * 1000;
 const STEPUP_LIMIT = 10;
-
-// 소프트 삭제 유예기간 = 30일. 이 기간 내 로그인하면 계정을 복구할 수 있고, 경과하면 GC 가
-// 하드 삭제한다. (login 복구 흐름·gc.ts 하드삭제 조건과 짝을 이룬다.)
-const DELETION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export const load: PageServerLoad = async ({ locals, url }) => {
     if (!locals.user) {
@@ -44,7 +40,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
         email: locals.user.email,
         hasPassword: Boolean(pwCred?.secret),
         hasTotp: Boolean(totpCred),
-        graceDays: Math.round(DELETION_GRACE_MS / (24 * 60 * 60 * 1000)),
     };
 };
 
@@ -132,29 +127,30 @@ export const actions: Actions = {
             return fail(400, { error: translate(locale, "account.danger_zone.err_last_admin") });
         }
 
-        // ── 소프트 삭제 전환: status=deletion_pending + 유예 30일 예약 ───────────
-        const scheduledAt = new Date(Date.now() + DELETION_GRACE_MS);
-        await db
-            .update(users)
-            .set({ status: "deletion_pending", deletionScheduledAt: scheduledAt, updatedAt: new Date() })
-            .where(and(eq(users.id, user.id), eq(users.tenantId, tenant.id)));
+        // ── 즉시 삭제(회원 공통 정책): RP 로그아웃 통지 → 식별자 기록 → 사용자 행 삭제 ─────────
+        // 감사는 결과가 정해진 뒤 남긴다. 삭제 뒤에는 사용자 행이 없어 userId FK 를 걸 수 없으므로
+        // 관리자 삭제와 같이 actorId·detail.userId 로 잇는다.
+        const deletionAudit = (outcome: "success" | "failure") =>
+            recordAuditEvent(db, {
+                tenantId: tenant.id,
+                userId: outcome === "failure" ? user.id : null,
+                actorId: user.id,
+                kind: "user_deleted",
+                outcome,
+                ip: requestMetadata.ip,
+                userAgent: requestMetadata.userAgent,
+                detail: { userId: user.id, by: "self" },
+            });
+        try {
+            await deleteUserNow(event, { db, tenant, userId: user.id, actorId: user.id, reason: "account_deleted" });
+        } catch (err) {
+            await deletionAudit("failure").catch(() => undefined);
+            throw err;
+        }
+        // 계정은 이미 지워졌다 — 감사 기록이 실패해도 쿠키 정리·리다이렉트는 해야 한다.
+        await deletionAudit("success").catch((err) => console.error("[danger-zone] user_deleted 감사 기록 실패:", err));
 
-        // 전 세션 + refresh token 즉시 폐기(로그아웃). 복구는 유예 내 재로그인으로만 가능.
-        // RP 에도 back-channel logout 을 보낸다 — 탈퇴 대기 계정이 RP 세션으로 남지 않게.
-        await revokeUserEverywhere(event, { db, tenant, userId: user.id, actorId: user.id, reason: "deletion_requested" });
-
-        await recordAuditEvent(db, {
-            tenantId: tenant.id,
-            userId: user.id,
-            actorId: user.id,
-            kind: "user_deletion_requested",
-            outcome: "success",
-            ip: requestMetadata.ip,
-            userAgent: requestMetadata.userAgent,
-            detail: { scheduledAt: scheduledAt.toISOString() },
-        });
-
-        // 탈퇴 접수 알림 메일(best-effort). 세션 만료 전, 쿠키 삭제 이전에 발사한다.
+        // 탈퇴 완료 알림 메일(best-effort). 사용자 행은 지워졌지만 주소는 위에서 읽어 둔 값을 쓴다.
         dispatchSecurityAlert({ to: user.email, locale: user.locale, kind: "account_deletion_requested", platform: event.platform });
 
         // 로그아웃: 세션 쿠키 삭제 후 로그인으로.

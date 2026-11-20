@@ -22,11 +22,15 @@ afterEach(() => {
     vi.useRealTimers();
 });
 
+// 산식 테스트에는 단일 키 연산이 필요 없다.
+const ENTRY_STUBS = { getEntry: async () => null, setEntry: async () => undefined, deleteEntry: async () => undefined };
+
 // increment/peek 가 항상 고정 카운트를 반환하는 목 store — 산식만 검증하기 위한 것.
 function mockStore(counts: RateLimitCounts): RateLimitStore {
     return {
         increment: async () => counts,
         peek: async () => counts,
+        ...ENTRY_STUBS,
     };
 }
 
@@ -89,7 +93,7 @@ describe("peekRateLimit — 동일 산식, 증가 없음", () => {
     it("store.increment 가 아니라 store.peek 를 호출한다(증가 부작용 없음)", async () => {
         const increment = vi.fn();
         const peek = vi.fn(async () => ({ current: 1, prev: 0 }) as RateLimitCounts);
-        const store: RateLimitStore = { increment, peek };
+        const store: RateLimitStore = { increment, peek, ...ENTRY_STUBS };
         await peekRateLimit(store, "user:a", { windowMs: WINDOW, limit: 5 });
         expect(peek).toHaveBeenCalledOnce();
         expect(increment).not.toHaveBeenCalled();
@@ -100,6 +104,7 @@ describe("단일 타임스탬프 시맨틱 — increment/peek/evaluate 가 동�
     it("checkRateLimit 은 store.increment 와 evaluate 에 동일한 now(=Date.now())를 전달한다", async () => {
         let seenNow: number | undefined;
         const store: RateLimitStore = {
+            ...ENTRY_STUBS,
             increment: async (_k, _w, now) => {
                 seenNow = now;
                 return { current: 6, prev: 0 };
@@ -117,6 +122,7 @@ describe("단일 타임스탬프 시맨틱 — increment/peek/evaluate 가 동�
     it("peekRateLimit 도 store.peek 와 evaluate 에 동일한 now 를 전달한다", async () => {
         let seenNow: number | undefined;
         const store: RateLimitStore = {
+            ...ENTRY_STUBS,
             increment: async () => ({ current: 0, prev: 0 }),
             peek: async (_k, _w, now) => {
                 seenNow = now;

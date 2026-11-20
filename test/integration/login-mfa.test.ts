@@ -191,11 +191,12 @@ describe("로그인 → MFA 체이닝", () => {
         try {
             const jar = makeCookieJar();
             // 잘못된 비밀번호로 10회 시도(모두 400), 11회째는 IP 레이트리밋으로 429.
+            // 계정마다 다른 이름을 써서 계정+IP 지수 지연(5회 뒤)이 아니라 IP 한도만 걸리게 한다.
             for (let i = 0; i < 10; i++) {
-                const r = (await loginActions.default(loginEvent(jar.cookies, { username: "mfauser", password: "wrong-password" }))) as { status?: number };
+                const r = (await loginActions.default(loginEvent(jar.cookies, { username: `probe${i}`, password: "wrong-password" }))) as { status?: number };
                 expect(r.status).toBe(400);
             }
-            const over = (await loginActions.default(loginEvent(jar.cookies, { username: "mfauser", password: "wrong-password" }))) as { status?: number };
+            const over = (await loginActions.default(loginEvent(jar.cookies, { username: "probe-final", password: "wrong-password" }))) as { status?: number };
             expect(over.status).toBe(429);
         } finally {
             vi.useRealTimers();

@@ -3,9 +3,9 @@ import { hashEncoded, Config } from "@hicaru/argon2-pure.js";
 import { hashPassword, verifyPassword, timingSafeEqual } from "$lib/server/auth/password";
 
 // 운영 scrypt 파라미터 (password.ts 와 동일해야 함) — 교차 검증용 상수.
-const OP_N = 32768;
+const OP_N = 65536;
 const OP_R = 8;
-const OP_P = 3;
+const OP_P = 2;
 
 function bytesFromB64(b64: string): Uint8Array {
     return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
@@ -40,9 +40,9 @@ describe("scrypt 해시 (hashPassword / verifyPassword)", () => {
         expect(await verifyPassword("wrong-password", record)).toEqual({ valid: false });
     });
 
-    it("레코드 형식: 운영 파라미터(N=32768,r=8,p=3), salt 16B, derived 32B", async () => {
+    it("레코드 형식: 운영 파라미터(N=65536,r=8,p=2), salt 16B, derived 32B", async () => {
         const record = await hashPassword("pw");
-        expect(record.startsWith("scrypt$N=32768,r=8,p=3$")).toBe(true);
+        expect(record.startsWith("scrypt$N=65536,r=8,p=2$")).toBe(true);
         const { params, salt, hash } = parseScryptRecord(record);
         expect(params).toEqual({ N: OP_N, r: OP_R, p: OP_P });
         expect(salt).toHaveLength(16);
@@ -141,7 +141,7 @@ describe("레거시 argon2id 검증 → scrypt 업그레이드", () => {
 
 describe("TIMING_DUMMY_HASH (users.ts, S1 타이밍 균등화 상수)", () => {
     // users.ts 는 DB 의존이라 import 대상 외 — 상수 문자열만 복제해 형식을 교차 검증한다.
-    const TIMING_DUMMY_HASH = "scrypt$N=32768,r=8,p=3$laGnY6fbAMkDKdFTKRUGyg==$Jm6an31vv6UDMaa2dn2B2riImIX6qmwMUcc6BWcccg8=";
+    const TIMING_DUMMY_HASH = "scrypt$N=65536,r=8,p=2$hVmifHhlsivEhcuMH7TzxA==$d+O6MqRdeYS7W67a6bV6U82qevX56IyHCLzbLe2krwk=";
 
     it("운영 scrypt 파라미터와 일치하는 유효 레코드 (salt 16B, hash 32B)", () => {
         const { params, salt, hash } = parseScryptRecord(TIMING_DUMMY_HASH);
