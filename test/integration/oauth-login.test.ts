@@ -20,10 +20,12 @@ vi.mock("node:dns/promises", () => ({
 
 import { GET as startHandler } from "../../src/routes/auth/oauth/[slug]/start/+server";
 import { GET as callbackHandler } from "../../src/routes/auth/oauth/[slug]/callback/+server";
-import { identities, users } from "$lib/server/db/schema";
+import { credentials, identities, sessions, users } from "$lib/server/db/schema";
+import { createTrustedDevice, TRUSTED_DEVICE_COOKIE } from "$lib/server/auth/trusted-device";
+import { encryptTotpSecret, generateTotpSecret } from "$lib/server/auth/totp";
 import { OAUTH_STATE_COOKIE } from "$lib/server/oauth/state";
 import { PENDING_LINK_COOKIE, readPendingLink } from "$lib/server/auth/pending-link";
-import { SESSION_COOKIE_NAME } from "$lib/server/auth/constants";
+import { ACR_MFA, SESSION_COOKIE_NAME } from "$lib/server/auth/constants";
 import { catchRedirect, makeCookieJar, makeEvent, openMemoryDb, seedIdentityProvider, seedTenantAndSigningKey, seedUser, TEST_SIGNING_SECRET, type MemoryDb } from "./harness";
 import type { Tenant, User } from "$lib/server/db/schema";
 
@@ -203,6 +205,29 @@ describe("계정 해석", () => {
 
         expect(location).toBe("/");
         expect(jar.has(SESSION_COOKIE_NAME)).toBe(true);
+    });
+
+    it("TOTP 사용자가 신뢰 기기로 들어오면 amr 이 fed + trusted_device 이고 ACR 은 MFA 다", async () => {
+        await seedGithubProvider();
+        const user = await seedUser(mem.db, { tenantId: tenant.id, email: "trusted@example.com", username: "trusted" });
+        await mem.db.insert(identities).values({ tenantId: tenant.id, userId: user.id, provider: `oauth:${SLUG}`, subject: "88", email: "trusted@example.com" });
+        await mem.db.insert(credentials).values({
+            id: crypto.randomUUID(),
+            userId: user.id,
+            type: "totp",
+            secret: await encryptTotpSecret(generateTotpSecret(), TEST_SIGNING_SECRET, user.id),
+            totpOwnerId: user.id,
+        });
+        const trusted = await createTrustedDevice(mem.db, { tenantId: tenant.id, userId: user.id });
+
+        stubGithub({ id: 88, login: "trusted", emails: [{ email: "trusted@example.com", primary: true, verified: true }] });
+        const jar = makeCookieJar({ [TRUSTED_DEVICE_COOKIE]: trusted.token });
+        const { state } = await runStart(jar);
+        await catchRedirect(() => callbackHandler(callbackEvent(jar, { code: "c", state })));
+
+        const [row] = await mem.db.select().from(sessions).where(eq(sessions.userId, user.id));
+        expect(row.amr).toBe("fed trusted_device");
+        expect(row.acr).toBe(ACR_MFA);
     });
 
     it("이메일이 같아도 기존 계정에 자동 연결하지 않는다 (계정 탈취 방지)", async () => {

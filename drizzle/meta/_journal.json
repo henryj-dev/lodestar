@@ -281,6 +281,13 @@
       "when": 1788150006926,
       "tag": "0039_cute_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1792336029634,
+      "tag": "0040_jittery_smiling_tiger",
+      "breakpoints": true
     }
   ]
 }

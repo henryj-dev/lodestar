@@ -11,7 +11,8 @@ import { getRequestMetadata } from "$lib/server/audit";
 import { env } from "$env/dynamic/private";
 import { translate } from "$lib/i18n/server";
 
-const RESET_EXPIRY_MS = 60 * 60 * 1000;
+// 회원 공통 정책: 재설정 링크는 30분.
+const RESET_EXPIRY_MS = 30 * 60 * 1000;
 
 export const load: PageServerLoad = async ({ locals, url, platform }) => {
     const skinHint = url.searchParams.get("skinHint");

@@ -37,6 +37,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
                 "nonce",
                 "sid",
                 "acr",
+                "amr",
                 "email",
                 "email_verified",
                 "name",

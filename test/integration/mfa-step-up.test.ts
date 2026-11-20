@@ -292,6 +292,19 @@ describe("step-up 완료 시 세션 승격", () => {
         });
     }
 
+    it("신뢰 기기 세션을 승격하면 trusted_device 를 지우고 totp 로 바꾼다", async () => {
+        await mem.db.update(sessions).set({ amr: "pwd trusted_device", acr: ACR_MFA }).where(eq(sessions.id, session.id));
+        session = (await mem.db.select().from(sessions).where(eq(sessions.id, session.id)))[0];
+        const jar = await primeStepUp("/oidc/authorize?client_id=heliopause");
+        const code = await generateTotpCode(totpSecret);
+
+        await catchRedirect(() => mfaActions.default(submitEvent(jar.cookies, { code })));
+
+        const [after] = await mem.db.select().from(sessions).where(eq(sessions.id, session.id));
+        expect(after.amr).toBe("pwd totp");
+        expect(after.acr).toBe(ACR_MFA);
+    });
+
     it("OTP 통과 시 세션 행을 유지한 채 amr/acr/authTime 만 승격한다", async () => {
         const jar = await primeStepUp("/oidc/authorize?client_id=heliopause");
         const before = (await mem.db.select().from(sessions).where(eq(sessions.id, session.id)))[0];

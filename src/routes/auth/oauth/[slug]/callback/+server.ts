@@ -20,7 +20,7 @@ import { createSessionRecord, setSessionCookie } from "$lib/server/auth/session"
 import { hasTotpCredential } from "$lib/server/auth/users";
 import { createMfaPendingToken, MFA_PENDING_COOKIE } from "$lib/server/auth/mfa";
 import { clearTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE, verifyTrustedDevice } from "$lib/server/auth/trusted-device";
-import { AMR_FEDERATED, AMR_TOTP, amrToAcr } from "$lib/server/auth/constants";
+import { AMR_FEDERATED, AMR_TRUSTED_DEVICE, amrToAcr } from "$lib/server/auth/constants";
 import { setPendingLinkCookie } from "$lib/server/auth/pending-link";
 import { timingSafeEqual } from "$lib/server/auth/signed-token";
 import { buildRedirectUri, exchangeCode, resolveEndpoints } from "$lib/server/oauth/client";
@@ -211,7 +211,8 @@ export const GET: RequestHandler = async (event) => {
         if (!forced && trustedDeviceToken) {
             const trusted = await verifyTrustedDevice(db, trustedDeviceToken, { userId: user.id, tenantId: tenant.id, ip: meta.ip });
             if (trusted) {
-                const amr = [AMR_FEDERATED, AMR_TOTP];
+                // 이번 로그인에서 TOTP 를 하지 않았다 — 로컬 로그인의 신뢰 기기 경로와 같은 표기.
+                const amr = [AMR_FEDERATED, AMR_TRUSTED_DEVICE];
                 const { sessionToken, expiresAt } = await createSessionRecord(db, {
                     tenantId: tenant.id,
                     userId: user.id,

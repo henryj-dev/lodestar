@@ -21,13 +21,14 @@
  * GC 실패는 요청 처리에 절대 영향을 주지 않는다(전부 try/catch + waitUntil 격리).
  */
 
-import { and, eq, lt, or, isNotNull, inArray } from "drizzle-orm";
+import { and, eq, lt, or, isNotNull, inArray, notInArray } from "drizzle-orm";
 import { getDb, DB_DIALECT, type DB } from "./index";
-import { sessions, oidcGrants, passwordResetTokens, emailVerificationTokens, emailChangeTokens, samlSloStates, samlAuthnRequestIds, samlSessions, users, inviteTokens } from "./schema";
+import { sessions, oidcGrants, passwordResetTokens, emailVerificationTokens, emailChangeTokens, samlSloStates, samlAuthnRequestIds, samlSessions, users, inviteTokens, auditEvents } from "./schema";
 import { purgeExpiredChallenges } from "$lib/server/auth/webauthn";
 import { purgeExpiredRefreshTokens, REFRESH_TOKEN_TTL_MS } from "$lib/server/oidc/refresh";
-import { purgeExpiredRateLimits } from "$lib/server/ratelimit";
+import { nodeUsesDbRateLimitStore, purgeExpiredRateLimits } from "$lib/server/ratelimit";
 import { SESSION_TTL_MS } from "$lib/server/auth/constants";
+import { retireAndDeleteUser } from "$lib/server/auth/account-deletion";
 import { checkTenantConsistency } from "$lib/server/ldap/consistency";
 
 // ── 유예(grace) 상수 ─────────────────────────────────────────────────────────────
@@ -80,6 +81,19 @@ const WORKERS_GC_SAMPLE_RATE = 0.01;
  * IN(...) 삭제" 2단계 루프로 이식성 있게 구현한다.
  */
 const USERS_GC_BATCH_SIZE = 100;
+/** 한 번의 GC 에서 허용하는 사용자 삭제 실패 수. 제외 목록이 D1 바인딩 한도(100)를 넘지 않게 한다. */
+const USERS_GC_MAX_FAILURES = 50;
+
+/**
+ * 감사 로그 보존 기간: 1년(회원 공통 정책 2026-10-18). 이보다 오래된 audit_events 를 지운다.
+ * 행 단위 MAC 이라 오래된 행을 지워도 남은 행의 검증에는 영향이 없다(audit/index.ts). 단, 사용자를
+ * 삭제하면 FK set null 로 그 사용자 행들의 userId 가 바뀌어 외부 MAC 재계산과 맞지 않게 된다(기존 제약).
+ * 외부 미러(Logpush 등)를 쓰는 운영이라면 그쪽 보존 기간은 따로 정한다.
+ */
+export const AUDIT_RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
+/** 한 번의 GC 에서 지울 최대 배치 수. 첫 실행 때 쌓인 행이 많아도 요청 하나를 오래 붙잡지 않게 나눠 지운다. */
+const AUDIT_GC_BATCH_SIZE = 500;
+const AUDIT_GC_MAX_BATCHES = 20;
 
 // ── 결과 타입 ────────────────────────────────────────────────────────────────────
 
@@ -123,27 +137,62 @@ function extractAffected(res: unknown): number | null {
 async function runUsersBatchDelete(db: DB, now: Date, tables: GcTableResult[]): Promise<void> {
     try {
         let total = 0;
+        const failedIds: string[] = [];
         for (;;) {
             const rows = await db
-                .select({ id: users.id })
+                .select({ id: users.id, tenantId: users.tenantId })
                 .from(users)
-                .where(and(eq(users.status, "deletion_pending"), lt(users.deletionScheduledAt, now)))
+                .where(and(eq(users.status, "deletion_pending"), lt(users.deletionScheduledAt, now), failedIds.length > 0 ? notInArray(users.id, failedIds) : undefined))
                 .limit(USERS_GC_BATCH_SIZE);
             if (rows.length === 0) break;
-            await db.delete(users).where(
-                inArray(
-                    users.id,
-                    rows.map((r) => r.id),
-                ),
-            );
-            total += rows.length;
+            // 예전 30일 유예로 남은 계정도 즉시 삭제 경로와 같은 식별자 기록을 남기고 지운다.
+            // 한 행이 실패해도 나머지는 계속 지운다. 실패한 행은 다음 GC 에서 다시 고른다 — 같은 행만
+            // 계속 실패해 뒤의 계정이 막히지 않도록, 이번 실행에서 실패한 id 는 다음 배치 조회에서 뺀다.
+            let progressed = 0;
+            for (const row of rows) {
+                try {
+                    await retireAndDeleteUser(db, row.tenantId, row.id);
+                    progressed += 1;
+                } catch (error) {
+                    failedIds.push(row.id);
+                    console.error(`[gc] delete user ${row.id} 실패:`, error instanceof Error ? error.message : String(error));
+                }
+            }
+            total += progressed;
             if (rows.length < USERS_GC_BATCH_SIZE) break;
+            // 제외 목록은 쿼리 바인딩 파라미터가 된다(D1 은 쿼리당 100개). 실패가 많으면 이번 실행은 멈추고
+            // 다음 GC 에 맡긴다 — 실패가 이만큼 쌓였다면 원인을 먼저 봐야 한다.
+            if (failedIds.length >= USERS_GC_MAX_FAILURES) break;
         }
-        tables.push({ table: "users", deleted: total, ok: true });
+        tables.push(failedIds.length === 0 ? { table: "users", deleted: total, ok: true } : { table: "users", deleted: total, ok: false, error: `${failedIds.length} user(s) failed` });
     } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         console.error(`[gc] delete users 실패:`, msg);
         tables.push({ table: "users", deleted: null, ok: false, error: msg });
+    }
+}
+
+async function runAuditBatchDelete(db: DB, now: Date, tables: GcTableResult[]): Promise<void> {
+    const cutoff = new Date(now.getTime() - AUDIT_RETENTION_MS);
+    try {
+        let total = 0;
+        for (let batch = 0; batch < AUDIT_GC_MAX_BATCHES; batch += 1) {
+            const rows = await db.select({ id: auditEvents.id }).from(auditEvents).where(lt(auditEvents.createdAt, cutoff)).limit(AUDIT_GC_BATCH_SIZE);
+            if (rows.length === 0) break;
+            await db.delete(auditEvents).where(
+                inArray(
+                    auditEvents.id,
+                    rows.map((r) => r.id),
+                ),
+            );
+            total += rows.length;
+            if (rows.length < AUDIT_GC_BATCH_SIZE) break;
+        }
+        tables.push({ table: "audit_events", deleted: total, ok: true });
+    } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`[gc] delete audit_events 실패:`, msg);
+        tables.push({ table: "audit_events", deleted: null, ok: false, error: msg });
     }
 }
 
@@ -154,11 +203,10 @@ async function runUsersBatchDelete(db: DB, now: Date, tables: GcTableResult[]): 
  * GC 는 조회 성능·저장공간을 위한 것이며, 어떤 만료 판정도 **인증 쿼리와 동일하거나 더
  * 보수적인 조건**만 사용한다(미만료·미소진 행 보존이 최우선).
  *
- * @param opts.isWorkers Workers 런타임 여부. `rate_limits` 는 **Workers 에서만 쓰는 테이블**
- *   이라(`resolveRateLimitStore` 가 Workers 가 아니면 `MemoryRateLimitStore` 를 쓴다) Node
- *   배포에서는 청소를 건너뛴다. 쓰지도 않는 테이블에 매시간 DELETE 를 날릴 이유가 없다.
- *   판정 조건은 `resolveRateLimitStore` 와 같아야 한다 — 어긋나면 실제로 쓰는 테이블을
- *   청소하지 않게 된다.
+ * @param opts.isWorkers Workers 런타임 여부. `rate_limits` 는 db 저장소를 쓸 때만 채워진다.
+ *   Workers 는 항상 청소하고, Node 는 `RATELIMIT_STORE` 가 auto(기본, db)·db 일 때만 청소한다
+ *   (`nodeUsesDbRateLimitStore`). 판정 조건은 `resolveRateLimitStore` 와 같아야 한다 — 어긋나면
+ *   실제로 쓰는 테이블을 청소하지 않게 된다.
  */
 export async function runExpiredDataGc(db: DB, opts: { isWorkers: boolean }): Promise<GcResult> {
     const startedAt = Date.now();
@@ -199,8 +247,8 @@ export async function runExpiredDataGc(db: DB, opts: { isWorkers: boolean }): Pr
     await runPurge("oidc_refresh_tokens", () => purgeExpiredRefreshTokens(db));
     // 2) 기존 purge 함수들 (import 호출)
     await runPurge("webauthn_challenges", () => purgeExpiredChallenges(db));
-    //    rate_limits 는 Workers 에서만 쓰인다 — 위 opts.isWorkers 주석 참조.
-    if (opts.isWorkers) {
+    //    rate_limits 는 db 저장소를 쓸 때만 채워진다 — 위 opts.isWorkers 주석 참조.
+    if (opts.isWorkers || nodeUsesDbRateLimitStore()) {
         await runPurge("rate_limits", () => purgeExpiredRateLimits(db));
     }
 
@@ -253,6 +301,9 @@ export async function runExpiredDataGc(db: DB, opts: { isWorkers: boolean }): Pr
     //   절대 매칭되지 않으며(활성 계정 오삭제 불가), 유예 미경과 계정도 삭제되지 않는다.
     //   대량 cascade 락을 피하려고 배치(USERS_GC_BATCH_SIZE)로 id 를 조회해 나눠 삭제한다.
     await runUsersBatchDelete(db, now, tables);
+
+    // audit_events: 1년 지난 행(AUDIT_RETENTION_MS). createdAt 인덱스(audit_events_created_idx)로 찾는다.
+    await runAuditBatchDelete(db, now, tables);
 
     const result: GcResult = { startedAt, durationMs: Date.now() - startedAt, tables };
 

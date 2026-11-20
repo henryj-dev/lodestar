@@ -69,37 +69,47 @@ them by name.
 
 ## What it does
 
-| Feature                   |                                                                                                                                                                                |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **OIDC**                  | Authorization Code + PKCE, refresh tokens (rotation and reuse detection), UserInfo, JWKS, introspection, revocation, end-session                                               |
-| **SAML 2.0**              | SP-initiated SSO (HTTP-Redirect and HTTP-POST bindings), assertion signing and encryption, `ForceAuthn`, `IsPassive`, `RequestedAuthnContext`, SLO                             |
-| **ACR / AMR**             | ACR decided from how the session authenticated — carried in the SAML assertion and the OIDC ID token                                                                           |
-| **Re-auth policy**        | Per client and per SP: require an MFA-level session, and choose whether re-authentication takes the password again or just an OTP on the live session                          |
-| **WebAuthn / Passkey**    | Passkey registration and authentication, single-use challenges held in the database, tenant isolation                                                                          |
-| **TOTP 2FA**              | Compatible with Google Authenticator and the like, with backup codes                                                                                                           |
-| **LDAP**                  | LDAP authentication and JIT user provisioning, providers configured from the admin UI                                                                                          |
-| **Account self-service**  | Profile, email change, password reset and recovery, MFA enrollment, passkey add and remove, active session listing and revocation, account deletion with a 30-day grace period |
-| **Consent & terms**       | First-use consent for OIDC scopes and SAML attributes (required/optional split), per-app terms of service with versioning and per-item agreement records                       |
-| **Service authorization** | Per-service (RP) `roles` assignment and `entitlements` grants — issued as OIDC claims, with a SET notification to the RP on change                                             |
-| **Service API tokens**    | Scope-limited bearer tokens issued and revoked per caller from the admin console                                                                                               |
-| **Organization**          | Department → team → part hierarchy, grades and titles, multiple memberships                                                                                                    |
-| **Multi-tenant**          | Users, clients and keys are managed independently per tenant                                                                                                                   |
-| **Admin UI**              | CRUD for users, organization (departments, teams, parts, grades), OIDC clients, SAML SPs, LDAP providers, signing keys, service tokens, login skins and audit logs             |
-| **Custom login skins**    | Per-client HTML and CSS for 10 auth screens (login, signup, MFA, logout …), sanitized server-side, cached in R2 or S3-compatible storage                                       |
-| **Audit log**             | Logins, SSO and token issuance recorded automatically, each row carrying an integrity MAC, browsable from the admin UI                                                         |
-| **i18n**                  | Message-catalog internationalization — Korean and English (`ko` / `en`)                                                                                                        |
+| Feature                   |                                                                                                                                                                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **OIDC**                  | Authorization Code + PKCE, refresh tokens (rotation and reuse detection), UserInfo, JWKS, introspection, revocation, end-session                                   |
+| **SAML 2.0**              | SP-initiated SSO (HTTP-Redirect and HTTP-POST bindings), assertion signing and encryption, `ForceAuthn`, `IsPassive`, `RequestedAuthnContext`, SLO                 |
+| **ACR / AMR**             | ACR decided from how the session authenticated — carried in the SAML assertion and the OIDC ID token                                                               |
+| **Re-auth policy**        | Per client and per SP: require an MFA-level session, and choose whether re-authentication takes the password again or just an OTP on the live session              |
+| **WebAuthn / Passkey**    | Passkey registration and authentication, single-use challenges held in the database, tenant isolation                                                              |
+| **TOTP 2FA**              | Compatible with Google Authenticator and the like, with backup codes                                                                                               |
+| **LDAP**                  | LDAP authentication and JIT user provisioning, providers configured from the admin UI                                                                              |
+| **Account self-service**  | Profile, email change, password reset and recovery, MFA enrollment, passkey add and remove, active session listing and revocation, immediate account deletion      |
+| **Consent & terms**       | First-use consent for OIDC scopes and SAML attributes (required/optional split), per-app terms of service with versioning and per-item agreement records           |
+| **Service authorization** | Per-service (RP) `roles` assignment and `entitlements` grants — issued as OIDC claims, with a SET notification to the RP on change                                 |
+| **Service API tokens**    | Scope-limited bearer tokens issued and revoked per caller from the admin console                                                                                   |
+| **Organization**          | Department → team → part hierarchy, grades and titles, multiple memberships                                                                                        |
+| **Multi-tenant**          | Users, clients and keys are managed independently per tenant                                                                                                       |
+| **Admin UI**              | CRUD for users, organization (departments, teams, parts, grades), OIDC clients, SAML SPs, LDAP providers, signing keys, service tokens, login skins and audit logs |
+| **Custom login skins**    | Per-client HTML and CSS for 10 auth screens (login, signup, MFA, logout …), sanitized server-side, cached in R2 or S3-compatible storage                           |
+| **Audit log**             | Logins, SSO and token issuance recorded automatically, each row carrying an integrity MAC, browsable from the admin UI                                             |
+| **i18n**                  | Message-catalog internationalization — Korean and English (`ko` / `en`)                                                                                            |
 
 ### ACR / AMR mapping
 
 ACR is derived from how the session authenticated (AMR) and carried into both the SAML
 assertion and the OIDC ID token.
 
-| Authentication         | AMR           | ACR                                                                 |
-| ---------------------- | ------------- | ------------------------------------------------------------------- |
-| Password only          | `pwd`         | `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport` |
-| Password + TOTP        | `pwd`, `totp` | `https://refeds.org/profile/mfa`                                    |
-| Password + backup code | `pwd`, `swk`  | `https://refeds.org/profile/mfa`                                    |
-| WebAuthn / Passkey     | `hwk`         | `https://refeds.org/profile/mfa`                                    |
+| Authentication                           | AMR                                     | ACR                                                                 |
+| ---------------------------------------- | --------------------------------------- | ------------------------------------------------------------------- |
+| Password only                            | `pwd`                                   | `urn:oasis:names:tc:SAML:2.0:ac:classes:PasswordProtectedTransport` |
+| Password + TOTP                          | `pwd`, `totp`                           | `https://refeds.org/profile/mfa`                                    |
+| Password + backup code                   | `pwd`, `swk`                            | `https://refeds.org/profile/mfa`                                    |
+| WebAuthn / Passkey                       | `hwk`                                   | `https://refeds.org/profile/mfa`                                    |
+| Password + trusted device (TOTP skipped) | `pwd`, `trusted_device`                 | `https://refeds.org/profile/mfa`                                    |
+| Social login + TOTP / trusted device     | `fed`, `totp` / `fed`, `trusted_device` | `https://refeds.org/profile/mfa`                                    |
+
+`amr` is carried in every ID token — the one from the authorization code exchange as well as
+refreshed ones. A login on a 14-day trusted device skips the TOTP prompt, so it says
+`trusted_device` instead of `totp`; its ACR stays MFA so `require_mfa` behaves as before. An RP
+that needs TOTP performed in this login should check `amr` for `totp`, or ask for re-authentication
+with `prompt=login` / `max_age` (re-authentication never applies the trusted device). To decide
+whether a login reached MFA level, check `acr`, not the presence of `totp` in `amr`. Once the
+session passes TOTP again in a step-up, `trusted_device` is replaced by `totp`.
 
 When a SAML SP demands a particular ACR through `RequestedAuthnContext` and the session's
 ACR does not meet it, re-authentication is forced. If it cannot be met at all — no MFA
@@ -270,30 +280,31 @@ scripts/setup.ts           # interactive first-run setup
 [`.env.example`](.env.example) carries the full list with detailed comments. These are the ones
 in regular use.
 
-| Variable                            | Required    |                                                                                                                                                                           |
-| ----------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IDP_ISSUER_URL`                    | ✅          | OIDC/SAML issuer URL, matching the deployed domain. **Required in production** — without it requests fail closed with a 503. Only in dev does the request origin stand in |
-| `IDP_SIGNING_KEY_SECRET`            | ✅          | KEK encrypting the signing keys (a Secret in production). **Required in production** — without it requests fail fast                                                      |
-| `IDP_SIGNING_KEY_SECRET_PREVIOUS`   | optional    | Set alongside the current value only while **rotating the master secret**; decryption falls back current → previous ([rotation procedure](docs/SECRET_ROTATION.md))       |
-| `BUILD_TARGET`                      | optional    | `cloudflare` (default) or `node` — which adapter to build. Read **at build time**                                                                                         |
-| `DB_DIALECT`                        | optional    | `d1` (default), `sqlite`, `postgres` or `mysql`. Read **at build, typecheck and migration-generation time as well**                                                       |
-| `DATABASE_URL`                      | conditional | Connection string for postgres, mysql or sqlite. On Cloudflare a `HYPERDRIVE` binding takes precedence                                                                    |
-| `DATABASE_AUTH_TOKEN`               | optional    | Auth token for remote libSQL such as Turso (only with `sqlite` against a remote)                                                                                          |
-| `DISPATCHER_SERVICE_TOKEN`          | optional    | Legacy **all-scope** bearer token for the service API. Prefer per-caller tokens from the admin console. With neither this nor an issued token, those APIs answer 503      |
-| `IDP_DEFAULT_TENANT_NAME`           | optional    | Default tenant name (default `My Organization`)                                                                                                                           |
-| `IDP_TENANT_BASE_DOMAIN`            | optional    | Base domain for `<tenant-slug>.<base-domain>` routing. Explicit `/t/<tenant-slug>/…` paths also work                                                                      |
-| `IDP_TENANT_ISSUER_MODE`            | optional    | `shared` (default), `host` or `path` — per-tenant OIDC/SAML issuer strategy                                                                                               |
-| `RATELIMIT_STORE`                   | optional    | `auto` (default), `memory`, `db` or `redis` — use `db` or `redis` for multi-instance Node                                                                                 |
-| `RATELIMIT_REDIS_URL` / `_TOKEN`    | conditional | Upstash-compatible Redis REST credentials, needed when `RATELIMIT_STORE=redis`                                                                                            |
-| `APP_INSTANCE_COUNT`                | optional    | Node instance count, used to warn when memory rate limiting is chosen for more than one                                                                                   |
-| `IDP_ENFORCE_SP_CERT_VALIDITY`      | optional    | Enforce SAML SP certificate validity periods. **On by default** — only `"false"` relaxes it                                                                               |
-| `PASSWORD_BREACH_CHECK`             | optional    | Screen against breached passwords (HIBP k-anonymity). Off by default; API errors fail open                                                                                |
-| `SMTP_HOSTNAME` and other `SMTP_*`  | optional    | Outbound mail (password recovery, invitations, email verification, security notices). Unset means those mails are skipped                                                 |
-| `S3_ENDPOINT` and other `S3_*`      | optional    | S3-compatible storage for the skin cache, used when there is no R2 binding                                                                                                |
-| `CLOUDFLARE_ACCOUNT_ID`             | optional    | Cloudflare account id (used by the migration scripts)                                                                                                                     |
-| `CLOUDFLARE_D1_DATABASE_ID`         | optional    | D1 database id (used by the migration scripts)                                                                                                                            |
-| `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | optional    | Preview D1 database id                                                                                                                                                    |
-| `CLOUDFLARE_D1_TOKEN`               | optional    | D1 API token (used by `db:migrate`)                                                                                                                                       |
+| Variable                            | Required    |                                                                                                                                                                                                     |
+| ----------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IDP_ISSUER_URL`                    | ✅          | OIDC/SAML issuer URL, matching the deployed domain. **Required in production** — without it requests fail closed with a 503. Only in dev does the request origin stand in                           |
+| `IDP_SIGNING_KEY_SECRET`            | ✅          | KEK encrypting the signing keys (a Secret in production). **Required in production** — without it requests fail fast                                                                                |
+| `IDP_SIGNING_KEY_SECRET_PREVIOUS`   | optional    | Set alongside the current value only while **rotating the master secret**; decryption falls back current → previous ([rotation procedure](docs/SECRET_ROTATION.md))                                 |
+| `BUILD_TARGET`                      | optional    | `cloudflare` (default) or `node` — which adapter to build. Read **at build time**                                                                                                                   |
+| `DB_DIALECT`                        | optional    | `d1` (default), `sqlite`, `postgres` or `mysql`. Read **at build, typecheck and migration-generation time as well**                                                                                 |
+| `DATABASE_URL`                      | conditional | Connection string for postgres, mysql or sqlite. On Cloudflare a `HYPERDRIVE` binding takes precedence                                                                                              |
+| `DATABASE_AUTH_TOKEN`               | optional    | Auth token for remote libSQL such as Turso (only with `sqlite` against a remote)                                                                                                                    |
+| `DISPATCHER_SERVICE_TOKEN`          | optional    | Legacy **all-scope** bearer token for the service API. Prefer per-caller tokens from the admin console. With neither this nor an issued token, those APIs answer 503                                |
+| `TOTP_ENROLL_TICKET`                | optional    | `optional` (default) or `required`. With `required`, `/api/totp/enroll/confirm` rejects requests without the `enrollmentTicket` returned by `init`. Switch to `required` once every caller sends it |
+| `IDP_DEFAULT_TENANT_NAME`           | optional    | Default tenant name (default `My Organization`)                                                                                                                                                     |
+| `IDP_TENANT_BASE_DOMAIN`            | optional    | Base domain for `<tenant-slug>.<base-domain>` routing. Explicit `/t/<tenant-slug>/…` paths also work                                                                                                |
+| `IDP_TENANT_ISSUER_MODE`            | optional    | `shared` (default), `host` or `path` — per-tenant OIDC/SAML issuer strategy                                                                                                                         |
+| `RATELIMIT_STORE`                   | optional    | `auto` (default, = `db` on Workers and Node), `memory` (single-process dev only), `db` or `redis`                                                                                                   |
+| `RATELIMIT_REDIS_URL` / `_TOKEN`    | conditional | Upstash-compatible Redis REST credentials, needed when `RATELIMIT_STORE=redis`                                                                                                                      |
+| `APP_INSTANCE_COUNT`                | optional    | Node instance count, used to warn when memory rate limiting is chosen for more than one                                                                                                             |
+| `IDP_ENFORCE_SP_CERT_VALIDITY`      | optional    | Enforce SAML SP certificate validity periods. **On by default** — only `"false"` relaxes it                                                                                                         |
+| `PASSWORD_BREACH_CHECK`             | optional    | Screen against breached passwords (HIBP k-anonymity). Off by default; API errors fail open                                                                                                          |
+| `SMTP_HOSTNAME` and other `SMTP_*`  | optional    | Outbound mail (password recovery, invitations, email verification, security notices). Unset means those mails are skipped                                                                           |
+| `S3_ENDPOINT` and other `S3_*`      | optional    | S3-compatible storage for the skin cache, used when there is no R2 binding                                                                                                                          |
+| `CLOUDFLARE_ACCOUNT_ID`             | optional    | Cloudflare account id (used by the migration scripts)                                                                                                                                               |
+| `CLOUDFLARE_D1_DATABASE_ID`         | optional    | D1 database id (used by the migration scripts)                                                                                                                                                      |
+| `CLOUDFLARE_D1_PREVIEW_DATABASE_ID` | optional    | Preview D1 database id                                                                                                                                                                              |
+| `CLOUDFLARE_D1_TOKEN`               | optional    | D1 API token (used by `db:migrate`)                                                                                                                                                                 |
 
 LDAP identity/user tenant consistency can be checked once before deploying with
 `bun run db:check-tenant-consistency`; the runtime GC also emits structured warnings periodically.
@@ -504,12 +515,17 @@ stored.
 > `DISPATCHER_SERVICE_TOKEN` is a legacy path holding **every scope**. It remains so existing
 > callers keep working; remove it once they have all moved to issued tokens.
 
-| Path                       | Method |                                                                        |
-| -------------------------- | ------ | ---------------------------------------------------------------------- |
-| `/api/totp/enroll/init`    | POST   | `{userId}` → `{secret, otpAuthUri, username}` (stateless)              |
-| `/api/totp/enroll/confirm` | POST   | `{userId, secret, code}` → verify, persist, and return `{backupCodes}` |
-| `/api/totp/verify`         | POST   | `{userId, code}` → step-up verification → `{ok, verifiedAt}`           |
-| `/api/totp/status`         | GET    | `?userId=…` → `{enrolled, backupCodeCount, lastUsedAt}`                |
+| Path                       | Method |                                                                                          |
+| -------------------------- | ------ | ---------------------------------------------------------------------------------------- |
+| `/api/totp/enroll/init`    | POST   | `{userId}` → `{secret, otpAuthUri, username, enrollmentTicket}` (stateless)              |
+| `/api/totp/enroll/confirm` | POST   | `{userId, secret, code, enrollmentTicket}` → verify, persist, and return `{backupCodes}` |
+| `/api/totp/verify`         | POST   | `{userId, code}` → step-up verification → `{ok, verifiedAt}`                             |
+| `/api/totp/status`         | GET    | `?userId=…` → `{enrolled, backupCodeCount, lastUsedAt}`                                  |
+
+All four answer **403 for users that are not `active`** (disabled, locked, pending deletion), matching
+the login rule. `enrollmentTicket` binds the issued `secret` to `userId` for 10 minutes: send it back
+to `confirm` unchanged. A ticket that does not match is always rejected; a missing ticket is accepted
+and audited (`ticket: "missing"`) until `TOTP_ENROLL_TICKET=required`.
 
 ---
 
@@ -633,8 +649,11 @@ helper `scripts/lib/db.ts`, and reach D1 over its REST API.
 
 ### Password hashing
 
-New passwords are hashed with **scrypt** (native `node:crypto`, N=2^15, r=8, p=3 — about 32 MiB,
-an OWASP-recommended combination). It behaves identically on Workers, Node and Bun.
+New passwords are hashed with **scrypt** (native `node:crypto`, N=2^16, r=8, p=2 — about 64 MiB,
+sized for the Workers limits). It behaves identically on Workers, Node and Bun. Passwords are
+NFC-normalized before checking and hashing, and must be at least 8 characters mixing three of
+lowercase, uppercase, digits and symbols; there is no maximum length (auth request bodies are
+capped at 64 KiB instead). Hashes made with older parameters are re-hashed on the next login.
 
 Legacy hashes stored as **argon2id** (`@hicaru/argon2-pure.js`) or **PBKDF2-SHA256** still verify,
 and are **re-hashed to scrypt automatically on a successful login**. argon2id was abandoned

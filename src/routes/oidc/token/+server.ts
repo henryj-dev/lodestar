@@ -545,7 +545,10 @@ export const POST: RequestHandler = async (event) => {
         sessionId: grant.sessionId,
         nonce: grant.nonce,
         acr: grant.acr ?? null,
-        amr: null,
+        // amr 은 grant 에 따로 저장하지 않으므로 연결 세션의 현재 값을 쓴다(refresh grant·auth_time 과 같은 출처).
+        // 세션 ACR 은 승격으로만 바뀌어 authorize 이후 올라갈 수는 있어도 내려가지 않는다. 그 사이 승격돼
+        // grant 의 acr 과 달라졌다면, id_token 의 acr 보다 강한 수단을 amr 로 말하게 되므로 싣지 않는다.
+        amr: acSessionRow && (acSessionRow.acr ?? null) === (grant.acr ?? null) ? (acSessionRow.amr ?? null) : null,
         authTimeSec,
     });
 

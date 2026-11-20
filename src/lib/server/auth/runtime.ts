@@ -22,6 +22,13 @@ export interface RuntimeConfig {
      * 미설정이면 /api/totp/* 라우트 503 반환 (개발 안전).
      */
     dispatcherServiceToken?: string;
+    /**
+     * `/api/totp/enroll/confirm` 의 등록 티켓 요구 수준(`TOTP_ENROLL_TICKET`).
+     * - `optional`(기본): 티켓이 오면 검증하고, 없으면 등록은 허용하되 감사에 `ticket: "missing"` 을 남긴다.
+     *   기존 호출자(dispatcher)가 티켓을 보내도록 고치는 동안의 이행 모드다.
+     * - `required`: 티켓 없는 confirm 을 400 으로 거부한다. 모든 호출자를 고친 뒤 켠다.
+     */
+    totpEnrollTicketMode: "optional" | "required";
     /** Tenant issuer strategy: shared (legacy), host, or path. */
     tenantIssuerMode: "shared" | "host" | "path";
     tenantBaseDomain?: string;
@@ -53,6 +60,7 @@ export function getRuntimeConfig(platform: App.Platform | undefined): RuntimeCon
         signingKeySecret: signingKeyCurrent,
         signingKeySecrets,
         dispatcherServiceToken: getString("DISPATCHER_SERVICE_TOKEN"),
+        totpEnrollTicketMode: getString("TOTP_ENROLL_TICKET")?.trim().toLowerCase() === "required" ? "required" : "optional",
         tenantIssuerMode: getString("IDP_TENANT_ISSUER_MODE") === "host" || getString("IDP_TENANT_ISSUER_MODE") === "path" ? (getString("IDP_TENANT_ISSUER_MODE") as "host" | "path") : "shared",
         tenantBaseDomain: getString("IDP_TENANT_BASE_DOMAIN")
             ?.toLowerCase()
