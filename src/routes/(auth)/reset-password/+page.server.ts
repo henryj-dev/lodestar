@@ -8,9 +8,8 @@ import { runAtomic } from "$lib/server/db/atomic";
 import { hashPassword, MAX_PASSWORD_LENGTH } from "$lib/server/auth/password";
 import { isBreachCheckEnabled, isPasswordBreached } from "$lib/server/auth/breach-check";
 import { hashToken } from "$lib/server/email";
-import { revokeAllUserSessions } from "$lib/server/auth/session";
 import { clearTrustedDeviceCookie, revokeAllTrustedDevices } from "$lib/server/auth/trusted-device";
-import { revokeAllUserRefreshTokens } from "$lib/server/oidc/refresh";
+import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
 import { resolve } from "$app/paths";
 import { sanitizeRedirectTarget } from "$lib/server/auth/redirect";
 import { resolveSkinHtml, replacePlaceholders, escapeHtml } from "$lib/server/skin/resolver";
@@ -71,7 +70,7 @@ export const load: PageServerLoad = async ({ locals, url, platform }) => {
 
 export const actions: Actions = {
     default: async (event) => {
-        const { db, rateLimitStore } = requireDbContext(event.locals);
+        const { db, tenant, rateLimitStore } = requireDbContext(event.locals);
 
         const formData = await event.request.formData();
         const token = String(formData.get("token") ?? "");
@@ -105,7 +104,9 @@ export const actions: Actions = {
             .select({ id: passwordResetTokens.id, userId: passwordResetTokens.userId, expiresAt: passwordResetTokens.expiresAt, email: users.email, locale: users.locale })
             .from(passwordResetTokens)
             .innerJoin(users, eq(passwordResetTokens.userId, users.id))
-            .where(and(eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt)))
+            // 요청 테넌트의 사용자 토큰만 받는다. 다른 테넌트 호스트로 제출하면 그 테넌트 issuer 로 엉뚱한
+            // RP 에 로그아웃을 통지하게 된다(세션 폐기는 userId 기준이라 문제없었지만 통지는 테넌트 기준이다).
+            .where(and(eq(passwordResetTokens.tokenHash, tokenHash), isNull(passwordResetTokens.usedAt), eq(users.tenantId, tenant.id)))
             .limit(1);
 
         if (!record || record.expiresAt < now) return failWithSkin(translate(locale, "reset_password.err_expired_link"));
@@ -156,8 +157,8 @@ export const actions: Actions = {
         ]);
 
         // 비밀번호가 바뀌었으므로 기존 세션과 OIDC refresh token 을 모두 무효화한다.
-        await revokeAllUserSessions(db, record.userId, now);
-        await revokeAllUserRefreshTokens(db, record.userId);
+        // RP 에도 back-channel logout 을 보낸다 — 탈취된 RP 세션도 함께 끊어야 리셋의 의미가 있다.
+        await revokeUserEverywhere(event, { db, tenant, userId: record.userId, actorId: record.userId, reason: "password_reset", revokedAt: now });
         // 신뢰 기기도 함께 폐기한다 — 비밀번호 탈취자가 기존 신뢰 기기로 MFA 를 건너뛰지 못하게.
         await revokeAllTrustedDevices(db, record.userId, now);
         clearTrustedDeviceCookie(event.cookies, event.url);

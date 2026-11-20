@@ -20,6 +20,19 @@ export const AMR_WEBAUTHN = "hwk"; // hardware key (RFC 8176)
  * 제시한 적이 없으므로 `pwd` 로 표기하면 downstream RP 에 거짓 정보가 나간다.
  */
 export const AMR_FEDERATED = "fed";
+/**
+ * 14일 신뢰 기기로 2차 인증 단계를 **건너뛰었음**을 뜻한다. RFC 8176 에 없는 값이다.
+ *
+ * 예전에는 이 경우에도 `totp` 를 실었다. 그러면 RP 는 "이번 로그인에서 TOTP 를 했다" 고 읽는데
+ * 실제로는 하지 않았다 — 거짓 증거다. 대신 이 값을 실어, 이번 로그인에서 2차 수단을 직접 확인하지
+ * 않았다는 사실을 RP 가 구분할 수 있게 한다.
+ *
+ * ACR 은 그대로 MFA 다(SECOND_FACTORS 에 포함). 신뢰 기기는 14일 안에 MFA 를 통과한 기기만 등록되므로
+ * `requireMfa` 게이트·관리 콘솔 게이트의 기존 동작을 바꾸지 않는다. 이번 로그인의 TOTP 수행이
+ * 필요한 RP 는 `amr` 에 `totp` 가 있는지 보거나 `prompt=login`/`max_age` 로 재인증을 요구하면 된다
+ * (재인증은 신뢰 기기를 적용하지 않는다).
+ */
+export const AMR_TRUSTED_DEVICE = "trusted_device";
 
 // WebAuthn credential 타입
 export const WEBAUTHN_CREDENTIAL_TYPE = "webauthn";
@@ -34,7 +47,7 @@ export const ACR_MFA = "https://refeds.org/profile/mfa";
  * 실제로 서로 다른 두 요소를 거친 것이므로 `pwd + totp` 와 동등하게 봐야 한다.
  */
 const FIRST_FACTORS = [AMR_PASSWORD, AMR_FEDERATED];
-const SECOND_FACTORS = [AMR_TOTP, AMR_BACKUP_CODE];
+const SECOND_FACTORS = [AMR_TOTP, AMR_BACKUP_CODE, AMR_TRUSTED_DEVICE];
 
 /** AMR 배열로부터 ACR 을 결정한다. */
 export function amrToAcr(amr: string[]): string {

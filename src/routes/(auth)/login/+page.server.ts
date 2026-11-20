@@ -7,7 +7,7 @@ import { createSessionRecord, setSessionCookie } from "$lib/server/auth/session"
 import { authenticateLocalUser, authenticatePendingDeletionUser, hasTotpCredential, normalizeUsername } from "$lib/server/auth/users";
 import { createMfaPendingToken, MFA_PENDING_COOKIE } from "$lib/server/auth/mfa";
 import { clearTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE, verifyTrustedDevice } from "$lib/server/auth/trusted-device";
-import { AMR_PASSWORD, AMR_TOTP, amrToAcr } from "$lib/server/auth/constants";
+import { AMR_PASSWORD, AMR_TRUSTED_DEVICE, amrToAcr } from "$lib/server/auth/constants";
 import { getRuntimeConfig } from "$lib/server/auth/runtime";
 import { checkRateLimit, peekRateLimit } from "$lib/server/ratelimit";
 import { and, eq } from "drizzle-orm";
@@ -337,7 +337,8 @@ export const actions: Actions = {
 
                 if (trusted) {
                     // 신뢰 기기는 14일 내 MFA 를 이미 통과했으므로 ACR_MFA 를 만족시킨다.
-                    const amr = [AMR_PASSWORD, AMR_TOTP];
+                    // 다만 이번 로그인에서 TOTP 를 하지는 않았으므로 amr 에 totp 를 싣지 않는다.
+                    const amr = [AMR_PASSWORD, AMR_TRUSTED_DEVICE];
                     const { sessionToken, expiresAt } = await createSessionRecord(db, {
                         tenantId: tenant.id,
                         userId: user.id,

@@ -7,6 +7,8 @@ import { credentials, users } from "$lib/server/db/schema";
 
 /**
  * Phase 7.3 — TOTP enroll 여부 + last-used 조회.
+ * 활성(active)이 아닌 사용자는 403 — verify 와 같은 기준이라, 호출자가 status 만 보고
+ * "등록돼 있으니 OTP 를 받으면 된다" 고 판단하지 않게 한다.
  */
 export const GET: RequestHandler = async (event) => {
     const { url, locals } = event;
@@ -17,11 +19,12 @@ export const GET: RequestHandler = async (event) => {
     if (!userId) throw error(400, "userId required");
 
     const [user] = await db
-        .select({ id: users.id })
+        .select({ id: users.id, status: users.status })
         .from(users)
         .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)))
         .limit(1);
     if (!user) throw error(404, "user not found");
+    if (user.status !== "active") throw error(403, "user not active");
 
     const totp = await db
         .select({ id: credentials.id, lastUsedAt: credentials.lastUsedAt, createdAt: credentials.createdAt })

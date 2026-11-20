@@ -8,7 +8,7 @@ import { users, credentials, inviteTokens } from "$lib/server/db/schema";
 import { hashPassword } from "$lib/server/auth/password";
 import { normalizeEmail, normalizeUsername } from "$lib/server/auth/users";
 import { PASSWORD_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
-import { revokeAllUserSessions } from "$lib/server/auth/session";
+import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
 import { adminError, requireFormId } from "$lib/server/admin/errors";
 import { runAtomic } from "$lib/server/db/atomic";
 import { issueInvite } from "$lib/server/auth/invite";
@@ -285,9 +285,9 @@ export const actions: Actions = {
             .set({ status, updatedAt: new Date() })
             .where(and(eq(users.id, id), eq(users.tenantId, tenant.id)));
 
-        // 비활성/잠금 처리 시 기존 세션 즉시 파기
+        // 비활성/잠금 처리 시 기존 세션 + refresh token 즉시 파기하고 RP 에도 로그아웃을 통지한다.
         if (status !== "active") {
-            await revokeAllUserSessions(db, id);
+            await revokeUserEverywhere(event, { db, tenant, userId: id, actorId: locals.user!.id, reason: `user_${status}` });
         }
 
         const requestMetadata = getRequestMetadata(event);
@@ -342,8 +342,8 @@ export const actions: Actions = {
             .set({ role, updatedAt: new Date() })
             .where(and(eq(users.id, id), eq(users.tenantId, tenant.id)));
 
-        // role 변경 시 기존 세션 파기 — 이전 권한으로 캐시된 세션 차단
-        await revokeAllUserSessions(db, id);
+        // role 변경 시 기존 세션 + refresh token 파기 — 이전 권한으로 캐시된 세션 차단(RP 포함)
+        await revokeUserEverywhere(event, { db, tenant, userId: id, actorId: locals.user!.id, reason: "role_changed" });
 
         const requestMetadata = getRequestMetadata(event);
         await recordAuditEvent(db, {
@@ -404,8 +404,8 @@ export const actions: Actions = {
             });
         }
 
-        // 비밀번호 리셋 시 기존 세션 전부 파기 — 탈취된 세션 무효화
-        await revokeAllUserSessions(db, id);
+        // 비밀번호 리셋 시 기존 세션 + refresh token 전부 파기 — 탈취된 세션 무효화(RP 포함)
+        await revokeUserEverywhere(event, { db, tenant, userId: id, actorId: locals.user!.id, reason: "password_reset_by_admin" });
 
         const requestMetadata = getRequestMetadata(event);
         await recordAuditEvent(db, {

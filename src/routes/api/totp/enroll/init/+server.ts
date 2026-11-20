@@ -5,6 +5,7 @@ import { TOTP_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { requireDbContext } from "$lib/server/auth/guards";
 import { resolveIssuerUrl } from "$lib/server/auth/runtime";
 import { buildOtpAuthUri, generateTotpSecret } from "$lib/server/auth/totp";
+import { createTotpEnrollTicket } from "$lib/server/auth/totp-enroll-ticket";
 import { checkRateLimit } from "$lib/server/ratelimit";
 import { credentials, users } from "$lib/server/db/schema";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
@@ -18,6 +19,11 @@ import { translate } from "$lib/i18n/server";
  * (확정 전에 자리잡지 않으면 사용자가 QR 스캔 도중 dispatcher 가 재시작돼도 그대로 다시 init 가능.)
  *
  * 이미 등록된 사용자는 409 (운영자가 의도적으로 reset 하려면 별도 admin API).
+ * 활성(active)이 아닌 사용자는 403 — 정지·잠금 계정에 새 2단계 수단을 만들어 주지 않는다.
+ *
+ * 응답의 `enrollmentTicket` 은 이 secret 과 userId 를 서명으로 묶은 값이다. 호출자는 confirm 에
+ * secret 과 함께 그대로 돌려보낸다(`totp-enroll-ticket.ts`). secret 을 발급하지 않은 것으로
+ * 바꾸거나 다른 userId 로 confirm 하면 거부된다.
  */
 export const POST: RequestHandler = async (event) => {
     const { request, locals } = event;
@@ -36,11 +42,15 @@ export const POST: RequestHandler = async (event) => {
     }
 
     const [u] = await db
-        .select({ id: users.id, username: users.username })
+        .select({ id: users.id, username: users.username, status: users.status })
         .from(users)
         .where(and(eq(users.id, userId), eq(users.tenantId, tenant.id)))
         .limit(1);
     if (!u) throw error(404, `user ${userId} not found`);
+    if (u.status !== "active") throw error(403, "user not active");
+
+    const signingKeySecret = locals.runtimeConfig.signingKeySecret;
+    if (!signingKeySecret) throw error(503, translate(locals.locale, "totp.errors.signing_key_not_set"));
 
     const [already] = await db
         .select({ id: credentials.id })
@@ -67,5 +77,7 @@ export const POST: RequestHandler = async (event) => {
         userAgent: meta.userAgent,
     }).catch(() => undefined);
 
-    return json({ secret, otpAuthUri, userId: u.id, username });
+    const enrollmentTicket = await createTotpEnrollTicket({ tenantId: tenant.id, userId: u.id, totpSecret: secret }, signingKeySecret);
+
+    return json({ secret, otpAuthUri, userId: u.id, username, enrollmentTicket });
 };
