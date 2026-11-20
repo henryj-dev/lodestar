@@ -11,7 +11,7 @@ import { createTrustedDevice, setTrustedDeviceCookie } from "$lib/server/auth/tr
 import { tryWithSecrets, tryWithSecretsNullable } from "$lib/server/crypto/keys";
 import { consumeBackupCode, consumeTotpCredential, verifyTotp, decryptTotpSecret, encryptTotpSecret, isLegacyTotpCiphertext, verifyBackupCode } from "$lib/server/auth/totp";
 import { checkRateLimit } from "$lib/server/ratelimit";
-import { AMR_PASSWORD, AMR_TOTP, AMR_BACKUP_CODE, amrToAcr, TOTP_CREDENTIAL_TYPE, BACKUP_CODE_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
+import { AMR_PASSWORD, AMR_TOTP, AMR_BACKUP_CODE, AMR_TRUSTED_DEVICE, amrToAcr, TOTP_CREDENTIAL_TYPE, BACKUP_CODE_CREDENTIAL_TYPE } from "$lib/server/auth/constants";
 import { getRuntimeConfig } from "$lib/server/auth/runtime";
 import { credentials, users } from "$lib/server/db/schema";
 import { resolveSkinHtml, replacePlaceholders, escapeHtml } from "$lib/server/skin/resolver";
@@ -369,8 +369,10 @@ export const actions: Actions = {
         // 연합 로그인은 fed, step-up 은 승격 대상 세션의 기존 amr — 하드코딩하면 비밀번호를
         // 쓴 적 없는 사용자에게 pwd 가 붙는다. 중복은 제거한다(백업코드 재시도 등으로 같은
         // 수단이 두 번 들어오는 경우 amr 배열에 중복이 남지 않도록).
-        const baseAmr = claims.baseAmr && claims.baseAmr.length > 0 ? claims.baseAmr : [AMR_PASSWORD];
-        const amr = Array.from(new Set([...baseAmr, amrMethod]));
+        // 신뢰 기기 표기(trusted_device)는 "2차 수단을 건너뛰었다" 는 뜻이라, 지금 2차 수단을 직접 통과했다면
+        // 더는 사실이 아니다 — 승격된 세션에 남기지 않는다(신뢰 기기 세션의 step-up).
+        const baseAmr = (claims.baseAmr && claims.baseAmr.length > 0 ? claims.baseAmr : [AMR_PASSWORD]).filter((m) => m !== AMR_TRUSTED_DEVICE);
+        const amr = Array.from(new Set([...(baseAmr.length > 0 ? baseAmr : [AMR_PASSWORD]), amrMethod]));
 
         if (claims.sessionId) {
             // ── step-up: 세션 행을 유지한 채 인증 수단만 승격한다 ──────────────────

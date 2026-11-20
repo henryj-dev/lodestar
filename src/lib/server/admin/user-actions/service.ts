@@ -73,7 +73,7 @@ export async function emitRoleChangeSet(event: RequestEvent, db: DB, tenantId: s
                     detail: { ...auditDetail, ...result },
                 }),
             )
-            .catch(() =>
+            .catch((error: unknown) =>
                 recordAuditEvent(db, {
                     tenantId,
                     userId,
@@ -83,7 +83,9 @@ export async function emitRoleChangeSet(event: RequestEvent, db: DB, tenantId: s
                     outcome: "failure",
                     ip: meta.ip,
                     userAgent: meta.userAgent,
-                    detail: auditDetail,
+                    // 전송 실패 사유만 담는다(postOidcWebhook 이 던지는 메시지에는 URL/상태코드/SSRF
+                    // 판정만 있고 서명된 토큰 본문은 없다) — 원인 불명으로 남던 걸 추적 가능하게 한다.
+                    detail: { ...auditDetail, error: error instanceof Error ? error.message : String(error) },
                 }).catch(() => undefined),
             );
 

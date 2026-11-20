@@ -3,8 +3,8 @@ import { and, eq } from "drizzle-orm";
 import type { Actions, PageServerLoad } from "./$types";
 import { getRequestMetadata, recordAuditEvent } from "$lib/server/audit";
 import { requireDbContext, assertNotLastAdmin } from "$lib/server/auth/guards";
-import { clearSessionCookie, revokeAllUserSessions } from "$lib/server/auth/session";
-import { revokeAllUserRefreshTokens } from "$lib/server/oidc/refresh";
+import { clearSessionCookie } from "$lib/server/auth/session";
+import { revokeUserEverywhere } from "$lib/server/oidc/revoke-everywhere";
 import { findPasswordCredential } from "$lib/server/auth/users";
 import { verifyPassword } from "$lib/server/auth/password";
 import { verifyTotp, decryptTotpSecret, encryptTotpSecret, isLegacyTotpCiphertext } from "$lib/server/auth/totp";
@@ -140,8 +140,8 @@ export const actions: Actions = {
             .where(and(eq(users.id, user.id), eq(users.tenantId, tenant.id)));
 
         // 전 세션 + refresh token 즉시 폐기(로그아웃). 복구는 유예 내 재로그인으로만 가능.
-        await revokeAllUserSessions(db, user.id);
-        await revokeAllUserRefreshTokens(db, user.id);
+        // RP 에도 back-channel logout 을 보낸다 — 탈퇴 대기 계정이 RP 세션으로 남지 않게.
+        await revokeUserEverywhere(event, { db, tenant, userId: user.id, actorId: user.id, reason: "deletion_requested" });
 
         await recordAuditEvent(db, {
             tenantId: tenant.id,
