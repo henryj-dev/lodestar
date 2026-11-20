@@ -9,6 +9,7 @@ const { data, form } = $props<{ data: PageData; form?: ActionData }>();
 const err = $derived((form as { error?: string } | null)?.error ?? null);
 const updated = $derived((form as { updated?: boolean } | null)?.updated ?? false);
 const forcedLogout = $derived((form as { forcedLogout?: boolean } | null)?.forcedLogout ?? false);
+const mfaReset = $derived((form as { mfaReset?: boolean } | null)?.mfaReset ?? false);
 
 const dateFormatter = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" });
 
@@ -205,6 +206,15 @@ const TIMEZONE_OPTIONS = [
                         <option value="disabled" selected={data.user.status === "disabled"}>{t("user_detail.status_disabled")}</option>
                         <option value="locked" selected={data.user.status === "locked"}>{t("user_detail.status_locked")}</option>
                     </select>
+                </div>
+                <div class="sm:col-span-2">
+                    <label class="flex items-center gap-2 text-sm text-gray-700">
+                        <input type="checkbox" name="emailVerified" value="true" checked={data.user.emailVerifiedAt !== null} class="rounded" />
+                        {t("user_detail.email_verified")}
+                    </label>
+                    {#if data.user.emailVerifiedAt}
+                        <p class="mt-1 text-xs text-gray-400">{t("user_detail.email_verified_at", { date: dateFormatter.format(data.user.emailVerifiedAt) })}</p>
+                    {/if}
                 </div>
             </div>
             <div class="flex justify-end pt-2">
@@ -502,6 +512,20 @@ const TIMEZONE_OPTIONS = [
                 onclick={(e) => {
                     if (!confirm(t("user_detail.force_logout_confirm"))) e.preventDefault();
                 }}>{t("user_detail.force_logout")}</button>
+        </form>
+
+        <p class="mt-4 mb-1 text-xs text-gray-500">{t("user_detail.reset_mfa_desc")}</p>
+        {#if mfaReset}
+            <div class="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-700">{t("user_detail.reset_mfa_done")}</div>
+        {/if}
+        <form method="POST" action="?/resetMfa" use:enhance>
+            <input type="hidden" name="csrf" value={data.csrfToken} />
+            <button
+                type="submit"
+                class="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50"
+                onclick={(e) => {
+                    if (!confirm(t("user_detail.reset_mfa_confirm"))) e.preventDefault();
+                }}>{t("user_detail.reset_mfa")}</button>
         </form>
     </section>
 </div>

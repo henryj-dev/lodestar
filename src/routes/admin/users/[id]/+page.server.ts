@@ -22,7 +22,7 @@ import {
 import { updateProfile } from "$lib/server/admin/user-actions/profile";
 import { addDept, removeDept, addTeam, removeTeam, addPart, removePart } from "$lib/server/admin/user-actions/org";
 import { addAssignment, revokeAssignment, updateAssignmentExpiry, setAssignmentEntitlements } from "$lib/server/admin/user-actions/service";
-import { forceLogout } from "$lib/server/admin/user-actions/security";
+import { forceLogout, resetMfa } from "$lib/server/admin/user-actions/security";
 import { adminError } from "$lib/server/admin/errors";
 
 export const load: PageServerLoad = async ({ locals, params, cookies, url }) => {
@@ -234,7 +234,7 @@ export const load: PageServerLoad = async ({ locals, params, cookies, url }) => 
 };
 
 // 액션은 도메인별 모듈로 분리돼 있고(순수 이동), 여기서는 이름-계약만 조립한다.
-// profile: 프로필/역할/상태 · org: 부서/팀/파트 소속 · service: 서비스 권한 · security: 강제 로그아웃
+// profile: 프로필/역할/상태 · org: 부서/팀/파트 소속 · service: 서비스 권한 · security: 강제 로그아웃/MFA 초기화
 export const actions: Actions = {
     updateProfile,
     addDept,
@@ -248,4 +248,5 @@ export const actions: Actions = {
     updateAssignmentExpiry,
     setAssignmentEntitlements,
     forceLogout,
+    resetMfa,
 };

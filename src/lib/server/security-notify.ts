@@ -10,6 +10,7 @@ export type SecurityEventKind =
     | "account_disabled"
     | "mfa_enrolled"
     | "mfa_disabled"
+    | "mfa_reset_by_admin"
     | "backup_codes_regenerated"
     | "backup_codes_low"
     | "backup_codes_depleted"

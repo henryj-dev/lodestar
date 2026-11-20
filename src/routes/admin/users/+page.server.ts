@@ -50,6 +50,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
             displayName: users.displayName,
             role: users.role,
             status: users.status,
+            emailVerifiedAt: users.emailVerifiedAt,
             createdAt: users.createdAt,
         })
         .from(users)
@@ -86,6 +87,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
         displayName: r.displayName,
         role: r.role,
         status: r.status,
+        emailVerified: r.emailVerifiedAt !== null,
         createdAt: r.createdAt,
         // 초대 대기 상태(유효한 미사용 초대 토큰 보유) 여부.
         pendingInvite: pendingInviteUserIds.has(r.id),
