@@ -16,6 +16,13 @@ import { eq, sql } from "drizzle-orm";
 import { type DB, DB_DIALECT } from "$lib/server/db";
 import { rateLimits } from "$lib/server/db/schema";
 
+/** getEntry 가 돌려주는 단일 키 상태. */
+export interface RateLimitEntry {
+    count: number;
+    /** epoch ms */
+    expiresAt: number;
+}
+
 /** 슬라이딩 윈도우 산식이 필요로 하는 두 버킷의 카운트. */
 export interface RateLimitCounts {
     /** 현재 윈도우 버킷 카운트. */
@@ -34,6 +41,16 @@ export interface RateLimitCounts {
 export interface RateLimitStore {
     increment(key: string, windowMs: number, now?: number): Promise<RateLimitCounts>;
     peek(key: string, windowMs: number, now?: number): Promise<RateLimitCounts>;
+    /**
+     * 키 하나의 값과 만료 시각을 그대로 읽는다(만료됐으면 null). 지수 지연(login-throttle)처럼 버킷이
+     * 아니라 "마지막 실패 시각" 이 필요한 판정용이다. 버킷 키(`<key>:<idx>`)와 겹치지 않도록 호출자가
+     * 고유 접두사를 쓴다.
+     */
+    getEntry(key: string, now?: number): Promise<RateLimitEntry | null>;
+    /** 값과 만료 시각(epoch ms)을 덮어쓴다. */
+    setEntry(key: string, count: number, expiresAtMs: number): Promise<void>;
+    /** 키를 지운다(없으면 무시). */
+    deleteEntry(key: string): Promise<void>;
 }
 
 /**
@@ -91,6 +108,28 @@ export class DbRateLimitStore implements RateLimitStore {
         const [prevRow] = await this.db.select({ count: rateLimits.count }).from(rateLimits).where(eq(rateLimits.key, prevKey)).limit(1);
         return { current: curRow?.count ?? 0, prev: prevRow?.count ?? 0 };
     }
+
+    async getEntry(key: string, now: number = Date.now()): Promise<RateLimitEntry | null> {
+        const [row] = await this.db.select({ count: rateLimits.count, expiresAt: rateLimits.expiresAt }).from(rateLimits).where(eq(rateLimits.key, key)).limit(1);
+        if (!row) return null;
+        const expiresAt = row.expiresAt.getTime();
+        return expiresAt > now ? { count: row.count, expiresAt } : null;
+    }
+
+    async setEntry(key: string, count: number, expiresAtMs: number): Promise<void> {
+        const values = { key, count, expiresAt: new Date(expiresAtMs) };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const insertBuilder = this.db.insert(rateLimits).values(values) as any;
+        if (DB_DIALECT === "mysql") {
+            await insertBuilder.onDuplicateKeyUpdate({ set: { count: values.count, expiresAt: values.expiresAt } });
+        } else {
+            await insertBuilder.onConflictDoUpdate({ target: rateLimits.key, set: { count: values.count, expiresAt: values.expiresAt } });
+        }
+    }
+
+    async deleteEntry(key: string): Promise<void> {
+        await this.db.delete(rateLimits).where(eq(rateLimits.key, key));
+    }
 }
 
 /** Upstash Redis REST API와 호환되는 최소 응답 형태. */
@@ -140,6 +179,22 @@ export class RedisRateLimitStore implements RateLimitStore {
         const { currentKey, prevKey } = bucketKeys(key, windowMs, now);
         const [current, previous] = await Promise.all([this.command(["GET", currentKey]), this.command(["GET", prevKey])]);
         return { current: Number(current ?? 0), prev: Number(previous ?? 0) };
+    }
+
+    async getEntry(key: string, now: number = Date.now()): Promise<RateLimitEntry | null> {
+        const [value, pttl] = await Promise.all([this.command(["GET", key]), this.command(["PTTL", key])]);
+        const ttl = Number(pttl);
+        if (value === null || value === undefined || !Number.isFinite(ttl) || ttl <= 0) return null;
+        return { count: Number(value), expiresAt: now + ttl };
+    }
+
+    async setEntry(key: string, count: number, expiresAtMs: number): Promise<void> {
+        const ttl = Math.max(1, Math.ceil(expiresAtMs - Date.now()));
+        await this.command(["SET", key, String(count), "PX", String(ttl)]);
+    }
+
+    async deleteEntry(key: string): Promise<void> {
+        await this.command(["DEL", key]);
     }
 }
 
@@ -191,6 +246,20 @@ export class MemoryRateLimitStore implements RateLimitStore {
         const { currentKey, prevKey } = bucketKeys(key, windowMs, now);
         return { current: this.read(currentKey, now), prev: this.read(prevKey, now) };
     }
+
+    async getEntry(key: string, now: number = Date.now()): Promise<RateLimitEntry | null> {
+        const b = this.buckets.get(key);
+        return b && b.expiresAt > now ? { count: b.count, expiresAt: b.expiresAt } : null;
+    }
+
+    async setEntry(key: string, count: number, expiresAtMs: number): Promise<void> {
+        this.sweep(Date.now());
+        this.buckets.set(key, { count, expiresAt: expiresAtMs });
+    }
+
+    async deleteEntry(key: string): Promise<void> {
+        this.buckets.delete(key);
+    }
 }
 
 // Node 전역 재사용: 프로세스 내 단일 MemoryRateLimitStore 를 공유한다(HMR/다중 import 안전).
@@ -225,10 +294,21 @@ function warnAboutNodeMemoryRateLimit(instanceCount: string | undefined): void {
     console.warn(`[ratelimit] MemoryRateLimitStore is process-local${suffix}; use RATELIMIT_STORE=db or redis for shared limits.`);
 }
 
+/**
+ * Node 프로세스가 rate_limits 테이블(db 저장소)을 쓰는지. GC 가 청소 대상을 고를 때
+ * resolveRateLimitStore 와 같은 기준을 쓰도록 여기 둔다. Workers 는 platform.env 를 따로 본다.
+ */
+export function nodeUsesDbRateLimitStore(): boolean {
+    const selected = (runtimeEnv(undefined, "RATELIMIT_STORE") ?? "auto").toLowerCase();
+    return selected === "auto" || selected === "db";
+}
+
 export function resolveRateLimitStore(platform: App.Platform | undefined, db: DB): RateLimitStore {
     const isWorkers = typeof platform?.ctx?.waitUntil === "function";
     const selected = (runtimeEnv(platform, "RATELIMIT_STORE") ?? "auto").toLowerCase();
-    const mode = selected === "auto" ? (isWorkers ? "db" : "memory") : selected;
+    // auto 는 Workers·Node 모두 공유 저장소(db)다(회원 공통 정책). 프로세스 메모리는 인스턴스가 여럿이면
+    // 한도가 인스턴스 수만큼 늘어나므로, 단일 프로세스 개발용으로만 RATELIMIT_STORE=memory 로 고른다.
+    const mode = selected === "auto" ? "db" : selected;
 
     if (mode === "db") return new DbRateLimitStore(db);
     if (mode === "memory") {

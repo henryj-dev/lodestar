@@ -1,7 +1,14 @@
 export const DEFAULT_TENANT_SLUG = "default";
 export const SESSION_COOKIE_NAME = "idp_session";
+/** 절대 만료: 로그인 후 12시간(회원 공통 정책). */
 export const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
-export const SESSION_TOUCH_INTERVAL_MS = 1000 * 60 * 5;
+/** 유휴 만료: 마지막 활동 후 30분(회원 공통 정책). lastSeenAt 기준. */
+export const SESSION_IDLE_TIMEOUT_MS = 1000 * 60 * 30;
+/**
+ * lastSeenAt 갱신 간격. 유휴 판정은 lastSeenAt 을 보므로, 이 간격만큼 판정이 앞당겨질 수 있다
+ * (최대 1분 일찍 만료). 5분이던 것을 유휴 만료 도입과 함께 1분으로 줄였다.
+ */
+export const SESSION_TOUCH_INTERVAL_MS = 1000 * 60;
 export const PASSWORD_CREDENTIAL_TYPE = "password";
 export const LOCAL_IDENTITY_PROVIDER = "local";
 

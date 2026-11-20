@@ -42,7 +42,7 @@ describe("Phase 7 — 초대 수락", () => {
         const event = makeEvent({
             method: "POST",
             url: `${TEST_ISSUER_URL}/accept-invite`,
-            form: { token, password: "new-strong-password", confirmPassword: "new-strong-password" },
+            form: { token, password: "New-strong-password1", confirmPassword: "New-strong-password1" },
             locals: { db: mem.db, tenant, env: mem.env },
         });
         const result = await acceptInviteActions.default(event);
@@ -63,7 +63,7 @@ describe("Phase 7 — 초대 수락", () => {
         expect(tok.usedAt).not.toBeNull();
 
         // 실제 로컬 인증으로 로그인 가능(설정한 비밀번호로 통과)
-        const authed = await authenticateLocalUser(mem.db, tenant.id, "invitee", "new-strong-password");
+        const authed = await authenticateLocalUser(mem.db, tenant.id, "invitee", "New-strong-password1");
         expect(authed?.id).toBe(invitee.id);
     });
 

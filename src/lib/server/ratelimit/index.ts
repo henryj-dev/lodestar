@@ -17,8 +17,8 @@ import type { DB } from "$lib/server/db";
 import { rateLimits } from "$lib/server/db/schema";
 import type { RateLimitCounts, RateLimitStore } from "./store";
 
-export { DbRateLimitStore, MemoryRateLimitStore, RedisRateLimitStore, resolveRateLimitStore } from "./store";
-export type { RateLimitCounts, RateLimitStore } from "./store";
+export { DbRateLimitStore, MemoryRateLimitStore, RedisRateLimitStore, nodeUsesDbRateLimitStore, resolveRateLimitStore } from "./store";
+export type { RateLimitCounts, RateLimitEntry, RateLimitStore } from "./store";
 
 export interface RateLimitResult {
     allowed: boolean;
