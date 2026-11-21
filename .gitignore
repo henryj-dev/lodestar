@@ -1,0 +1,43 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Test coverage
+/coverage
+
+# ESLint cache
+.eslintcache
+
+# SQLite
+*.db
+
+# Local AI agent state
+.claude/
+.omc/
+.codex/
+
+# Cloudflare Workers
+wrangler.jsonc
+wrangler.*.jsonc
+!wrangler.example.jsonc
+worker-configuration.d.ts
